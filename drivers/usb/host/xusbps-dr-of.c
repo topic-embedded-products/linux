@@ -27,6 +27,9 @@
 #include <linux/of_platform.h>
 #include <linux/string.h>
 #include <linux/clk.h>
+#include <linux/usb/ulpi.h>
+
+#include "ehci-xilinx-usbps.h"
 
 static u64 dma_mask = 0xFFFFFFF0;
 
@@ -136,29 +139,19 @@ error:
 	return ERR_PTR(retval);
 }
 
-static const struct of_device_id xusbps_dr_of_match[];
-
 static int __devinit xusbps_dr_of_probe(struct platform_device *ofdev)
 {
 	struct device_node *np = ofdev->dev.of_node;
 	struct platform_device *usb_dev;
 	struct xusbps_usb2_platform_data data, *pdata;
 	struct xusbps_dev_data *dev_data;
-	const struct of_device_id *match;
 	const unsigned char *prop;
 	static unsigned int idx;
 	struct resource *res;
-	int i;
-
-	match = of_match_device(xusbps_dr_of_match, &ofdev->dev);
-	if (!match)
-		return -ENODEV;
+	int i, phy_init;
 
 	pdata = &data;
-	if (match->data)
-		memcpy(pdata, match->data, sizeof(data));
-	else
-		memset(pdata, 0, sizeof(data));
+	memset(pdata, 0, sizeof(data));
 
 	res = platform_get_resource(ofdev, IORESOURCE_IRQ, 0);
 	if (!res) {
@@ -194,6 +187,21 @@ static int __devinit xusbps_dr_of_probe(struct platform_device *ofdev)
 	prop = of_get_property(np, "phy_type", NULL);
 	pdata->phy_mode = determine_usb_phy(prop);
 
+	/* If ULPI phy type, set it up */
+	if (pdata->phy_mode == XUSBPS_USB2_PHY_ULPI) {
+		pdata->ulpi = otg_ulpi_create(&ulpi_viewport_access_ops,
+			ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
+		if (pdata->ulpi)
+			pdata->ulpi->io_priv = pdata->regs +
+							XUSBPS_SOC_USB_ULPIVP;
+
+		phy_init = usb_phy_init(pdata->ulpi);
+		if (phy_init) {
+			pr_info("Unable to init transceiver, missing?\n");
+			return -ENODEV;
+		}
+	}
+
 	for (i = 0; i < ARRAY_SIZE(dev_data->drivers); i++) {
 		if (!dev_data->drivers[i])
 			continue;
@@ -225,10 +233,8 @@ static int __devexit xusbps_dr_of_remove(struct platform_device *ofdev)
 	return 0;
 }
 
-static struct xusbps_usb2_platform_data xusbps_pdata;
-
 static const struct of_device_id xusbps_dr_of_match[] = {
-	{ .compatible = "xlnx,ps7-usb-1.00.a", .data = &xusbps_pdata, },
+	{ .compatible = "xlnx,ps7-usb-1.00.a" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, xusbps_dr_of_match);
