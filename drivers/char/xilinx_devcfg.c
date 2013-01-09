@@ -42,6 +42,9 @@
 #define XDEVCFG_MINOR 0
 #define XDEVCFG_DEVICES 1
 
+/* For device registration */
+static struct class *device_class = 0;
+
 /* An array, which is set to true when the device is registered. */
 static DEFINE_MUTEX(xdevcfg_mutex);
 
@@ -1426,6 +1429,7 @@ static int __devinit xdevcfg_drv_probe(struct platform_device *pdev)
 	struct device_node *np;
 	const void *prop;
 	int size;
+	struct device *device;
 
 	regs_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!regs_res) {
@@ -1543,15 +1547,37 @@ static int __devinit xdevcfg_drv_probe(struct platform_device *pdev)
 		goto failed3;
 	}
 
-	/* create sysfs files for the device */
+	/* Register class and device */
+	if (device_class == 0) {
+		device_class = class_create(THIS_MODULE, DRIVER_NAME);
+		if (IS_ERR(device_class)) {
+			dev_err(&pdev->dev, "class_create() failed\n");
+			goto failed4;
+		}
+	}
+	device = device_create(device_class, NULL, devt, NULL, DRIVER_NAME);
+	if (IS_ERR(device)) {
+		printk(KERN_WARNING "charger: class_device_create failed\n");
+		goto failed5;
+	}
+
 	retval = sysfs_create_group(&(pdev->dev.kobj), &xdevcfg_attr_group);
 	if (retval) {
 		dev_err(&pdev->dev, "Failed to create sysfs attr group\n");
-		cdev_del(&drvdata->cdev);
-		goto failed3;
+		goto failed6;
 	}
 
-	return 0;		/* Success */
+	return 0;
+
+ failed6:
+	device_destroy(device_class, drvdata->devt);
+
+ failed5:
+	class_destroy(device_class);
+	device_class = 0;
+
+ failed4:
+	cdev_del(&drvdata->cdev);
 
  failed3:
 	iounmap(drvdata->base_address);
@@ -1589,6 +1615,10 @@ static int __devexit xdevcfg_drv_remove(struct platform_device *pdev)
 
 	if (!drvdata)
 		return -ENODEV;
+
+	device_destroy(device_class, drvdata->devt);
+	class_destroy(device_class);
+	device_class = 0;
 
 	unregister_chrdev_region(drvdata->devt, XDEVCFG_DEVICES);
 
