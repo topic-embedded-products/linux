@@ -1247,7 +1247,17 @@ static struct platform_driver xqspips_driver = {
 	},
 };
 
-module_platform_driver(xqspips_driver);
+static int __init xqspips_init(void)
+{
+	return platform_driver_register(&xqspips_driver);
+}
+subsys_initcall(xqspips_init);
+
+static void __exit xqspips_exit(void)
+{
+	platform_driver_unregister(&xqspips_driver);
+}
+module_exit(xqspips_exit);
 
 MODULE_AUTHOR("Xilinx, Inc.");
 MODULE_DESCRIPTION("Xilinx PS QSPI driver");
