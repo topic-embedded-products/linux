@@ -1,7 +1,7 @@
 /*
  * AD9467 SPI DAC driver for DDS PCORE/COREFPGA Module
  *
- * Copyright 2012 Analog Devices Inc.
+ * Copyright 2012-2013 Analog Devices Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -67,7 +67,7 @@ static int __devinit ad9250_setup(struct spi_device *spi)
 	int ret;
 	unsigned pll_stat;
 
-	ret = ad9467_spi_write(spi, 0x18, 0x0f); // max vref
+	ret = ad9467_spi_write(spi, 0x18, 0x00); // default vref
 	ret |= ad9467_spi_write(spi, 0x64, 0xf0); // did
 	ret |= ad9467_spi_write(spi, 0x80, 0x0f); // powerdown
 	ret |= ad9467_spi_write(spi, 0x5f, 0x17); // char repl & ilas
@@ -100,31 +100,22 @@ static int __devinit ad9467_probe(struct spi_device *spi)
 	struct clk *clk = NULL;
 	int ret;
 
-	if (spi_get_device_id(spi)->driver_data == CHIPID_AD9250) {
-		clk = clk_get(&spi->dev, NULL);
-		if (IS_ERR(clk)) {
-			return -EPROBE_DEFER;
-		}
-
-		ret = clk_prepare(clk);
-		if (ret < 0)
-			return ret;
-
-		ret = clk_enable(clk);
-		if (ret < 0) {
-			clk_unprepare(clk);
-			return ret;
-		}
+	clk = devm_clk_get(&spi->dev, NULL);
+	if (IS_ERR(clk)) {
+		return -EPROBE_DEFER;
 	}
 
-	conv = kzalloc(sizeof(*conv), GFP_KERNEL);
+	conv = devm_kzalloc(&spi->dev, sizeof(*conv), GFP_KERNEL);
 	if (conv == NULL)
 		return -ENOMEM;
 
 	spi->mode = SPI_MODE_0 | SPI_3WIRE;
 
-	if (clk)
-		conv->clk = clk;
+	ret = clk_prepare_enable(clk);
+	if (ret < 0)
+		return ret;
+
+	conv->clk = clk;
 
 	conv->id = ad9467_spi_read(spi, ADC_REG_CHIP_ID);
 	if (conv->id != spi_get_device_id(spi)->driver_data) {
@@ -150,12 +141,7 @@ static int __devinit ad9467_probe(struct spi_device *spi)
 	return 0;
 
 out:
-	kfree(conv);
-	if (clk) {
-		clk_disable(clk);
-		clk_unprepare(clk);
-		clk_put(clk);
-	}
+	clk_disable_unprepare(clk);
 
 	return ret;
 }
@@ -164,11 +150,7 @@ static int ad9467_remove(struct spi_device *spi)
 {
 	struct axiadc_converter *conv = spi_get_drvdata(spi);
 
-	if (conv->clk) {
-		clk_disable(conv->clk);
-		clk_unprepare(conv->clk);
-		clk_put(conv->clk);
-	}
+	clk_disable_unprepare(conv->clk);
 	spi_set_drvdata(spi, NULL);
 
 	return 0;

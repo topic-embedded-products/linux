@@ -18,7 +18,6 @@
 #include <linux/iio/buffer.h>
 #include "../../staging/iio/ring_hw.h"
 #include "cf_axi_adc.h"
-#include "cf_axi_fft_core.h"
 
 static int axiadc_read_first_n_hw_rb(struct iio_buffer *r,
 				      size_t count, char __user *buf)
@@ -26,48 +25,46 @@ static int axiadc_read_first_n_hw_rb(struct iio_buffer *r,
 	struct iio_hw_buffer *hw_ring = iio_to_hw_buf(r);
 	struct iio_dev *indio_dev = hw_ring->private;
 	struct axiadc_state *st = iio_priv(indio_dev);
-	int ret;
+	int ret = 0;
 	unsigned stat, dma_stat;
 
 	mutex_lock(&st->lock);
 
-	ret = wait_for_completion_interruptible_timeout(&st->dma_complete,
-							4 * HZ);
+	if (!st->read_offs) {
+		ret = wait_for_completion_interruptible_timeout(&st->dma_complete,
+								4 * HZ);
+		stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
+		dma_stat = axiadc_read(st, AXIADC_PCORE_DMA_STAT);
 
-	stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
-	dma_stat = axiadc_read(st, AXIADC_PCORE_DMA_STAT);
+		if (st->compl_stat < 0) {
+			ret = st->compl_stat;
+			goto error_ret;
+		} else if (ret == 0) {
+			ret = -ETIMEDOUT;
+			dev_err(indio_dev->dev.parent,
+				"timeout: DMA_STAT 0x%X, ADC_STAT 0x%X\n",
+				dma_stat, stat);
+			goto error_ret;
+		} else if (ret < 0) {
+			goto error_ret;
+		}
 
-	if (st->compl_stat < 0) {
-		ret = st->compl_stat;
-		goto error_ret;
-	} else if (ret == 0) {
-		ret = -ETIMEDOUT;
-		dev_err(indio_dev->dev.parent,
-			"timeout: DMA_STAT 0x%X, ADC_STAT 0x%X\n",
-			dma_stat, stat);
-		goto error_ret;
-	} else if (ret < 0) {
-		goto error_ret;
+		if ((stat & (AXIADC_PCORE_ADC_STAT_OVR0 | ((st->id == CHIPID_AD9467) ? 0 : AXIADC_PCORE_ADC_STAT_OVR1)))
+			|| dma_stat)
+			dev_warn(indio_dev->dev.parent,
+				"STATUS: DMA_STAT 0x%X, ADC_STAT 0x%X\n",
+				dma_stat, stat);
 	}
 
-#if defined(CONFIG_CF_AXI_FFT)
-	if (st->fftcount) {
-		ret = fft_calculate(st->buf_phys, st->buf_phys + st->fftcount,
-				    st->fftcount / 4, *r->scan_mask >> 2);
-	}
-#endif
-	if (copy_to_user(buf, st->buf_virt + st->fftcount, count))
+	count = min(count, st->ring_length - st->read_offs);
+
+	if (copy_to_user(buf, st->buf_virt + st->read_offs, count))
 		ret = -EFAULT;
 
-	if ((stat & (AXIADC_PCORE_ADC_STAT_OVR0 | ((st->id == CHIPID_AD9467) ? 0 : AXIADC_PCORE_ADC_STAT_OVR1)))
-		|| dma_stat)
-		dev_warn(indio_dev->dev.parent,
-			"STATUS: DMA_STAT 0x%X, ADC_STAT 0x%X\n",
-			dma_stat, stat);
+	st->read_offs += count;
 
 error_ret:
-	r->stufftoread = 0;
-
+	r->stufftoread = count != 0;
 	mutex_unlock(&st->lock);
 
 	return ret < 0 ? ret : count;
@@ -79,15 +76,15 @@ static int axiadc_ring_get_length(struct iio_buffer *r)
 	struct iio_dev *indio_dev = hw_ring->private;
 	struct axiadc_state *st = iio_priv(indio_dev);
 
-	return st->ring_lenght;
+	return st->ring_length;
 }
 
-static int axiadc_ring_set_length(struct iio_buffer *r, int lenght)
+static int axiadc_ring_set_length(struct iio_buffer *r, int length)
 {
 	struct iio_hw_buffer *hw_ring = iio_to_hw_buf(r);
 	struct axiadc_state *st = iio_priv(hw_ring->private);
 
-	st->ring_lenght = lenght;
+	st->ring_length = length;
 
 	return 0;
 }
@@ -95,6 +92,12 @@ static int axiadc_ring_set_length(struct iio_buffer *r, int lenght)
 static int axiadc_ring_get_bytes_per_datum(struct iio_buffer *r)
 {
 	return r->bytes_per_datum;
+}
+
+static int axiadc_ring_set_bytes_per_datum(struct iio_buffer *r, size_t bpd)
+{
+	r->bytes_per_datum = bpd;
+	return 0;
 }
 
 static IIO_BUFFER_ENABLE_ATTR;
@@ -138,16 +141,15 @@ static const struct iio_buffer_access_funcs axiadc_ring_access_funcs = {
 	.get_length = &axiadc_ring_get_length,
 	.set_length = &axiadc_ring_set_length,
 	.get_bytes_per_datum = &axiadc_ring_get_bytes_per_datum,
+	.set_bytes_per_datum = &axiadc_ring_set_bytes_per_datum,
 };
 
 static int __axiadc_hw_ring_state_set(struct iio_dev *indio_dev, bool state)
 {
 	struct axiadc_state *st = iio_priv(indio_dev);
-	struct iio_buffer *buffer = indio_dev->buffer;
 	struct dma_async_tx_descriptor *desc;
 	dma_cookie_t cookie;
 	int ret = 0;
-
 
 	if (!state) {
 		if (!completion_done(&st->dma_complete)) {
@@ -160,26 +162,17 @@ static int __axiadc_hw_ring_state_set(struct iio_dev *indio_dev, bool state)
 	}
 
 	st->compl_stat = 0;
-	if (st->ring_lenght == 0) {
+	if (st->ring_length == 0) {
 		ret = -EINVAL;
 		goto error_ret;
 	}
 
-	if (st->ring_lenght % 8)
-		st->rcount = (st->ring_lenght + 8) & 0xFFFFFFF8;
+	if (st->ring_length % 8)
+		st->rcount = (st->ring_length + 8) & 0xFFFFFFF8;
 	else
-		st->rcount = st->ring_lenght;
+		st->rcount = st->ring_length;
 
-#if defined(CONFIG_CF_AXI_FFT)
-	if (*buffer->scan_mask & 0xC)
-		st->fftcount = st->rcount;
-	else
-		st->fftcount = 0;
-#else
-	st->fftcount = 0;
-#endif
-
-	if (PAGE_ALIGN(st->rcount + st->fftcount) > AXIADC_MAX_DMA_SIZE) {
+	if (st->rcount > AXIADC_MAX_PCORE_TSIZE) {
 		ret = -EINVAL;
 		goto error_ret;
 	}
@@ -204,6 +197,7 @@ static int __axiadc_hw_ring_state_set(struct iio_dev *indio_dev, bool state)
 		goto error_ret;
 	}
 	INIT_COMPLETION(st->dma_complete);
+	st->read_offs = 0;
 	dma_async_issue_pending(st->rx_chan);
 
 	axiadc_write(st, AXIADC_PCORE_DMA_CTRL, 0);
@@ -220,6 +214,10 @@ error_ret:
 
 static int axiadc_hw_ring_preenable(struct iio_dev *indio_dev)
 {
+	int ret = iio_sw_buffer_preenable(indio_dev);
+	if (ret < 0)
+		return ret;
+
 	return __axiadc_hw_ring_state_set(indio_dev, 1);
 }
 
@@ -228,9 +226,28 @@ static int axiadc_hw_ring_postdisable(struct iio_dev *indio_dev)
 	return __axiadc_hw_ring_state_set(indio_dev, 0);
 }
 
+static bool axiadc_hw_ring_validate_scan_mask(struct iio_dev *indio_dev,
+				   const unsigned long *scan_mask)
+{
+	struct axiadc_state *st = iio_priv(indio_dev);
+	unsigned mask;
+
+	if (st->have_user_logic == false)
+		return true;
+
+	mask = (1UL << st->chip_info->num_channels) - 1;
+
+	if ((*scan_mask & mask) && (*scan_mask & ~mask))
+		return false;
+
+	return true;
+}
+
+
 static const struct iio_buffer_setup_ops axiadc_ring_setup_ops = {
 	.preenable = &axiadc_hw_ring_preenable,
 	.postdisable = &axiadc_hw_ring_postdisable,
+	.validate_scan_mask = &axiadc_hw_ring_validate_scan_mask,
 };
 
 int axiadc_configure_ring(struct iio_dev *indio_dev)

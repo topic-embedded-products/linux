@@ -15,6 +15,11 @@
 #include <linux/err.h>
 #include <linux/module.h>
 #include <linux/delay.h>
+#include <linux/of.h>
+
+#include <linux/clk.h>
+#include <linux/clkdev.h>
+#include <linux/clk-provider.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -263,11 +268,22 @@ enum {
 	AD9523_NUM_CLK_SRC,
 };
 
+struct ad9523_outputs {
+	struct clk_hw hw;
+	struct iio_dev *indio_dev;
+	unsigned num;
+	bool is_enabled;
+};
+
+#define to_ad9523_clk_output(_hw) container_of(_hw, struct ad9523_outputs, hw)
+
 struct ad9523_state {
 	struct spi_device		*spi;
 	struct regulator		*reg;
 	struct ad9523_platform_data	*pdata;
+	struct ad9523_outputs		output[AD9523_NUM_CHAN];
 	struct iio_chan_spec		ad9523_channels[AD9523_NUM_CHAN];
+	struct clk_onecell_data		clk_data;
 
 	unsigned long		vcxo_freq;
 	unsigned long		vco_freq;
@@ -375,7 +391,7 @@ static int ad9523_vco_out_map(struct iio_dev *indio_dev,
 		mask = AD9523_PLL1_OUTP_CH_CTRL_VCXO_SRC_SEL_CH0 << ch;
 		if (out) {
 			ret |= mask;
-			out = 2;
+			out = AD9523_VCXO;
 		} else {
 			ret &= ~mask;
 		}
@@ -681,6 +697,9 @@ static int ad9523_write_raw(struct iio_dev *indio_dev,
 			reg &= ~AD9523_CLK_DIST_PWR_DOWN_EN;
 		else
 			reg |= AD9523_CLK_DIST_PWR_DOWN_EN;
+
+		st->output[chan->channel].is_enabled = !!val;
+
 		break;
 	case IIO_CHAN_INFO_FREQUENCY:
 		if (val <= 0) {
@@ -690,7 +709,8 @@ static int ad9523_write_raw(struct iio_dev *indio_dev,
 		ret = ad9523_set_clock_provider(indio_dev, chan->channel, val);
 		if (ret < 0)
 			goto out;
-		tmp = st->vco_out_freq[st->vco_out_map[chan->channel]] / val;
+		tmp = DIV_ROUND_CLOSEST(st->vco_out_freq[st->vco_out_map[
+				chan->channel]], val);
 		tmp = clamp(tmp, 1, 1024);
 		reg &= ~(0x3FF << 8);
 		reg |= AD9523_CLK_DIST_DIV(tmp);
@@ -749,6 +769,134 @@ static const struct iio_info ad9523_info = {
 	.attrs = &ad9523_attribute_group,
 	.driver_module = THIS_MODULE,
 };
+
+static long ad9523_get_clk_attr(struct clk_hw *hw, long mask)
+{
+	struct iio_dev *indio_dev = to_ad9523_clk_output(hw)->indio_dev;
+	int val, ret;
+	struct iio_chan_spec chan;
+
+	chan.channel = to_ad9523_clk_output(hw)->num;
+
+	ret = ad9523_read_raw(indio_dev, &chan, &val, NULL, mask);
+
+	if (ret == IIO_VAL_INT)
+		return val;
+
+	return ret;
+}
+
+static unsigned long ad9523_clk_recalc_rate(struct clk_hw *hw,
+		unsigned long parent_rate)
+{
+	return ad9523_get_clk_attr(hw, IIO_CHAN_INFO_FREQUENCY);
+}
+
+static int ad9523_clk_is_enabled(struct clk_hw *hw)
+{
+	return to_ad9523_clk_output(hw)->is_enabled;
+}
+
+static long ad9523_set_clk_attr(struct clk_hw *hw, long mask, unsigned long val)
+{
+	struct iio_dev *indio_dev = to_ad9523_clk_output(hw)->indio_dev;
+	struct iio_chan_spec chan;
+
+	chan.channel = to_ad9523_clk_output(hw)->num;
+
+	return ad9523_write_raw(indio_dev, &chan, val, 0, mask);
+}
+
+static int ad9523_clk_prepare(struct clk_hw *hw)
+{
+	return ad9523_set_clk_attr(hw, IIO_CHAN_INFO_RAW, 1);
+}
+
+static void ad9523_clk_unprepare(struct clk_hw *hw)
+{
+	ad9523_set_clk_attr(hw, IIO_CHAN_INFO_RAW, 0);
+}
+
+static long ad9523_clk_round_rate(struct clk_hw *hw, unsigned long rate,
+				  unsigned long *prate)
+{
+	struct iio_dev *indio_dev = to_ad9523_clk_output(hw)->indio_dev;
+	struct ad9523_state *st = iio_priv(indio_dev);
+	unsigned long clk, tmp1, tmp2;
+
+	if (!rate)
+		return 0;
+
+	switch (to_ad9523_clk_output(hw)->num) {
+	case 0 ... 3:
+		if (rate == st->vco_out_freq[AD9523_VCXO])
+			clk = st->vco_out_freq[AD9523_VCXO];
+		else
+			clk = st->vco_out_freq[AD9523_VCO1];
+		break;
+	case 4 ... 9:
+		tmp1 = st->vco_out_freq[AD9523_VCO1] / rate;
+		tmp2 = st->vco_out_freq[AD9523_VCO2] / rate;
+		tmp1 *= rate;
+		tmp2 *= rate;
+		if (abs(tmp1 - rate) > abs(tmp2 - rate))
+			clk = st->vco_out_freq[AD9523_VCO2];
+		else
+			clk = st->vco_out_freq[AD9523_VCO1];
+		break;
+	default:
+		clk = st->vco_out_freq[AD9523_VCO1];
+		/* Ch 10..14: No action required, return success */
+	}
+
+		tmp1 = DIV_ROUND_CLOSEST(clk, rate);
+		tmp1 = clamp(tmp1, 1UL, 1024UL);
+
+	return clk / tmp1;
+}
+
+static int ad9523_clk_set_rate(struct clk_hw *hw, unsigned long rate,
+			       unsigned long prate)
+{
+	return ad9523_set_clk_attr(hw, IIO_CHAN_INFO_FREQUENCY, rate);
+}
+
+const struct clk_ops ad9523_clk_ops = {
+	.recalc_rate = ad9523_clk_recalc_rate,
+	.is_enabled = ad9523_clk_is_enabled,
+	.prepare = ad9523_clk_prepare,
+	.unprepare = ad9523_clk_unprepare,
+	.set_rate = ad9523_clk_set_rate,
+	.round_rate = ad9523_clk_round_rate,
+};
+
+struct clk *ad9523_clk_register(struct iio_dev *indio_dev, unsigned num,
+				bool is_enabled)
+{
+	struct ad9523_state *st = iio_priv(indio_dev);
+	struct clk_init_data init;
+	struct ad9523_outputs *output = &st->output[num];
+	struct clk *clk;
+	char name[SPI_NAME_SIZE + 8];
+
+	sprintf(name, "%s_out%d", indio_dev->name, num);
+
+	init.name = name;
+	init.ops = &ad9523_clk_ops;
+
+	init.num_parents = 0;
+	init.flags = CLK_IS_ROOT;
+	output->hw.init = &init;
+	output->indio_dev = indio_dev;
+	output->num = num;
+	output->is_enabled = is_enabled;
+
+	/* register the clock */
+	clk = clk_register(&st->spi->dev, &output->hw);
+	st->clk_data.clks[num] = clk;
+
+	return clk;
+}
 
 static int ad9523_setup(struct iio_dev *indio_dev)
 {
@@ -899,9 +1047,19 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 	if (ret < 0)
 		return ret;
 
+	st->clk_data.clks = devm_kzalloc(&st->spi->dev,
+					 sizeof(*st->clk_data.clks) *
+					 AD9523_NUM_CHAN, GFP_KERNEL);
+	if (!st->clk_data.clks) {
+		dev_err(&st->spi->dev, "could not allocate memory\n");
+		return -ENOMEM;
+	}
+	st->clk_data.clk_num = AD9523_NUM_CHAN;
+
 	for (i = 0; i < pdata->num_channels; i++) {
 		chan = &pdata->channels[i];
 		if (chan->channel_num < AD9523_NUM_CHAN) {
+			struct clk *clk;
 			__set_bit(chan->channel_num, &active_mask);
 			ret = ad9523_write(indio_dev,
 				AD9523_CHANNEL_CLOCK_DIST(chan->channel_num),
@@ -934,8 +1092,16 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 				IIO_CHAN_INFO_RAW_SEPARATE_BIT |
 				IIO_CHAN_INFO_PHASE_SEPARATE_BIT |
 				IIO_CHAN_INFO_FREQUENCY_SEPARATE_BIT;
+
+			clk = ad9523_clk_register(indio_dev, chan->channel_num,
+						  !chan->output_dis);
+			if (IS_ERR(clk))
+				return PTR_ERR(clk);
 		}
 	}
+
+	of_clk_add_provider(st->spi->dev.of_node,
+			    of_clk_src_onecell_get, &st->clk_data);
 
 	for_each_clear_bit(i, &active_mask, AD9523_NUM_CHAN)
 		ad9523_write(indio_dev,
@@ -959,12 +1125,162 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
+{
+	struct device_node *np = dev->of_node, *chan_np;
+	struct ad9523_platform_data *pdata;
+	struct ad9523_channel_spec *chan;
+	unsigned int tmp, cnt = 0;
+	const char *str;
+	int ret;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata) {
+		dev_err(dev, "could not allocate memory for platform data\n");
+		return NULL;
+	}
+
+	tmp = 0;
+	of_property_read_u32(np, "vcxo-freq", &tmp);
+	pdata->vcxo_freq = tmp;
+
+	/* Differential/ Single-Ended Input Configuration */
+	pdata->refa_diff_rcv_en = of_property_read_bool(np, "refa-diff-rcv-en");
+	pdata->refb_diff_rcv_en = of_property_read_bool(np, "refb-diff-rcv-en");
+	pdata->zd_in_diff_en = of_property_read_bool(np, "zd-in-diff-en");
+	pdata->osc_in_diff_en = of_property_read_bool(np, "osc-in-diff-en");
+
+	/*
+	 * Valid if differential input disabled
+	 * if false defaults to pos input
+	 */
+	pdata->refa_cmos_neg_inp_en =
+		of_property_read_bool(np, "refa-cmos-neg-inp-en");
+	pdata->refb_cmos_neg_inp_en =
+		of_property_read_bool(np, "refb-cmos-neg-inp-en");
+	pdata->zd_in_cmos_neg_inp_en =
+		of_property_read_bool(np, "zd-in-cmos-neg-inp-en");
+	pdata->osc_in_cmos_neg_inp_en =
+		of_property_read_bool(np, "osc-in-cmos-neg-inp-en");
+
+	/* PLL1 Setting */
+	of_property_read_u32(np, "refa-r-div", &tmp);
+	pdata->refa_r_div = tmp;
+	of_property_read_u32(np, "refb-r-div", &tmp);
+	pdata->refb_r_div = tmp;
+	of_property_read_u32(np, "pll1-feedback-div", &tmp);
+	pdata->pll1_feedback_div = tmp;
+	of_property_read_u32(np, "pll1-charge-pump-current-nA", &tmp);
+	pdata->pll1_charge_pump_current_nA = tmp;
+	of_property_read_u32(np, "pll1-loopfilter-rzero", &tmp);
+	pdata->pll1_loop_filter_rzero = tmp;
+
+	pdata->zero_delay_mode_internal_en =
+		of_property_read_bool(np, "zero-delay-mode-internal-en");
+	pdata->osc_in_feedback_en =
+		of_property_read_bool(np, "osc-in-feedback-en");
+
+	/* Reference */
+	of_property_read_u32(np, "ref-mode", &tmp);
+	pdata->ref_mode = tmp;
+
+	/* PLL2 Setting */
+	of_property_read_u32(np, "pll2-charge-pump-current-nA",
+			     &pdata->pll2_charge_pump_current_nA);
+
+	of_property_read_u32(np, "pll2-ndiv-a-cnt", &tmp);
+	pdata->pll2_ndiv_a_cnt = tmp;
+	of_property_read_u32(np, "pll2-ndiv-b-cnt", &tmp);
+	pdata->pll2_ndiv_b_cnt = tmp;
+
+	pdata->pll2_freq_doubler_en =
+		of_property_read_bool(np, "pll2-freq-doubler-en");
+
+	of_property_read_u32(np, "pll2-r2-div", &tmp);
+	pdata->pll2_r2_div = tmp;
+	of_property_read_u32(np, "pll2-vco-diff-m1", &tmp);
+	pdata->pll2_vco_diff_m1 = tmp;
+	of_property_read_u32(np, "pll2-vco-diff-m2", &tmp);
+	pdata->pll2_vco_diff_m2 = tmp;
+
+	/* Loop Filter PLL2 */
+
+	of_property_read_u32(np, "rpole2", &tmp);
+	pdata->rpole2 = tmp;
+	of_property_read_u32(np, "rzero", &tmp);
+	pdata->rzero = tmp;
+	of_property_read_u32(np, "cpole1", &tmp);
+	pdata->cpole1 = tmp;
+
+	pdata->rzero_bypass_en = of_property_read_bool(np, "rzero-bypass-en");
+
+	/* Output Channel Configuration */
+
+	ret = of_property_read_string(np, "name", &str);
+	if (ret >= 0)
+		strncpy(&pdata->name[0], str, SPI_NAME_SIZE - 1);
+
+	for_each_child_of_node(np, chan_np)
+		cnt++;
+
+	pdata->num_channels = cnt;
+	pdata->channels = devm_kzalloc(dev, sizeof(*chan) * cnt, GFP_KERNEL);
+	if (!pdata->channels) {
+		dev_err(dev, "could not allocate memory\n");
+		return NULL;
+	}
+
+	cnt = 0;
+	for_each_child_of_node(np, chan_np) {
+		of_property_read_u32(chan_np, "reg",
+				     &pdata->channels[cnt].channel_num);
+		pdata->channels[cnt].divider_output_invert_en =
+			of_property_read_bool(chan_np, "divider-output-invert-en");
+		pdata->channels[cnt].sync_ignore_en =
+			of_property_read_bool(chan_np, "sync-ignore-en");
+		pdata->channels[cnt].low_power_mode_en =
+			of_property_read_bool(chan_np, "low-power-mode-en");
+		pdata->channels[cnt].use_alt_clock_src =
+			of_property_read_bool(chan_np, "use-alt-clock-src");
+		pdata->channels[cnt].output_dis =
+			of_property_read_bool(chan_np, "output-dis");
+
+		of_property_read_u32(chan_np, "driver-mode", &tmp);
+		pdata->channels[cnt].driver_mode = tmp;
+		of_property_read_u32(chan_np, "divider-phase", &tmp);
+		pdata->channels[cnt].divider_phase = tmp;
+		of_property_read_u32(chan_np, "channel-divider", &tmp);
+		pdata->channels[cnt].channel_divider = tmp;
+		ret = of_property_read_string(chan_np, "extended-name", &str);
+		if (ret >= 0)
+			strncpy(&pdata->channels[cnt].extended_name[0],
+				str, SPI_NAME_SIZE - 1);
+
+		cnt++;
+	}
+
+	return pdata;
+}
+#else
+static
+struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
+{
+	return NULL;
+}
+#endif
+
 static int __devinit ad9523_probe(struct spi_device *spi)
 {
-	struct ad9523_platform_data *pdata = spi->dev.platform_data;
+	struct ad9523_platform_data *pdata;
 	struct iio_dev *indio_dev;
 	struct ad9523_state *st;
 	int ret;
+
+	if (spi->dev.of_node)
+		pdata = ad9523_parse_dt(&spi->dev);
+	else
+		pdata = spi->dev.platform_data;
 
 	if (!pdata) {
 		dev_err(&spi->dev, "no platform data?\n");

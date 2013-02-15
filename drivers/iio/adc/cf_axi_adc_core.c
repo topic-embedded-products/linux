@@ -20,6 +20,7 @@
 #include <linux/delay.h>
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
+#include <linux/clk.h>
 
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -102,56 +103,56 @@ static int axiadc_debugfs_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int axiadc_dco_calibrate_2c(struct iio_dev *indio_dev)
+static int axiadc_dco_calibrate(struct iio_dev *indio_dev, unsigned chan)
 {
 	struct axiadc_state *st = iio_priv(indio_dev);
-	int dco, ret, cnt, start, max_start, max_cnt;
-	unsigned stat;
-	unsigned char err_field[33];
+	int dco, cnt, start, max_start, max_cnt;
+	unsigned stat, inv_range = 0, tm_mask, err_mask, dco_en = 0;
+	unsigned char err_field[66];
 
-	axiadc_testmode_set(indio_dev, 0x2, TESTMODE_PN23_SEQ);
+	switch (st->id) {
+	case CHIPID_AD9250:
+		return 0;
+	case CHIPID_AD9265:
+		dco_en = 0;
+		break;
+	default:
+		dco_en = DCO_DELAY_ENABLE;
+	}
+
+restart:
+	axiadc_spi_write(st, ADC_REG_OUTPUT_PHASE, OUTPUT_EVEN_ODD_MODE_EN |
+			(inv_range ? INVERT_DCO_CLK : 0));
+
+	if (chan == 2) {
+		axiadc_testmode_set(indio_dev, 0x2, TESTMODE_PN23_SEQ);
+		tm_mask = AXIADC_PN23_1_EN | AXIADC_PN9_0_EN;
+		err_mask = AXIADC_PCORE_ADC_STAT_PN_ERR0 |
+			AXIADC_PCORE_ADC_STAT_PN_ERR1 |
+			AXIADC_PCORE_ADC_STAT_PN_OOS0 |
+			AXIADC_PCORE_ADC_STAT_PN_OOS1;
+	} else {
+		tm_mask = AXIADC_PN9_0_EN;
+		err_mask = AXIADC_PCORE_ADC_STAT_PN_ERR | AXIADC_PCORE_ADC_STAT_PN_OOS;
+	}
+
 	axiadc_testmode_set(indio_dev, 0x1, TESTMODE_PN9_SEQ);
-
-	axiadc_write(st, AXIADC_PCORE_PN_ERR_CTRL, AXIADC_PN23_1_EN |
-		  AXIADC_PN9_0_EN);
+	axiadc_write(st, AXIADC_PCORE_PN_ERR_CTRL, tm_mask);
 
 	for(dco = 0; dco <= 32; dco++) {
-		ret = 0;
 		axiadc_spi_write(st, ADC_REG_OUTPUT_DELAY,
-			      dco > 0 ? ((dco - 1) | 0x80) : 0);
+			      dco > 0 ? ((dco - 1) | dco_en) : 0);
 		axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-		axiadc_write(st, AXIADC_PCORE_ADC_STAT, AXIADC_PCORE_ADC_STAT_MASK);
+		axiadc_write(st, AXIADC_PCORE_ADC_STAT,
+			     AXIADC_PCORE_ADC_STAT_MASK);
 
-		cnt = 4;
-
-		do {
-			mdelay(8);
-			stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
-			if (cnt-- < 0) {
-				ret = -EIO;
-				break;
-			}
-		} while (stat & (AXIADC_PCORE_ADC_STAT_PN_OOS0 |
-			 AXIADC_PCORE_ADC_STAT_PN_OOS1));
-
-		cnt = 4;
-
-		if (!ret)
-			do {
-				mdelay(4);
-				stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
-				if (stat & (AXIADC_PCORE_ADC_STAT_PN_ERR0 |
-					AXIADC_PCORE_ADC_STAT_PN_ERR1)) {
-					ret = -EIO;
-					break;
-				}
-			} while (cnt--);
-
-		err_field[dco] = !!ret;
+		mdelay(1);
+		stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
+		err_field[dco + (inv_range * 33)] = !!(stat & err_mask);
 	}
 
 	for(dco = 0, cnt = 0, max_cnt = 0, start = -1, max_start = 0;
-		dco <= 32; dco++) {
+		dco <= (32 + (inv_range * 33)); dco++) {
 		if (err_field[dco] == 0) {
 			if (start == -1)
 				start = dco;
@@ -171,105 +172,40 @@ static int axiadc_dco_calibrate_2c(struct iio_dev *indio_dev)
 		max_start = start;
 	}
 
-	dco = max_start + (max_cnt / 2);
-
-	axiadc_testmode_set(indio_dev, 0x3, TESTMODE_OFF);
-	axiadc_spi_write(st, ADC_REG_OUTPUT_DELAY,
-		      dco > 0 ? ((dco - 1) | 0x80) : 0);
-	axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-
-#ifdef DCO_DEBUG
-	for(cnt = 0; cnt <= 32; cnt++)
-		if (cnt == dco)
-			printk("|");
-		else
-			printk("%c", err_field[cnt] ? '-' : 'o');
-	printk(" DCO 0x%X\n", dco > 0 ? ((dco - 1) | 0x80) : 0);
-#endif
-
-	return 0;
-}
-
-static int axiadc_dco_calibrate_1c(struct iio_dev *indio_dev)
-{
-	struct axiadc_state *st = iio_priv(indio_dev);
-	int dco, ret, cnt, start, max_start, max_cnt;
-	unsigned stat;
-	unsigned char err_field[33];
-
-	axiadc_testmode_set(indio_dev, 0x1, TESTMODE_PN9_SEQ);
-
-	axiadc_write(st, AXIADC_PCORE_PN_ERR_CTRL, AXIADC_PN9_0_EN);
-
-	for(dco = 0; dco <= 32; dco++) {
-		ret = 0;
-		axiadc_spi_write(st, ADC_REG_OUTPUT_DELAY,
-			      dco > 0 ? ((dco - 1) | 0x80) : 0);
-		axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-		axiadc_write(st, AXIADC_PCORE_ADC_STAT, AXIADC_PCORE_ADC_STAT_MASK);
-
-		cnt = 4;
-
-		do {
-			mdelay(8);
-			stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
-			if (cnt-- < 0) {
-				ret = -EIO;
-				break;
-			}
-		} while (stat & AXIADC_PCORE_ADC_STAT_PN_OOS);
-
-		cnt = 4;
-
-		if (!ret)
-			do {
-				mdelay(4);
-				stat = axiadc_read(st, AXIADC_PCORE_ADC_STAT);
-				if (stat & AXIADC_PCORE_ADC_STAT_PN_ERR) {
-					ret = -EIO;
-					break;
-				}
-			} while (cnt--);
-
-		err_field[dco] = !!ret;
-	}
-
-	for(dco = 0, cnt = 0, max_cnt = 0, start = -1, max_start = 0;
-		dco <= 32; dco++) {
-		if (err_field[dco] == 0) {
-			if (start == -1)
-				start = dco;
-			cnt++;
-		} else {
-			if (cnt > max_cnt) {
-				max_cnt = cnt;
-				max_start = start;
-			}
-			start = -1;
-			cnt = 0;
-		}
-	}
-
-	if (cnt > max_cnt) {
-		max_cnt = cnt;
-		max_start = start;
+	if ((inv_range == 0) && ((max_cnt < 3) || (err_field[32] == 0))) {
+		inv_range = 1;
+		goto restart;
 	}
 
 	dco = max_start + (max_cnt / 2);
 
-	axiadc_testmode_set(indio_dev, 0x3, TESTMODE_OFF);
-	axiadc_spi_write(st, ADC_REG_OUTPUT_DELAY,
-		      dco > 0 ? ((dco - 1) | 0x80) : 0);
-	axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-
 #ifdef DCO_DEBUG
-	for(cnt = 0; cnt <= 32; cnt++)
+	for(cnt = 0; cnt <= (32  + (inv_range * 33)); cnt++)
 		if (cnt == dco)
 			printk("|");
 		else
 			printk("%c", err_field[cnt] ? '-' : 'o');
-	printk(" DCO 0x%X\n", dco > 0 ? ((dco - 1) | 0x80) : 0);
 #endif
+	if (dco > 32) {
+		dco -= 33;
+		axiadc_spi_write(st, ADC_REG_OUTPUT_PHASE,
+				 OUTPUT_EVEN_ODD_MODE_EN | INVERT_DCO_CLK);
+		cnt = 1;
+	} else {
+		axiadc_spi_write(st, ADC_REG_OUTPUT_PHASE,
+				 OUTPUT_EVEN_ODD_MODE_EN);
+		cnt = 0;
+	}
+
+#ifdef DCO_DEBUG
+	printk(" %s DCO 0x%X CLK %lu Hz\n", cnt ? "INVERT" : "",
+	       dco > 0 ? ((dco - 1) | dco_en) : 0, st->adc_clk);
+#endif
+
+	axiadc_testmode_set(indio_dev, 0x3, TESTMODE_OFF);
+	axiadc_spi_write(st, ADC_REG_OUTPUT_DELAY,
+		      dco > 0 ? ((dco - 1) | dco_en) : 0);
+	axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
 
 	return 0;
 }
@@ -330,8 +266,7 @@ static ssize_t axiadc_debugfs_pncheck_write(struct file *file,
 	else if (sysfs_streq(p, "PN23"))
 		mode = TESTMODE_PN23_SEQ;
 	else if (sysfs_streq(p, "CALIB"))
-		(st->id == CHIPID_AD9467) ? axiadc_dco_calibrate_1c(indio_dev) :
-			axiadc_dco_calibrate_2c(indio_dev);
+		axiadc_dco_calibrate(indio_dev, st->chip_info->num_channels);
 	else
 		mode = TESTMODE_OFF;
 
@@ -394,6 +329,7 @@ static int axiadc_read_raw(struct iio_dev *indio_dev,
 			   long m)
 {
 	struct axiadc_state *st = iio_priv(indio_dev);
+	struct axiadc_converter *conv = to_converter(st->dev_spi);
 	int i;
 	unsigned vref_val, tmp, mask;
 	unsigned long long llval;
@@ -454,12 +390,23 @@ static int axiadc_read_raw(struct iio_dev *indio_dev,
 		*val = sign_extend32(tmp, 14);
 
 		return IIO_VAL_INT;
-	}
+	case IIO_CHAN_INFO_SAMP_FREQ:
+		if (!conv->clk)
+			return -ENODEV;
 
+		*val = st->adc_clk = clk_get_rate(conv->clk);
+
+		if (chan->extend_name) {
+			tmp = axiadc_read(st, AXIADC_PCORE_USRL_DECIM);
+			llval = AXIADC_PCORE_USRL_DECIM_NUM(tmp) * (unsigned long long)st->adc_clk;
+			do_div(llval, AXIADC_PCORE_USRL_DECIM_DEN(tmp));
+			*val = llval;
+		}
+		return IIO_VAL_INT;
+	}
 
 	return -EINVAL;
 }
-
 
 static int axiadc_write_raw(struct iio_dev *indio_dev,
 			       struct iio_chan_spec const *chan,
@@ -468,9 +415,11 @@ static int axiadc_write_raw(struct iio_dev *indio_dev,
 			       long mask)
 {
 	struct axiadc_state *st = iio_priv(indio_dev);
+	struct axiadc_converter *conv = to_converter(st->dev_spi);
 	unsigned fract, tmp;
 	unsigned long long llval;
-	int i;
+	long r_clk;
+	int i, ret;
 
 	switch (mask) {
 	case IIO_CHAN_INFO_SCALE:
@@ -518,7 +467,31 @@ static int axiadc_write_raw(struct iio_dev *indio_dev,
 			AXIADC_PCORE_CB_OFFS_SCALE, tmp);
 		axiadc_toggle_scale_offset_en(st);
 		return 0;
+	case IIO_CHAN_INFO_SAMP_FREQ:
+		if (!conv->clk)
+			return -ENODEV;
 
+		if (chan->extend_name)
+			return -ENODEV;
+
+		r_clk = clk_round_rate(conv->clk, val);
+		if (r_clk < 0 || r_clk > st->chip_info->max_rate) {
+			dev_warn(&conv->spi->dev,
+				"Error setting ADC sample rate %ld", r_clk);
+			return -EINVAL;
+		}
+
+		ret = clk_set_rate(conv->clk, r_clk);
+		if (ret < 0)
+			return ret;
+
+		if (st->adc_clk != r_clk) {
+			st->adc_clk = r_clk;
+			ret = axiadc_dco_calibrate(indio_dev,
+						   st->chip_info->num_channels);
+		}
+
+		return 0;
 	default:
 		return -EINVAL;
 	}
@@ -571,6 +544,34 @@ static const int ad9643_scale_table[][2] = {
 	{22675, 0x14}, {22339, 0x13}, {22003, 0x12}, {21667, 0x11},
 	{21332, 0x10},
 };
+
+static int axiadc_update_scan_mode(struct iio_dev *indio_dev,
+	const unsigned long *scan_mask)
+{
+	struct axiadc_state *st = iio_priv(indio_dev);
+	unsigned mask;
+
+	if (indio_dev->num_channels == 1)
+		return 0;
+
+	switch (st->id) {
+	case CHIPID_AD9250:
+		if (*scan_mask != (BIT(0) | BIT(1)))
+			return -EINVAL;
+		break;
+	default:
+		mask = *scan_mask;
+
+		if (st->have_user_logic)
+			if (*scan_mask & (BIT(2) | BIT(3)))
+				mask = (*scan_mask >> 2) |
+					AXIADC_PCORE_DMA_CHAN_USRL_SEL;
+
+		axiadc_write(st, AXIADC_PCORE_DMA_CHAN_SEL, mask);
+	};
+
+	return 0;
+}
 
 static const char testmodes[][16] = {
 	[TESTMODE_OFF]			= "off",
@@ -652,19 +653,18 @@ static struct iio_chan_spec_ext_info axiadc_ext_info[] = {
 	  .channel = _chan,						\
 	  .info_mask = IIO_CHAN_INFO_SCALE_SHARED_BIT | 		\
 			IIO_CHAN_INFO_CALIBSCALE_SEPARATE_BIT |		\
-			IIO_CHAN_INFO_CALIBBIAS_SEPARATE_BIT,		\
-	  .ext_info = axiadc_ext_info,			\
+			IIO_CHAN_INFO_CALIBBIAS_SEPARATE_BIT |		\
+			IIO_CHAN_INFO_SAMP_FREQ_SHARED_BIT,		\
+			.ext_info = axiadc_ext_info,			\
 	  .scan_index = _si,						\
 	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
 
-#define AIM_CHAN_FD(_chan, _si, _bits, _sign)			\
+#define AIM_CHAN_UL(_chan, _si, _bits, _sign)			\
 	{ .type = IIO_VOLTAGE,						\
 	  .indexed = 1,							\
 	  .channel = _chan,						\
-	  .extend_name  = "frequency_domain",				\
-	  .info_mask = IIO_CHAN_INFO_SCALE_SHARED_BIT | 		\
-			IIO_CHAN_INFO_CALIBSCALE_SEPARATE_BIT |		\
-			IIO_CHAN_INFO_CALIBBIAS_SEPARATE_BIT,		\
+	  .info_mask = IIO_CHAN_INFO_SAMP_FREQ_SHARED_BIT,		\
+	  .extend_name = "user_logic",					\
 	  .scan_index = _si,						\
 	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
 
@@ -672,60 +672,53 @@ static struct iio_chan_spec_ext_info axiadc_ext_info[] = {
 	{ .type = IIO_VOLTAGE,						\
 	  .indexed = 1,							\
 	  .channel = _chan,						\
-	  .info_mask = IIO_CHAN_INFO_SCALE_SHARED_BIT,	 		\
+	  .info_mask = IIO_CHAN_INFO_SCALE_SHARED_BIT |	 		\
+			IIO_CHAN_INFO_SAMP_FREQ_SHARED_BIT,		\
 	  .ext_info = axiadc_ext_info,			\
-	  .scan_index = _si,						\
-	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
-
-#define AIM_CHAN_FD_NOCALIB(_chan, _si, _bits, _sign)			\
-	{ .type = IIO_VOLTAGE,						\
-	  .indexed = 1,							\
-	  .channel = _chan,						\
-	  .extend_name  = "frequency_domain",				\
-	  .info_mask = IIO_CHAN_INFO_SCALE_SHARED_BIT,	 		\
 	  .scan_index = _si,						\
 	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
 
 static const struct axiadc_chip_info axiadc_chip_info_tbl[] = {
 	[ID_AD9467] = {
 		.name = "AD9467",
+		.max_rate = 250000000,
 		.scale_table = ad9467_scale_table,
 		.num_scales = ARRAY_SIZE(ad9467_scale_table),
 		.num_channels = 1,
-		.available_scan_masks[0] = BIT(0),
 		.channel[0] = AIM_CHAN(0, 0, 16, 's'),
+		.channel[1] = AIM_CHAN_UL(1, 1, 16, 's'),
 	},
 	[ID_AD9643] = {
 		.name = "AD9643",
+		.max_rate = 250000000,
 		.scale_table = ad9643_scale_table,
 		.num_scales = ARRAY_SIZE(ad9643_scale_table),
-		.num_channels = 4,
-		.available_scan_masks[0] = BIT(0) | BIT(1),
-		.available_scan_masks[1] = BIT(2) | BIT(3),
+		.num_channels = 2,
 		.channel[0] = AIM_CHAN(0, 0, 14, 'u'),
 		.channel[1] = AIM_CHAN(1, 1, 14, 'u'),
-		.channel[2] = AIM_CHAN_FD(0, 2, 14, 'u'),
-		.channel[3] = AIM_CHAN_FD(1, 3, 14, 'u'),
+		.channel[2] = AIM_CHAN_UL(2, 2, 14, 'u'),
+		.channel[3] = AIM_CHAN_UL(3, 3, 14, 'u'),
 	},
 	[ID_AD9250] = {
 		.name = "AD9250",
+		.max_rate = 250000000,
 		.scale_table = ad9643_scale_table,
 		.num_scales = ARRAY_SIZE(ad9643_scale_table),
-		.num_channels = 4,
-		.available_scan_masks[0] = BIT(0) | BIT(1),
-		.available_scan_masks[1] = BIT(2) | BIT(3),
+		.num_channels = 2,
 		.channel[0] = AIM_CHAN_NOCALIB(0, 0, 14, 'u'),
 		.channel[1] = AIM_CHAN_NOCALIB(1, 1, 14, 'u'),
-		.channel[2] = AIM_CHAN_FD_NOCALIB(0, 2, 14, 'u'),
-		.channel[3] = AIM_CHAN_FD_NOCALIB(1, 3, 14, 'u'),
+		.channel[2] = AIM_CHAN_UL(2, 2, 14, 'u'),
+		.channel[3] = AIM_CHAN_UL(3, 3, 14, 'u'),
+
 	},
 	[ID_AD9265] = {
 		.name = "AD9265",
+		.max_rate = 125000000,
 		.scale_table = ad9265_scale_table,
 		.num_scales = ARRAY_SIZE(ad9265_scale_table),
 		.num_channels = 1,
-		.available_scan_masks[0] = BIT(0),
 		.channel[0] = AIM_CHAN_NOCALIB(0, 0, 16, 's'),
+		.channel[1] = AIM_CHAN_UL(1, 1, 16, 's'),
 	},
 };
 
@@ -735,6 +728,7 @@ static const struct iio_info axiadc_info = {
 	.write_raw = &axiadc_write_raw,
 	.attrs = &axiadc_attribute_group,
 	.debugfs_reg_access = &axiadc_reg_access,
+	.update_scan_mode = &axiadc_update_scan_mode,
 };
 
 struct axiadc_dma_params {
@@ -783,6 +777,7 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 	struct axiadc_spidev axiadc_spidev;
 	dma_cap_mask_t mask;
 	resource_size_t remap_size, phys_addr;
+	unsigned chan_inc;
 	int ret;
 
 	dev_info(dev, "Device Tree Probing \'%s\'\n",
@@ -861,6 +856,9 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 		goto failed2;
 	}
 
+	if (to_converter(st->dev_spi)->clk)
+		st->adc_clk = clk_get_rate(to_converter(st->dev_spi)->clk);
+
 	/* Probe device */
 	st->id = axiadc_spi_read(st, ADC_REG_CHIP_ID);
 
@@ -874,7 +872,7 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 		axiadc_spi_write(st, ADC_REG_OUTPUT_MODE, st->adc_def_output_mode);
 		axiadc_spi_write(st, ADC_REG_TEST_IO, TESTMODE_OFF);
 		axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-		axiadc_dco_calibrate_1c(indio_dev);
+		axiadc_dco_calibrate(indio_dev, st->chip_info->num_channels);
 		break;
 	case CHIPID_AD9643:
 		st->chip_info = &axiadc_chip_info_tbl[ID_AD9643];
@@ -888,7 +886,7 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 		axiadc_spi_write(st, ADC_REG_OUTPUT_MODE, st->adc_def_output_mode);
 		axiadc_spi_write(st, ADC_REG_TEST_IO, TESTMODE_OFF);
 		axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-		axiadc_dco_calibrate_2c(indio_dev);
+		axiadc_dco_calibrate(indio_dev, st->chip_info->num_channels);
 
 		break;
 	case CHIPID_AD9250:
@@ -903,7 +901,7 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 		axiadc_spi_write(st, ADC_REG_OUTPUT_MODE, st->adc_def_output_mode);
 		axiadc_spi_write(st, ADC_REG_TEST_IO, TESTMODE_OFF);
 		axiadc_spi_write(st, ADC_REG_TRANSFER, TRANSFER_SYNC);
-		axiadc_dco_calibrate_1c(indio_dev);
+		axiadc_dco_calibrate(indio_dev, st->chip_info->num_channels);
 		break;
 	default:
 		dev_err(dev, "Unrecognized CHIP_ID 0x%X\n", st->id);
@@ -911,14 +909,27 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 		goto failed3;
 	}
 
-	axiadc_spi_write(st, ADC_REG_OUTPUT_PHASE, OUTPUT_EVEN_ODD_MODE_EN);
+	st->have_user_logic = !!AXIADC_PCORE_USRL_DECIM_NUM(axiadc_read(st,
+				AXIADC_PCORE_USRL_DECIM));
+
+	if (st->have_user_logic) {
+		chan_inc = axiadc_read(st, AXIADC_PCORE_USRL_DTYPE);
+
+		if (chan_inc & AXIADC_PCORE_USRL_DTYPE_NORM)
+			chan_inc = 1;
+		else
+			chan_inc = st->chip_info->num_channels;
+	} else {
+		chan_inc = 0;
+	}
 
 	indio_dev->dev.parent = dev;
 	indio_dev->name = op->dev.of_node->name;
 	indio_dev->channels = st->chip_info->channel;
 	indio_dev->modes = INDIO_DIRECT_MODE;
-	indio_dev->num_channels = st->chip_info->num_channels;
-	indio_dev->available_scan_masks = st->chip_info->available_scan_masks;
+	indio_dev->num_channels = st->chip_info->num_channels + chan_inc;
+	indio_dev->masklength = indio_dev->num_channels;
+
 	indio_dev->info = &axiadc_info;
 
 	init_completion(&st->dma_complete);
@@ -926,15 +937,12 @@ static int __devinit axiadc_of_probe(struct platform_device *op)
 	axiadc_configure_ring(indio_dev);
 
 	ret = iio_buffer_register(indio_dev,
-				  st->chip_info->channel,
-				  st->chip_info->num_channels);
+				  indio_dev->channels,
+				  indio_dev->num_channels);
 	if (ret)
 		goto failed4;
 
-	*indio_dev->buffer->scan_mask = st->chip_info->available_scan_masks[0];
-
-	axiadc_write(st, AXIADC_PCORE_DMA_CHAN_SEL,
-		     st->chip_info->available_scan_masks[0]);
+	*indio_dev->buffer->scan_mask = (1UL << st->chip_info->num_channels) - 1;
 
 	ret = iio_device_register(indio_dev);
 	if (ret)
