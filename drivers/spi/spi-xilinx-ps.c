@@ -80,11 +80,6 @@
 #define XSPIPS_ER_ENABLE_MASK	0x00000001 /* SPI Enable Bit Mask */
 
 /*
- * The spi->mode bits understood by this driver
- */
-#define MODEBITS		(SPI_CPOL | SPI_CPHA)
-
-/*
  * Definitions for the status of queue
  */
 #define XSPIPS_QUEUE_STOPPED	0
@@ -226,12 +221,6 @@ static int xspips_setup_transfer(struct spi_device *spi,
 			transfer->bits_per_word : spi->bits_per_word;
 	req_hz = (transfer) ? transfer->speed_hz : spi->max_speed_hz;
 
-	if (spi->mode & ~MODEBITS) {
-		dev_err(&spi->dev, "%s, unsupported mode bits %x\n",
-			__func__, spi->mode & ~MODEBITS);
-		return -EINVAL;
-	}
-
 	if (bits_per_word != 8) {
 		dev_err(&spi->dev, "%s, unsupported bits per word %x\n",
 			__func__, spi->bits_per_word);
@@ -268,7 +257,7 @@ static int xspips_setup_transfer(struct spi_device *spi,
 	spin_unlock_irqrestore(&xspi->ctrl_reg_lock, flags);
 
 	dev_dbg(&spi->dev, "%s, mode %d, %u bits/w, %u clock speed\n",
-		__func__, spi->mode & MODEBITS, spi->bits_per_word,
+		__func__, spi->mode, spi->bits_per_word,
 		xspi->speed_hz);
 
 	return 0;
@@ -285,9 +274,6 @@ static int xspips_setup_transfer(struct spi_device *spi,
  **/
 static int xspips_setup(struct spi_device *spi)
 {
-	if ((spi->mode & SPI_LSB_FIRST) != 0)
-		return -EINVAL;
-
 	if (!spi->max_speed_hz)
 		return -EINVAL;
 
@@ -405,6 +391,7 @@ static int xspips_start_transfer(struct spi_device *spi,
 	struct xspips *xspi = spi_master_get_devdata(spi->master);
 	u32 ctrl_reg;
 	unsigned long flags;
+	int ret;
 
 	xspi->txbuf = transfer->tx_buf;
 	xspi->rxbuf = transfer->rx_buf;
@@ -424,7 +411,9 @@ static int xspips_start_transfer(struct spi_device *spi,
 
 	spin_unlock_irqrestore(&xspi->ctrl_reg_lock, flags);
 
-	wait_for_completion(&xspi->done);
+	ret = wait_for_completion_timeout(&xspi->done, 5 * HZ);
+	if (ret == 0)
+		return -EIO;
 
 	return (transfer->len) - (xspi->remaining_bytes);
 }
@@ -668,6 +657,7 @@ static int __devinit xspips_probe(struct platform_device *dev)
 	struct xspips *xspi;
 	struct resource *r;
 	const unsigned int *prop;
+	unsigned long aper_clk_rate;
 
 	master = spi_alloc_master(&dev->dev, sizeof(*xspi));
 	if (master == NULL)
@@ -775,6 +765,11 @@ static int __devinit xspips_probe(struct platform_device *dev)
 	}
 	master->setup = xspips_setup;
 	master->transfer = xspips_transfer;
+	master->mode_bits = SPI_CPOL | SPI_CPHA;
+
+	aper_clk_rate = clk_get_rate(xspi->aperclk);
+	if (aper_clk_rate > clk_get_rate(xspi->devclk))
+		clk_set_rate(xspi->devclk, aper_clk_rate);
 
 	xspi->speed_hz = clk_get_rate(xspi->devclk) / 2;
 

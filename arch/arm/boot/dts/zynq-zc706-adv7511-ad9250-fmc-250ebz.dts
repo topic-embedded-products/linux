@@ -22,6 +22,21 @@
 		interrupt-parent = <&gic>;
 	};
 
+	clocks {
+		ad9517_ref_clk: clock@0 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <30720000>;
+			clock-output-names = "refclk";
+		};
+		ad9517_clkin: clock@1 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <250000000>;
+			clock-output-names = "clkin";
+		};
+	};
+
 	amba@0 {
 		compatible = "simple-bus";
 		#address-cells = <0x1>;
@@ -242,186 +257,6 @@
 					};
 				};
 
-				i2c@6 {
-					#size-cells = <0>;
-					#address-cells = <1>;
-					reg = <6>;
-					spi_xcomm0: spi_xcomm0@58 {
-						#size-cells = <0>;
-						#address-cells = <1>;
-						compatible = "spi-xcomm";
-						reg = <0x58>;
-						clksync0_ad9548: ad9548-lpc@6 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							compatible = "ad9548";
-							reg = <2>;
-							spi-3wire;
-							spi-max-frequency = <10000000>;
-						};
-						clk0_ad9523: ad9523-lpc@3 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							#clock-cells = <1>;
-							compatible = "ad9523-1";
-							reg = <3>;
-							spi-max-frequency = <10000000>;
-							spi-3wire;
-							clock-output-names = "ad9523-lpc_out0", "ad9523-lpc_out1", "ad9523-lpc_out2", "ad9523-lpc_out3", "ad9523-lpc_out4", "ad9523-lpc_out5", "ad9523-lpc_out6", "ad9523-lpc_out7", "ad9523-lpc_out8", "ad9523-lpc_out9", "ad9523-lpc_out10", "ad9523-lpc_out11", "ad9523-lpc_out12", "ad9523-lpc_out13";
-							vcxo-freq = <122880000>;
-							refb-diff-rcv-en;
-							zd-in-diff-en;
-							osc-in-cmos-neg-inp-en;
-							refa-r-div = <0>;
-							refb-r-div = <0>;
-							pll1-feedback-div = <4>;
-							pll1-charge-pump-current-nA = <2000>;
-							refa-cmos-neg-inp-en;
-							pll1-loop-filter-rzero = <3>;
-							ref-mode = <3>;
-							pll2-charge-pump-current-nA = <420000>;
-							pll2-ndiv-a-cnt = <0>;
-							pll2-ndiv-b-cnt = <3>;
-							pll2-freq-doubler-en;
-							pll2-r2-div = <1>;
-							pll2-vco-diff-m1 = <3>;
-							pll2-vco-diff-m2 = <3>;
-							rpole2 = <0>;
-							rzero = <2>;
-							cpole1 = <2>;
-							name = "ad9523-lpc";
-		
-							ad9523_0_c0:channel@0 {
-								reg = <0>;
-								extended-name = "ZD_OUTPUT";
-								driver-mode = <2>;
-								divider-phase = <0>;
-								channel-divider = <8>;
-							};
-							ad9523_0_c12:channel@12 {
-								reg = <12>;
-								extended-name = "DAC_CLK";
-								driver-mode = <1>;
-								divider-phase = <0>;
-								channel-divider = <2>;
-							};
-							ad9523_0_c2:channel@2 {
-								reg = <2>;
-								extended-name = "ADC_CLK";
-								driver-mode = <3>;
-								divider-phase = <0>;
-								channel-divider = <4>;
-							};
-							ad9523_0_c10:channel@10 {
-								reg = <10>;
-								extended-name = "DAC_REF_CLK";
-								driver-mode = <2>;
-								divider-phase = <0>;
-								channel-divider = <16>;
-							};
-							ad9523_0_c5:channel@5 {
-								reg = <5>;
-								extended-name = "TX_LO_REF_CLK";
-								driver-mode = <8>; /* HiZ on - */
-								divider-phase = <0>;
-								channel-divider = <8>;
-							};
-							ad9523_0_c6:channel@6 {
-								reg = <6>;
-								extended-name = "DAC_DCO_CLK";
-								driver-mode = <3>;
-								divider-phase = <0>;
-								channel-divider = <2>;
-							};
-							ad9523_0_c7:channel@7 {
-								reg = <7>;
-								extended-name = "ADC_SYNC_CLK";
-								driver-mode = <8>; /* HiZ on - */
-								divider-phase = <1>;
-								channel-divider = <32>;
-							};
-							ad9523_0_c9:channel@9 {
-								reg = <9>;
-								extended-name = "RX_LO_REF_CLK";
-								driver-mode = <8>; /* HiZ on - */
-								divider-phase = <0>;
-								channel-divider = <8>;
-							};
-						};
-						adc0_ad9467: ad9467@1 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							compatible = "ad9643";
-							reg = <1>;
-							spi-max-frequency = <10000000>;
-							spi-3wire;
-							clocks = <&clk0_ad9523 2>;
-							clock-names = "clkin";
-						};
-						dac0_ad9122: ad9122@0 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							compatible = "ad9122";
-							reg = <0>;
-							spi-max-frequency = <10000000>;
-							clocks = <&clk0_ad9523 6>, <&clk0_ad9523 12>, <&clk0_ad9523 10>;
-							clock-names = "data_clk", "dac_clk", "ref_clk";
-							dac-fcenter-shift = <0>;
-							dac-interp-factor = <1>;
-							dac-data-rate = <491520000>;
-						};
-		
-						vga0_ad8366: ad8366-lpc@6 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							compatible = "ad8366";
-							reg = <6>;
-							spi-3wire;
-							spi-max-frequency = <10000000>;
-						};
-		
-						lo_pll0_rx_adf4351: adf4351-rx-lpc@4 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							compatible = "adf4351";
-							reg = <4>;
-							spi-max-frequency = <10000000>;
-							clocks = <&clk0_ad9523 9>;
-							clock-names = "clkin";
-							adf4350-channel-spacing = <10000>;
-							adf4350-power-up-frequency = <2400000000>;
-							adf4350-reg2-pd-polarity-pos-en;
-							adf4350-reg2-charge-pump-curr-ua = <2500>;
-							adf4350-reg4-output-pwr = <3>;
-							adf4350-reg4-mute-till-lock-en;
-						};
-		
-						lo_pll0_tx_adf4351: adf4351-tx-lpc@5 {
-							#address-cells = <1>;
-							#size-cells = <0>;
-							compatible = "adf4351";
-							reg = <5>;
-							spi-max-frequency = <10000000>;
-							clocks = <&clk0_ad9523 5>;
-							clock-names = "clkin";
-							adf4350-channel-spacing = <10000>;
-							adf4350-power-up-frequency = <2400000000>;
-							adf4350-reg2-pd-polarity-pos-en;
-							adf4350-reg2-charge-pump-curr-ua = <2500>;
-							adf4350-reg4-output-pwr = <3>;
-							adf4350-reg4-mute-till-lock-en;
-						};
-					
-					};
-					eeprom@50 {
-						compatible = "at24,24c02";
-						reg = <0x50>;
-					};		
-					eeprom@55 {
-						compatible = "at24,24c02";
-						reg = <0x55>;
-					};
-				};
 			};
 		};
 
@@ -506,38 +341,23 @@
 			interrupt-parent = <&gic>;
 		};
 
-		axi_dma_0: axidma@40440000 {
-			#address-cells = <1>;
-			#size-cells = <1>;
-			#dma-cells = <1>;
-			compatible = "xlnx,axi-dma";
-			reg = < 0x40440000 0x1000 >;
-			xlnx,sg-include-stscntrl-strm = <0x0>;
-			dma-channel@40440000 {
-				compatible = "xlnx,axi-dma-mm2s-channel";
-				interrupts = < 0 56 0x4 >;
-				xlnx,datawidth = <0x20>;
-				xlnx,include-dre = <0x0>;
-			};
-		};
-
-		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
-			compatible = "adi,axi-spdif-tx-1.00.a";
-			reg = < 0x75c00000 0x1000 >;
-			clock-frequency = <12288000>;
-		};
-
 		axi_vdma_0: axivdma@43020000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
 			#dma-cells = <1>;
 			compatible = "xlnx,axi-vdma";
-			reg = <0x43020000 0x1000>;
+//			reg = <0x43020000 0x1000>;
+
+			ranges = < 0x43040000 0x43040000 0x10000 >;
+			reg = < 0x43040000 0x10000 >;
+
+
 			xlnx,include-sg = <0x0>;
 			xlnx,num-fstores = <0x3>;
 			dma-channel@43020000 {
 				compatible = "xlnx,axi-vdma-mm2s-channel";
-				interrupts = <0 57 0x4>;
+//				interrupts = <0 57 0x4>;
+				interrupts = < 0 54 4 >;
 				xlnx,datawidth = <0x40>;
 				xlnx,genlock-mode = <0x0>;
 				xlnx,include-dre = <0x0>;
@@ -552,7 +372,7 @@
 
 		hdmi_clock: axi-clkgen@79000000 {
 			compatible = "adi,axi-clkgen-1.00.a";
-			reg = <0x79000000 0x10000>;
+			reg = < 0x79060000 0x10000 >;
 			#clock-cells = <0>;
 			clocks = <&fpga_clock>;
 		};
@@ -566,55 +386,118 @@
 			adi,is-rgb;
 		};
 
-		xilinx_pcm_audio: xilinx_pcm_audio {
-			compatible = "xilinx-pcm-audio";
-			dma-request = <&axi_dma_0 0>;
-		};
-
-		adv7511_hdmi_snd: adv7511_hdmi_snd {
-			compatible = "adv7511-hdmi-snd";
-			audio-codec-adapter = <&i2c_adv7511>;
-			cpu-dai = <&axi_spdif_tx_0>;
-			pcm = <&xilinx_pcm_audio>;
-		};
-
-		axi_dma_1: axidma@40420000 {
+		axi_dma_0: axidma@40420000 {
 			#address-cells = <1>;
 			#size-cells = <1>;
 			#dma-cells = <1>;
 			compatible = "xlnx,axi-dma";
 			reg = < 0x40420000 0x10000 >;
-			dma-channel@40420000 {
+//			xlnx,sg-include-stscntrl-strm = <0x0>;
+			dma-channel@41e20030 {
 				compatible = "xlnx,axi-dma-s2mm-channel";
-				interrupts = < 0 58 0x4 >;
+				interrupt-parent = <&gic>;
+				interrupts = < 0 59 4 >;
 				xlnx,datawidth = <0x40>;
 				xlnx,include-dre = <0x0>;
 			} ;
 		} ;
 
-		axi_vdma_1: axivdma@43000000 {
+		axi_dma_1: axidma@40400000{
 			#address-cells = <1>;
 			#size-cells = <1>;
 			#dma-cells = <1>;
-			compatible = "xlnx,axi-vdma";
-			reg = <0x43000000 0x1000>;
-			xlnx,include-sg = <0x0>;
-			xlnx,num-fstores = <0x3>;
-			dma-channel@43000000 {
-				compatible = "xlnx,axi-vdma-mm2s-channel";
-				interrupts = <0 59 0x4>;
+			compatible = "xlnx,axi-dma";
+			reg = < 0x40400000 0x10000 >;
+//			xlnx,sg-include-stscntrl-strm = <0x0>;
+			dma-channel@41e00030 {
+				compatible = "xlnx,axi-dma-s2mm-channel";
+				interrupt-parent = <&gic>;
+				interrupts = < 0 58 4 >;
 				xlnx,datawidth = <0x40>;
-				xlnx,genlock-mode = <0x0>;
 				xlnx,include-dre = <0x0>;
+			} ;
+		} ;
+
+		axi_jesd204b_rx4_0: axi-jesd204b-rx4@6f400000 {
+			compatible = "xlnx,axi-jesd204b-rx4-1.00.a";
+			reg = < 0x6f400000 0x10000 >;
+			jesd,lanesync_en;
+			jesd,scramble_en;
+			jesd,frames-per-multiframe = <32>;
+			jesd,bytes-per-frame = <2>;
+			xlnx,cf-buftype = <0x0>;
+			xlnx,dphase-timeout = <0x8>;
+			xlnx,family = "zynq";
+			xlnx,num-mem = <0x1>;
+			xlnx,num-reg = <0x20>;
+			xlnx,s-axi-min-size = <0x1ff>;
+			xlnx,slv-awidth = <0x20>;
+			xlnx,slv-dwidth = <0x20>;
+			xlnx,use-wstrb = <0x0>;
+			clocks = <&clk_ad9517 0>;
+			clock-names = "out0";
+		} ;
+
+		axi_spi_0: spi@42000000 {
+			compatible = "xlnx,axi-spi-1.02.a", "xlnx,xps-spi-2.00.a";
+			interrupt-parent = <&gic>;
+			interrupts = < 0 56 4 >;
+			reg = < 0x42000000 0x10000 >;
+			xlnx,family = "zynq";
+			xlnx,fifo-exist = <0x1>;
+			xlnx,instance = "axi_spi_0";
+			xlnx,num-ss-bits = <0x1>;
+			xlnx,num-transfer-bits = <0x8>;
+			xlnx,sck-ratio = <0x10>;
+			spi_fmc176: spi-fmc176@0 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				compatible = "spi-ad9250";
+				reg = <0>;
+				spi-max-frequency = <10000000>;
+				clk_ad9517: ad9517@4 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					#clock-cells = <1>;
+					compatible = "ad9517-1";
+					reg = <1>;
+					spi-max-frequency = <10000000>;
+					spi-3wire;
+					clocks = <&ad9517_ref_clk>, <&ad9517_clkin>;
+					clock-names = "refclk", "clkin";
+					clock-output-names = "out0", "out1", "out2", "out3", "out4", "out5", "out6", "out7";
+
+				};
+				adc0_ad9250: ad9250@0 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					compatible = "ad9250";
+					reg = <2>;
+					spi-max-frequency = <10000000>;
+					clocks = <&clk_ad9517 0>;
+					clock-names = "out0";
+
+				};
+				adc1_ad9250: ad9250@1 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					compatible = "ad9250";
+					reg = <3>;
+					spi-max-frequency = <10000000>;
+					clocks = <&clk_ad9517 1>;
+					clock-names = "out1";
+
+				};
 			};
-		};
+		} ;
 
-		cf_ad9643_core_0: cf-ad9643-core-lpc@79020000 {
-			compatible = "xlnx,axi-adc-2c-1.00.a";
+		axi_ad9250_0: cf-ad9250-1@79020000 {
+			compatible = "xlnx,axi-ad9250-1.00.a";
 			reg = < 0x79020000 0x10000 >;
-			dma-request = <&axi_dma_1 0>;
-			spibus-connected = <&adc0_ad9467>;
+			dma-request = <&axi_dma_0 0>;
+			spibus-connected = <&adc0_ad9250>;
 			xlnx,dphase-timeout = <0x8>;
+			xlnx,family = "zynq";
 			xlnx,num-mem = <0x1>;
 			xlnx,num-reg = <0x1>;
 			xlnx,s-axi-min-size = <0x1ff>;
@@ -623,13 +506,13 @@
 			xlnx,use-wstrb = <0x0>;
 		} ;
 
-		cf_ad9122_core_0: cf-ad9122-core-lpc@74200000 {
-			compatible = "xlnx,axi-dac-4d-2c-1.00.a";
-			reg = < 0x74200000 0x10000 >;
-			spibus-connected = <&dac0_ad9122>;
-			dma-request = <&axi_vdma_1 0>;
-			dac-sample-frequency = <491520000>;
+		axi_ad9250_1: cf-ad9250-2@79000000 {
+			compatible = "xlnx,axi-ad9250-1.00.a";
+			reg = < 0x79000000 0x10000 >;
+			dma-request = <&axi_dma_1 0>;
+			spibus-connected = <&adc1_ad9250>;
 			xlnx,dphase-timeout = <0x8>;
+			xlnx,family = "zynq";
 			xlnx,num-mem = <0x1>;
 			xlnx,num-reg = <0x1>;
 			xlnx,s-axi-min-size = <0x1ff>;
@@ -637,5 +520,6 @@
 			xlnx,slv-dwidth = <0x20>;
 			xlnx,use-wstrb = <0x0>;
 		} ;
+
 	};
 };
