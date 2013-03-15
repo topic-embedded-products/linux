@@ -157,3 +157,8 @@ static struct platform_driver zed_adau1761_card_driver = {
 	.remove = __devexit_p(zed_adau1761_remove),
 };
 module_platform_driver(zed_adau1761_card_driver);
+
+MODULE_DESCRIPTION("ASoC ZED board ADAU1761 driver");
+MODULE_AUTHOR("Lars-Peter Clausen <lars@metafoo.de>");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:zed-adau1761-snd");
