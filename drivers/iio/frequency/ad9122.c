@@ -153,6 +153,7 @@ static int ad9122_write(struct spi_device *spi,
 static int ad9122_find_dci(unsigned long *err_field, unsigned entries)
 {
 	int dci, cnt, start, max_start, max_cnt;
+	bool valid = false;
 	char str[33];
 	int ret;
 
@@ -163,6 +164,7 @@ static int ad9122_find_dci(unsigned long *err_field, unsigned entries)
 				start = dci;
 			cnt++;
 			str[dci] = 'o';
+			valid = true;
 		} else {
 			if (cnt > max_cnt) {
 				max_cnt = cnt;
@@ -187,22 +189,20 @@ static int ad9122_find_dci(unsigned long *err_field, unsigned entries)
 
 	printk("%s DCI %d\n",str, ret);
 
+	if (!valid)
+		return -EIO;
+
 	return ret;
 }
 
 static int ad9122_tune_dci(struct cf_axi_converter *conv)
 {
-	unsigned reg, err_mask, pwr;
+	unsigned reg;
 	int i = 0, dci;
 	unsigned long err_bfield = 0;
 
 	if (!conv->pcore_set_sed_pattern)
 		return -ENODEV;
-
-	pwr = ad9122_read(conv->spi, AD9122_REG_POWER_CTRL);
-	ad9122_write(conv->spi, AD9122_REG_POWER_CTRL, pwr |
-			AD9122_POWER_CTRL_PD_I_DAC |
-			AD9122_POWER_CTRL_PD_Q_DAC);
 
 	for (dci = 0; dci < 4; dci++) {
 		ad9122_write(conv->spi, AD9122_REG_DCI_DELAY, dci);
@@ -244,26 +244,34 @@ static int ad9122_tune_dci(struct cf_axi_converter *conv)
 				    AD9122_EVENT_FLAG_2_SED_COMPARE_FAIL);
 
 			ad9122_write(conv->spi, AD9122_REG_SED_CTRL,
-				    AD9122_SED_CTRL_SED_COMPARE_EN);
+				AD9122_SED_CTRL_SED_COMPARE_EN |
+				AD9122_SED_CTRL_AUTOCLEAR_EN);
 
 			msleep(100);
-			reg = ad9122_read(conv->spi, AD9122_REG_SED_CTRL);
-			err_mask = ad9122_read(conv->spi, AD9122_REG_SED_I_LSBS);
-			err_mask |= ad9122_read(conv->spi, AD9122_REG_SED_I_MSBS);
-			err_mask |= ad9122_read(conv->spi, AD9122_REG_SED_Q_LSBS);
-			err_mask |= ad9122_read(conv->spi, AD9122_REG_SED_Q_MSBS);
 
-			if (err_mask || (reg & AD9122_SED_CTRL_SAMPLE_ERR_DETECTED))
+			reg = ad9122_read(conv->spi, AD9122_REG_SED_CTRL);
+
+			if(!(reg & (AD9122_SED_CTRL_SAMPLE_ERR_DETECTED | AD9122_SED_CTRL_COMPARE_PASS)))
+			{
+				return -1;
+			}
+
+			if (reg & AD9122_SED_CTRL_SAMPLE_ERR_DETECTED)
 				set_bit(dci, &err_bfield);
 		}
 	}
 
-	ad9122_write(conv->spi, AD9122_REG_DCI_DELAY,
-		    ad9122_find_dci(&err_bfield, 4));
-	ad9122_write(conv->spi, AD9122_REG_SED_CTRL, 0);
-	ad9122_write(conv->spi, AD9122_REG_POWER_CTRL, pwr);
+	dci = ad9122_find_dci(&err_bfield, 4);
+	if (dci < 0) {
+		dev_err(&conv->spi->dev, "Failed DCI calibration");
+		ad9122_write(conv->spi, AD9122_REG_DCI_DELAY, 0);
+	}  else {
+		ad9122_write(conv->spi, AD9122_REG_DCI_DELAY, dci);
+	}
 
-	return 0;
+	ad9122_write(conv->spi, AD9122_REG_SED_CTRL, 0);
+
+	return dci;
 }
 
 static int ad9122_get_fifo_status(struct cf_axi_converter *conv)
@@ -512,9 +520,15 @@ static int __ad9122_set_interpol(struct cf_axi_converter *conv, unsigned interp,
 static int ad9122_set_interpol_freq(struct cf_axi_converter *conv,
 				   unsigned long freq)
 {
+	unsigned long dat_freq;
+	int ret;
 
-	return __ad9122_set_interpol(conv, freq / ad9122_get_data_clk(conv),
+	dat_freq = ad9122_get_data_clk(conv);
+	ret =  __ad9122_set_interpol(conv, freq / dat_freq,
 			       conv->fcenter_shift, 0);
+
+	ad9122_update_avail_fcent_modes(conv, dat_freq);
+	return ret;
 }
 
 static int ad9122_set_interpol_fcent_freq(struct cf_axi_converter *conv,
@@ -632,7 +646,6 @@ static ssize_t ad9122_interpolation_store(struct device *dev,
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
 	struct cf_axi_converter *conv = iio_device_get_drvdata(indio_dev);
 	long readin;
-	unsigned pwr;
 	int ret;
 
 	ret = kstrtol(buf, 10, &readin);
@@ -640,11 +653,6 @@ static ssize_t ad9122_interpolation_store(struct device *dev,
 		return ret;
 
 	mutex_lock(&indio_dev->mlock);
-
-	pwr = ad9122_read(conv->spi, AD9122_REG_POWER_CTRL);
-	ad9122_write(conv->spi, AD9122_REG_POWER_CTRL, pwr |
-			AD9122_POWER_CTRL_PD_I_DAC |
-			AD9122_POWER_CTRL_PD_Q_DAC);
 
 	switch ((u32)this_attr->address) {
 	case 0:
@@ -659,7 +667,7 @@ static ssize_t ad9122_interpolation_store(struct device *dev,
 
 	if (conv->pcore_sync)
 		conv->pcore_sync(indio_dev);
-	ad9122_write(conv->spi, AD9122_REG_POWER_CTRL, pwr);
+
 	mutex_unlock(&indio_dev->mlock);
 
 	return ret ? ret : len;
@@ -820,7 +828,7 @@ static int ad9122_write_raw(struct iio_dev *indio_dev,
 	return 0;
 }
 
-static int __devinit ad9122_probe(struct spi_device *spi)
+static int ad9122_probe(struct spi_device *spi)
 {
 	struct device_node *np = spi->dev.of_node;
 	struct cf_axi_converter *conv;
@@ -907,7 +915,7 @@ static struct spi_driver ad9122_driver = {
 		.owner	= THIS_MODULE,
 	},
 	.probe		= ad9122_probe,
-	.remove		= __devexit_p(ad9122_remove),
+	.remove		= ad9122_remove,
 	.id_table	= ad9122_id,
 };
 module_spi_driver(ad9122_driver);
