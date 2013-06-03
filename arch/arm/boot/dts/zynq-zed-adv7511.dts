@@ -172,5 +172,69 @@
 			pcm = <&xilinx_pcm_audio_i2s>;
 		};
 
+		leds {
+			compatible = "gpio-leds";
+			ld9 {
+				label = "ld9";
+				gpios = <&gpio 7 0>;
+				linux,default-trigger = "heartbeat";
+			};
+		};
+
+		gpio_keys {
+			compatible = "gpio-keys";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			autorepeat;
+			btn8 {
+				label = "PB1";
+				linux,code = <28>; // Enter
+				gpios = <&gpio 50 0>;
+			};
+			btn9 {
+				label = "PB2";
+				linux,code = <1>; // ESC
+				gpios = <&gpio 51 0>;
+			};
+			btnc {
+				label = "BTNC";
+				linux,code = <76>; // Numeric 5
+				gpios = <&gpio 54 0>;
+			};
+			btnd {
+				label = "BTND";
+				linux,code = <80>; // DOWN 2
+				gpios = <&gpio 61 0>;
+			};
+			btnl {
+				label = "BTNL";
+				linux,code = <75>; // LEFT 4
+				gpios = <&gpio 62 0>;
+			};
+			btnr {
+				label = "BTNR";
+				linux,code = <77>; // RT ARROW 6
+				gpios = <&gpio 63 0>;
+			};
+			btnu {
+				label = "BTNU";
+				linux,code = <72>; // UP 8
+				gpios = <&gpio 64 0>;
+			};
+		};
+
+		zed_oled {
+			compatible = "dglnt,pmodoled-gpio";
+			/* GPIO Pins */
+			vbat-gpio = <&gpio 55 0>;
+			vdd-gpio = <&gpio 56 0>;
+			res-gpio = <&gpio 57 0>;
+			dc-gpio = <&gpio 58 0>;
+			/* SPI-GPIOs */
+			spi-bus-num = <2>;
+			spi-sclk-gpio = <&gpio 59 0>;
+			spi-sdin-gpio = <&gpio 60 0>;
+		};
+
 	};
 };

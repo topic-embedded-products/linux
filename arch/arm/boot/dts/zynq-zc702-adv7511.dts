@@ -10,9 +10,13 @@
 		ranges;
 
 		i2c0: i2c@0 {
-			compatible = "i2c-gpio";
-			gpios = <&gpio 51 0 &gpio 50 0>;
-			i2c-gpio,delay-us = <2>;
+			compatible = "xlnx,ps7-i2c-1.00.a";
+			reg = <0xe0004000 0x1000>;
+			interrupts = <0 25 4>;
+			interrupt-parent = <&gic>;
+			bus-id = <0>;
+			input-clk = <111111111>;
+			i2c-clk = <100000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 
@@ -21,6 +25,19 @@
 				reg = <0x74>;
 				#address-cells = <1>;
 				#size-cells = <0>;
+
+				i2c@0 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <0>;
+					osc@5d {
+						compatible = "si570";
+						reg = <0x5d>;
+						factory-fout = <156250000>;
+						initial-fout = <148500000>;
+					};
+				};
+
 				i2c_adv7511: i2c@1 {
 					#size-cells = <0>;
 					#address-cells = <1>;
@@ -44,6 +61,28 @@
 					};
 				};
 
+				i2c@2 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <2>;
+					eeprom@54 {
+						compatible = "at,24c08";
+						reg = <0x54>;
+					};
+				};
+
+				i2c@3 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <3>;
+					gpio@21 {
+						compatible = "ti,tca6416";
+						reg = <0x21>;
+						gpio-controller;
+						#gpio-cells = <2>;
+					};
+				};
+
 				i2c@4 {
 					#size-cells = <0>;
 					#address-cells = <1>;
@@ -53,6 +92,26 @@
 						reg = <0x51>;
 					};
 				};
+
+/* leads to "i2c i2c-0: sendbytes: NAK bailout." messages
+				i2c@7 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <7>;
+					hwmon@52{
+						compatible = "pmbus,ucd9248";
+						reg = <52>;
+					};
+					hwmon@53{
+						compatible = "pmbus,ucd9248";
+						reg = <53>;
+					};
+					hwmon@54{
+						compatible = "pmbus,ucd9248";
+						reg = <54>;
+					};
+				};
+*/
 			};
 
 		};
@@ -126,6 +185,47 @@
 			audio-codec-adapter = <&i2c_adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
 			pcm = <&xilinx_pcm_audio>;
+		};
+
+		leds {
+			compatible = "gpio-leds";
+			ds23 {
+				label = "ds23";
+				gpios = <&gpio 10 0>;
+				linux,default-trigger = "heartbeat";
+			};
+			ds12 {
+				label = "ds12";
+				gpios = <&gpio 8 0>;
+				linux,default-trigger = "mmc0";
+			};
+		};
+
+		gpio_keys {
+			compatible = "gpio-keys";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			autorepeat;
+			sw13 {
+				label = "SW13";
+				linux,code = <49>; /* "N" */
+				gpios = <&gpio 14 0>;
+			};
+			sw14 {
+				label = "SW14";
+				linux,code = <31>; /* "S" */
+				gpios = <&gpio 12 0>;
+			};
+			sw5 {
+				label = "SW5";
+				linux,code = <106>; // Right
+				gpios = <&gpio 54 0>;
+			};
+			sw7 {
+				label = "SW7";
+				linux,code = <105>; // Left
+				gpios = <&gpio 55 0>;
+			};
 		};
 	};
 };
