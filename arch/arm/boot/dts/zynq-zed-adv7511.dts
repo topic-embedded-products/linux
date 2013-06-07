@@ -128,13 +128,13 @@
 			xlnx,sg-include-stscntrl-strm = <0x0>;
 			dma-channel@40410000 {
 				compatible = "xlnx,axi-dma-mm2s-channel";
-				interrupts = < 0 54 0x4 >;
+				interrupts = < 0 55 0x4 >;
 				xlnx,datawidth = <0x20>;
 				xlnx,include-dre = <0x0>;
 			};
 			dma-channel@40410030 {
 				compatible = "xlnx,axi-dma-s2mm-channel";
-				interrupts = < 0 55 0x4 >;
+				interrupts = < 0 56 0x4 >;
 				xlnx,datawidth = <0x20>;
 				xlnx,include-dre = <0x0>;
 			};
