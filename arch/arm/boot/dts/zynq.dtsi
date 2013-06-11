@@ -138,7 +138,7 @@
 			#gpio-cells = <2>;
 		};
 
-		sdhci@e0100000 {
+		sdcard: sdhci@e0100000 {
 			compatible = "xlnx,ps7-sdhci-1.00.a";
 			reg = <0xe0100000 0x1000>;
 			interrupts = <0 24 0>;
