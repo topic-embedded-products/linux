@@ -27,6 +27,7 @@
 
 #include <linux/poll.h>
 #include <net/sock.h>
+#include <linux/seq_file.h>
 
 #ifndef AF_BLUETOOTH
 #define AF_BLUETOOTH	31
@@ -165,6 +166,29 @@ typedef struct {
 #define BDADDR_LE_PUBLIC	0x01
 #define BDADDR_LE_RANDOM	0x02
 
+static inline bool bdaddr_type_is_valid(__u8 type)
+{
+	switch (type) {
+	case BDADDR_BREDR:
+	case BDADDR_LE_PUBLIC:
+	case BDADDR_LE_RANDOM:
+		return true;
+	}
+
+	return false;
+}
+
+static inline bool bdaddr_type_is_le(__u8 type)
+{
+	switch (type) {
+	case BDADDR_LE_PUBLIC:
+	case BDADDR_LE_RANDOM:
+		return true;
+	}
+
+	return false;
+}
+
 #define BDADDR_ANY   (&(bdaddr_t) {{0, 0, 0, 0, 0, 0} })
 #define BDADDR_LOCAL (&(bdaddr_t) {{0, 0, 0, 0xff, 0xff, 0xff} })
 
@@ -179,7 +203,6 @@ static inline void bacpy(bdaddr_t *dst, bdaddr_t *src)
 }
 
 void baswap(bdaddr_t *dst, bdaddr_t *src);
-char *batostr(bdaddr_t *ba);
 
 /* Common socket structures and functions */
 
@@ -202,6 +225,10 @@ enum {
 struct bt_sock_list {
 	struct hlist_head head;
 	rwlock_t          lock;
+#ifdef CONFIG_PROC_FS
+        struct file_operations   fops;
+        int (* custom_seq_show)(struct seq_file *, void *);
+#endif
 };
 
 int  bt_sock_register(int proto, const struct net_proto_family *ops);
@@ -291,6 +318,11 @@ extern void hci_sock_cleanup(void);
 
 extern int bt_sysfs_init(void);
 extern void bt_sysfs_cleanup(void);
+
+extern int  bt_procfs_init(struct module* module, struct net *net, const char *name,
+			   struct bt_sock_list* sk_list,
+			   int (* seq_show)(struct seq_file *, void *));
+extern void bt_procfs_cleanup(struct net *net, const char *name);
 
 extern struct dentry *bt_debugfs;
 

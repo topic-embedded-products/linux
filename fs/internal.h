@@ -69,7 +69,7 @@ extern void __mnt_drop_write_file(struct file *);
 /*
  * fs_struct.c
  */
-extern void chroot_fs_refs(struct path *, struct path *);
+extern void chroot_fs_refs(const struct path *, const struct path *);
 
 /*
  * file_table.c
@@ -97,8 +97,8 @@ struct open_flags {
 	int acc_mode;
 	int intent;
 };
-extern struct file *do_filp_open(int dfd, const char *pathname,
-		const struct open_flags *op, int lookup_flags);
+extern struct file *do_filp_open(int dfd, struct filename *pathname,
+		const struct open_flags *op, int flags);
 extern struct file *do_file_open_root(struct dentry *, struct vfsmount *,
 		const char *, const struct open_flags *, int lookup_flags);
 
@@ -110,6 +110,7 @@ extern int open_check_o_direct(struct file *f);
  * inode.c
  */
 extern spinlock_t inode_sb_list_lock;
+extern void inode_add_lru(struct inode *inode);
 
 /*
  * fs-writeback.c
@@ -124,3 +125,8 @@ extern int invalidate_inodes(struct super_block *, bool);
  * dcache.c
  */
 extern struct dentry *__d_alloc(struct super_block *, const struct qstr *);
+
+/*
+ * read_write.c
+ */
+extern ssize_t __kernel_write(struct file *, const char *, size_t, loff_t *);

@@ -47,13 +47,13 @@
 #include <asm/irq.h>
 #include <asm/mach-types.h>
 
-#include <mach/leds-gpio.h>
+#include <linux/platform_data/leds-s3c24xx.h>
 #include <mach/regs-lcd.h>
 #include <plat/regs-serial.h>
 #include <mach/fb.h>
-#include <plat/nand.h>
-#include <plat/udc.h>
-#include <plat/iic.h>
+#include <linux/platform_data/mtd-nand-s3c2410.h>
+#include <linux/platform_data/usb-s3c2410_udc.h>
+#include <linux/platform_data/i2c-s3c2410.h>
 
 #include <plat/common-smdk.h>
 #include <plat/gpio-cfg.h>
@@ -343,6 +343,6 @@ MACHINE_START(QT2410, "QT2410")
 	.map_io		= qt2410_map_io,
 	.init_irq	= s3c24xx_init_irq,
 	.init_machine	= qt2410_machine_init,
-	.timer		= &s3c24xx_timer,
+	.init_time	= s3c24xx_timer_init,
 	.restart	= s3c2410_restart,
 MACHINE_END

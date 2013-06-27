@@ -53,7 +53,7 @@
 #include <mach/regs-lcd.h>
 #include <mach/regs-gpio.h>
 
-#include <plat/iic.h>
+#include <linux/platform_data/i2c-s3c2410.h>
 #include <plat/devs.h>
 #include <plat/cpu.h>
 #include <plat/gpio-cfg.h>
@@ -237,6 +237,6 @@ MACHINE_START(AML_M5900, "AML_M5900")
 	.map_io		= amlm5900_map_io,
 	.init_irq	= s3c24xx_init_irq,
 	.init_machine	= amlm5900_init,
-	.timer		= &s3c24xx_timer,
+	.init_time	= s3c24xx_timer_init,
 	.restart	= s3c2410_restart,
 MACHINE_END

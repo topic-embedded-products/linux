@@ -47,9 +47,7 @@
 #include <asm/unaligned.h>
 #include <asm/dma.h>
 
-#ifdef	CONFIG_USB_XUSBPS_OTG
 #include <linux/usb/xilinx_usbps_otg.h>
-#endif
 
 #define	DRIVER_DESC	"Xilinx PS USB Device Controller driver"
 #define	DRIVER_AUTHOR	"Xilinx, Inc."
@@ -288,11 +286,11 @@ struct xusbps_ep {
 	struct list_head queue;
 	struct xusbps_udc *udc;
 	struct ep_queue_head *qh;
-	const struct usb_endpoint_descriptor *desc;
 	struct usb_gadget *gadget;
 
 	char name[14];
 	unsigned stopped:1;
+	unsigned int wedge;
 };
 
 #define EP_DIR_IN	1
@@ -363,10 +361,10 @@ struct xusbps_udc {
 #define USB_SEND	1	/* IN EP */
 
 /* internal used help routines. */
-#define ep_index(EP)		((EP)->desc->bEndpointAddress&0xF)
+#define ep_index(EP)		((EP)->ep.desc->bEndpointAddress&0xF)
 #define ep_maxpacket(EP)	((EP)->ep.maxpacket)
 #define ep_is_in(EP)	((ep_index(EP) == 0) ? (EP->udc->ep0_dir == \
-			USB_DIR_IN) : ((EP)->desc->bEndpointAddress \
+			USB_DIR_IN) : ((EP)->ep.desc->bEndpointAddress \
 			& USB_DIR_IN) == USB_DIR_IN)
 #define get_ep_by_pipe(udc, pipe)	((pipe == 1) ? &udc->eps[0] : \
 					&udc->eps[pipe])
@@ -440,7 +438,7 @@ static void xusbps_udc_clk_release(struct platform_device *pdev)
 static const char driver_name[] = "xusbps-udc";
 static const char driver_desc[] = DRIVER_DESC;
 
-static struct usb_dr_device *dr_regs;
+static struct usb_dr_device __iomem *dr_regs;
 
 /* it is initialized in probe()  */
 static struct xusbps_udc *udc_controller;
@@ -456,8 +454,15 @@ xusbps_ep0_desc = {
 
 static void xusbps_ep_fifo_flush(struct usb_ep *_ep);
 
-#define xusbps_readl(addr)		readl(addr)
-#define xusbps_writel(val32, addr) writel(val32, addr)
+static inline u32 xusbps_readl(const unsigned __iomem *addr)
+{
+	return readl(addr);
+}
+
+static inline void xusbps_writel(u32 val32, unsigned __iomem *addr)
+{
+	writel(val32, addr);
+}
 
 /********************************************************************
  *	Internal Used Function
@@ -647,6 +652,17 @@ static void dr_controller_run(struct xusbps_udc *udc)
 
 	xusbps_writel(temp, &dr_regs->usbintr);
 
+	/*
+	 * Enable disconnect notification using B session end interrupt.
+	 * This is a SW workaround for USB disconnect detection as mentioned
+	 * in AR# 47538
+	 */
+	if (!gadget_is_otg(&udc->gadget)) {
+		temp = xusbps_readl(&dr_regs->otgsc);
+		temp |= OTGSC_BSEIE;
+		xusbps_writel(temp, &dr_regs->otgsc);
+	}
+
 	/* Clear stopped bit */
 	udc->stopped = 0;
 
@@ -798,9 +814,9 @@ static void ep0_setup(struct xusbps_udc *udc)
 	/* the intialization of an ep includes: fields in QH, Regs,
 	 * xusbps_ep struct */
 	struct_ep_qh_setup(udc, 0, USB_RECV, USB_ENDPOINT_XFER_CONTROL,
-			USB_MAX_CTRL_PAYLOAD, 0, 0);
+			USB_MAX_CTRL_PAYLOAD, 1, 0);
 	struct_ep_qh_setup(udc, 0, USB_SEND, USB_ENDPOINT_XFER_CONTROL,
-			USB_MAX_CTRL_PAYLOAD, 0, 0);
+			USB_MAX_CTRL_PAYLOAD, 1, 0);
 	dr_ep_setup(0, USB_RECV, USB_ENDPOINT_XFER_CONTROL);
 	dr_ep_setup(0, USB_SEND, USB_ENDPOINT_XFER_CONTROL);
 
@@ -831,7 +847,7 @@ static int xusbps_ep_enable(struct usb_ep *_ep,
 	ep = container_of(_ep, struct xusbps_ep, ep);
 
 	/* catch various bogus parameters */
-	if (!_ep || !desc || ep->desc
+	if (!_ep || !desc
 			|| (desc->bDescriptorType != USB_DT_ENDPOINT))
 		return -EINVAL;
 
@@ -840,7 +856,7 @@ static int xusbps_ep_enable(struct usb_ep *_ep,
 	if (!udc->driver || (udc->gadget.speed == USB_SPEED_UNKNOWN))
 		return -ESHUTDOWN;
 
-	max = le16_to_cpu(desc->wMaxPacketSize);
+	max = usb_endpoint_maxp(desc);
 
 	/* Disable automatic zlp generation.  Driver is reponsible to indicate
 	 * explicitly through req->req.zero.  This is needed to enable multi-td
@@ -872,8 +888,9 @@ static int xusbps_ep_enable(struct usb_ep *_ep,
 
 	spin_lock_irqsave(&udc->lock, flags);
 	ep->ep.maxpacket = max;
-	ep->desc = desc;
+	ep->ep.desc = desc;
 	ep->stopped = 0;
+	ep->wedge = 0;
 
 	/* Controller related setup */
 	/* Init EPx Queue Head (Ep Capabilites field in QH
@@ -896,7 +913,7 @@ static int xusbps_ep_enable(struct usb_ep *_ep,
 	retval = 0;
 
 	VDBG("enabled %s (ep%d%s) maxpacket %d", ep->ep.name,
-			ep->desc->bEndpointAddress & 0x0f,
+			ep->ep.desc->bEndpointAddress & 0x0f,
 			(desc->bEndpointAddress & USB_DIR_IN)
 				? "in" : "out", max);
 en_done:
@@ -916,7 +933,7 @@ static int xusbps_ep_disable(struct usb_ep *_ep)
 	int ep_num;
 
 	ep = container_of(_ep, struct xusbps_ep, ep);
-	if (!_ep || !ep->desc) {
+	if (!_ep || !ep->ep.desc) {
 		VDBG("%s not enabled", _ep ? ep->ep.name : NULL);
 		return -EINVAL;
 	}
@@ -936,7 +953,7 @@ static int xusbps_ep_disable(struct usb_ep *_ep)
 	/* nuke all pending requests (does flush) */
 	nuke(ep, -ESHUTDOWN);
 
-	ep->desc = NULL;
+	ep->ep.desc = NULL;
 	ep->stopped = 1;
 	spin_unlock_irqrestore(&udc->lock, flags);
 
@@ -1165,11 +1182,11 @@ xusbps_ep_queue(struct usb_ep *_ep, struct usb_request *_req, gfp_t gfp_flags)
 		VDBG("%s, bad params", __func__);
 		return -EINVAL;
 	}
-	if (unlikely(!_ep || !ep->desc)) {
+	if (unlikely(!_ep || !ep->ep.desc)) {
 		VDBG("%s, bad ep", __func__);
 		return -EINVAL;
 	}
-	if (ep->desc->bmAttributes == USB_ENDPOINT_XFER_ISOC) {
+	if (usb_endpoint_xfer_isoc(ep->ep.desc)) {
 		if (req->req.length > ep->ep.maxpacket)
 			return -EMSGSIZE;
 	}
@@ -1273,7 +1290,8 @@ static int xusbps_ep_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 					xusbps_req, queue);
 
 			/* Point the QH to the first TD of next request */
-			xusbps_writel((u32) next_req->head, &qh->curr_dtd_ptr);
+			xusbps_writel((u32) next_req->head,
+				(void __force __iomem *)&qh->curr_dtd_ptr);
 		}
 
 		/* The request hasn't been processed, patch up the TD chain */
@@ -1282,8 +1300,9 @@ static int xusbps_ep_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 
 		prev_req = list_entry(req->queue.prev, struct xusbps_req,
 				queue);
-		xusbps_writel(xusbps_readl(&req->tail->next_td_ptr),
-				&prev_req->tail->next_td_ptr);
+		xusbps_writel(
+		xusbps_readl((void __force __iomem *)&req->tail->next_td_ptr),
+			(void __force __iomem *)&prev_req->tail->next_td_ptr);
 
 	}
 
@@ -1320,12 +1339,12 @@ static int xusbps_ep_set_halt(struct usb_ep *_ep, int value)
 
 	ep = container_of(_ep, struct xusbps_ep, ep);
 	udc = ep->udc;
-	if (!_ep || !ep->desc) {
+	if (!_ep || !ep->ep.desc) {
 		status = -EINVAL;
 		goto out;
 	}
 
-	if (ep->desc->bmAttributes == USB_ENDPOINT_XFER_ISOC) {
+	if (usb_endpoint_xfer_isoc(ep->ep.desc)) {
 		status = -EOPNOTSUPP;
 		goto out;
 	}
@@ -1341,6 +1360,8 @@ static int xusbps_ep_set_halt(struct usb_ep *_ep, int value)
 	ep_dir = ep_is_in(ep) ? USB_SEND : USB_RECV;
 	ep_num = (unsigned char)(ep_index(ep));
 	spin_lock_irqsave(&ep->udc->lock, flags);
+	if (!value)
+		ep->wedge = 0;
 	dr_ep_change_stall(ep_num, ep_dir, value);
 	spin_unlock_irqrestore(&ep->udc->lock, flags);
 
@@ -1355,6 +1376,23 @@ out:
 	return status;
 }
 
+static int xusbps_ep_set_wedge(struct usb_ep *_ep)
+{
+	struct xusbps_ep *ep = NULL;
+	unsigned long flags = 0;
+
+	ep = container_of(_ep, struct xusbps_ep, ep);
+
+	if (!ep || !ep->ep.desc)
+		return -EINVAL;
+
+	spin_lock_irqsave(&ep->udc->lock, flags);
+	ep->wedge = 1;
+	spin_unlock_irqrestore(&ep->udc->lock, flags);
+
+	return usb_ep_set_halt(_ep);
+}
+
 static void xusbps_ep_fifo_flush(struct usb_ep *_ep)
 {
 	struct xusbps_ep *ep;
@@ -1367,7 +1405,7 @@ static void xusbps_ep_fifo_flush(struct usb_ep *_ep)
 		return;
 	} else {
 		ep = container_of(_ep, struct xusbps_ep, ep);
-		if (!ep->desc)
+		if (!ep->ep.desc)
 			return;
 	}
 	ep_num = ep_index(ep);
@@ -1407,6 +1445,7 @@ static struct usb_ep_ops xusbps_ep_ops = {
 	.dequeue = xusbps_ep_dequeue,
 
 	.set_halt = xusbps_ep_set_halt,
+	.set_wedge = xusbps_ep_set_wedge,
 	.fifo_flush = xusbps_ep_fifo_flush,	/* flush fifo */
 };
 
@@ -1586,22 +1625,11 @@ static int xusbps_udc_stop_peripheral(struct usb_phy *otg)
  * Hook to gadget drivers
  * Called by initialization code of gadget drivers
 *----------------------------------------------------------------*/
-static int xusbps_start(struct usb_gadget_driver *driver,
-		int (*bind)(struct usb_gadget *))
+static int xusbps_udc_start(struct usb_gadget *g,
+				struct usb_gadget_driver *driver)
 {
-	int retval = -ENODEV;
+	int retval = 0;
 	unsigned long flags = 0;
-
-	if (!udc_controller)
-		return -ENODEV;
-
-	if (!driver || (driver->max_speed != USB_SPEED_FULL
-				&& driver->max_speed != USB_SPEED_HIGH)
-			|| !bind || !driver->disconnect || !driver->setup)
-		return -EINVAL;
-
-	if (udc_controller->driver)
-		return -EBUSY;
 
 	/* lock is needed but whether should use this lock or another */
 	spin_lock_irqsave(&udc_controller->lock, flags);
@@ -1612,14 +1640,6 @@ static int xusbps_start(struct usb_gadget_driver *driver,
 	udc_controller->gadget.dev.driver = &driver->driver;
 	spin_unlock_irqrestore(&udc_controller->lock, flags);
 
-	/* bind udc driver to gadget driver */
-	retval = bind(&udc_controller->gadget);
-	if (retval) {
-		VDBG("bind to %s --> %d", driver->driver.name, retval);
-		udc_controller->gadget.dev.driver = NULL;
-		udc_controller->driver = NULL;
-		goto out;
-	}
 #ifdef CONFIG_USB_XUSBPS_OTG
 	if (gadget_is_otg(&udc_controller->gadget)) {
 		retval = otg_set_peripheral(udc_controller->transceiver->otg,
@@ -1629,7 +1649,7 @@ static int xusbps_start(struct usb_gadget_driver *driver,
 			driver->unbind(&udc_controller->gadget);
 			udc_controller->gadget.dev.driver = NULL;
 			udc_controller->driver = NULL;
-			goto out;
+			return retval;
 		}
 		/* Exporting start and stop routines */
 		udc_controller->xotg->start_peripheral =
@@ -1666,24 +1686,18 @@ static int xusbps_start(struct usb_gadget_driver *driver,
 
 	pr_info("%s: bind to driver %s\n",
 			udc_controller->gadget.name, driver->driver.name);
-
-out:
 	if (retval)
 		pr_warn("gadget driver register failed %d\n", retval);
+
 	return retval;
 }
 
 /* Disconnect from gadget driver */
-static int xusbps_stop(struct usb_gadget_driver *driver)
+static int xusbps_udc_stop(struct usb_gadget *g,
+		struct usb_gadget_driver *driver)
 {
 	struct xusbps_ep *loop_ep;
 	unsigned long flags;
-
-	if (!udc_controller)
-		return -ENODEV;
-
-	if (!driver || driver != udc_controller->driver || !driver->unbind)
-		return -EINVAL;
 
 	if (udc_controller->transceiver)
 		otg_set_peripheral(udc_controller->transceiver->otg, NULL);
@@ -1705,19 +1719,15 @@ static int xusbps_stop(struct usb_gadget_driver *driver)
 		nuke(loop_ep, -ESHUTDOWN);
 	spin_unlock_irqrestore(&udc_controller->lock, flags);
 
-	/* report disconnect; the controller is already quiesced */
-	driver->disconnect(&udc_controller->gadget);
-
 #ifdef CONFIG_USB_XUSBPS_OTG
-	udc_controller->xotg->start_peripheral = NULL;
-	udc_controller->xotg->stop_peripheral = NULL;
+	if (gadget_is_otg(&udc_controller->gadget)) {
+		udc_controller->xotg->start_peripheral = NULL;
+		udc_controller->xotg->stop_peripheral = NULL;
+	}
 #endif
-	/* unbind gadget and unhook driver. */
-	driver->unbind(&udc_controller->gadget);
 	udc_controller->gadget.dev.driver = NULL;
 	udc_controller->driver = NULL;
 
-	pr_warn("unregistered gadget driver '%s'\n", driver->driver.name);
 	return 0;
 }
 
@@ -1729,8 +1739,8 @@ static struct usb_gadget_ops xusbps_gadget_ops = {
 	.vbus_session = xusbps_vbus_session,
 	.vbus_draw = xusbps_vbus_draw,
 	.pullup = xusbps_pullup,
-	.start = xusbps_start,
-	.stop = xusbps_stop,
+	.udc_start = xusbps_udc_start,
+	.udc_stop = xusbps_udc_stop,
 };
 
 /* Set protocol stall on ep0, protocol stall will automatically be cleared
@@ -1767,6 +1777,10 @@ static int ep0_prime_status(struct xusbps_udc *udc, int direction)
 	req->req.actual = 0;
 	req->req.complete = NULL;
 	req->dtd_count = 0;
+	req->req.dma = dma_map_single(ep->udc->gadget.dev.parent,
+				req->req.buf, req->req.length,
+				ep_is_in(ep) ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
+	req->mapped = 1;
 
 	if (xusbps_req_to_dtd(req) == 0)
 		xusbps_queue_td(ep, req);
@@ -1820,7 +1834,7 @@ static void ch9getstatus(struct xusbps_udc *udc, u8 request_type, u16 value,
 		target_ep = get_ep_by_pipe(udc, get_pipe_by_windex(index));
 
 		/* stall if endpoint doesn't exist */
-		if (!target_ep->desc)
+		if (!target_ep->ep.desc)
 			goto stall;
 		tmp = dr_ep_get_stall(ep_index(target_ep), ep_is_in(target_ep))
 				<< USB_ENDPOINT_HALT;
@@ -1837,6 +1851,10 @@ static void ch9getstatus(struct xusbps_udc *udc, u8 request_type, u16 value,
 	req->req.actual = 0;
 	req->req.complete = NULL;
 	req->dtd_count = 0;
+	req->req.dma = dma_map_single(ep->udc->gadget.dev.parent,
+				req->req.buf, req->req.length,
+				ep_is_in(ep) ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
+	req->mapped = 1;
 
 	/* prime the data phase */
 	if ((xusbps_req_to_dtd(req) == 0))
@@ -1857,6 +1875,7 @@ static void setup_received_irq(struct xusbps_udc *udc,
 	u16 wValue = le16_to_cpu(setup->wValue);
 	u16 wIndex = le16_to_cpu(setup->wIndex);
 	u16 wLength = le16_to_cpu(setup->wLength);
+	u16 testsel = 0;
 
 	udc_reset_ep_queue(udc, 0);
 
@@ -1894,14 +1913,26 @@ static void setup_received_irq(struct xusbps_udc *udc,
 			ep = get_ep_by_pipe(udc, pipe);
 
 			spin_unlock(&udc->lock);
-			rc = xusbps_ep_set_halt(&ep->ep,
-					(setup->bRequest == USB_REQ_SET_FEATURE)
-						? 1 : 0);
+			if (setup->bRequest == USB_REQ_SET_FEATURE) {
+				 rc = xusbps_ep_set_halt(&ep->ep, 1);
+			} else {
+				if (!ep->wedge)
+					rc = xusbps_ep_set_halt(&ep->ep, 0);
+				else
+					rc = 0;
+			}
 			spin_lock(&udc->lock);
 
 		} else if ((setup->bRequestType & (USB_RECIP_MASK
 				| USB_TYPE_MASK)) == (USB_RECIP_DEVICE
 				| USB_TYPE_STANDARD)) {
+			/* TEST MODE feature */
+			if (wValue == USB_DEVICE_TEST_MODE) {
+				testsel = (wIndex >> 8) & 0xff;
+				rc = 0;
+				goto status_phase;
+			}
+
 			/* Note: The driver has not include OTG support yet.
 			 * This will be set when OTG support is added */
 			if (!gadget_is_otg(&udc->gadget))
@@ -1923,9 +1954,20 @@ static void setup_received_irq(struct xusbps_udc *udc,
 		} else
 			break;
 
+status_phase:
 		if (rc == 0) {
-			if (ep0_prime_status(udc, EP_DIR_IN))
+			if (ep0_prime_status(udc, EP_DIR_IN)) {
 				ep0stall(udc);
+			} else {
+				if (testsel) {
+					u32 tmp;
+					/* Wait for status phase to complete */
+					mdelay(1);
+					tmp = xusbps_readl(&dr_regs->portsc1);
+					tmp |= (testsel << 16);
+					xusbps_writel(tmp, &dr_regs->portsc1);
+				}
+			}
 		}
 		return;
 	}
@@ -2282,7 +2324,7 @@ static void reset_irq(struct xusbps_udc *udc)
 static irqreturn_t xusbps_udc_irq(int irq, void *_udc)
 {
 	struct xusbps_udc *udc = _udc;
-	u32 irq_src;
+	u32 irq_src, otg_sts;
 	irqreturn_t status = IRQ_NONE;
 	unsigned long flags;
 #ifdef CONFIG_USB_XUSBPS_OTG
@@ -2310,6 +2352,20 @@ static irqreturn_t xusbps_udc_irq(int irq, void *_udc)
 
 	/* Clear notification bits */
 	xusbps_writel(irq_src, &dr_regs->usbsts);
+
+	/*
+	 * Check disconnect event from B session end interrupt.
+	 * This is a SW workaround for USB disconnect detection as mentioned
+	 * in AR# 47538
+	 */
+	if (!gadget_is_otg(&udc->gadget)) {
+		otg_sts = xusbps_readl(&dr_regs->otgsc);
+		if (otg_sts & OTGSC_BSEIS) {
+			xusbps_writel(otg_sts, &dr_regs->otgsc);
+			reset_queues(udc);
+			status = IRQ_HANDLED;
+		}
+	}
 
 	/* VDBG("irq_src [0x%8x]", irq_src); */
 
@@ -2595,7 +2651,7 @@ static int xusbps_proc_read(char *page, char **start, off_t off, int count,
 	}
 	/* other gadget->eplist ep */
 	list_for_each_entry(ep, &udc->gadget.ep_list, ep.ep_list) {
-		if (ep->desc) {
+		if (ep->ep.desc) {
 			t = scnprintf(next, size,
 					"\nFor %s Maxpkt is 0x%x "
 					"index is 0x%x\n",
@@ -2659,7 +2715,7 @@ static void xusbps_udc_release(struct device *dev)
  * init resource for globle controller
  * Return the udc handle on success or NULL on failure
  ------------------------------------------------------------------*/
-static int __devinit struct_udc_setup(struct xusbps_udc *udc,
+static int struct_udc_setup(struct xusbps_udc *udc,
 		struct platform_device *pdev)
 {
 	struct xusbps_usb2_platform_data *pdata;
@@ -2698,7 +2754,6 @@ static int __devinit struct_udc_setup(struct xusbps_udc *udc,
 			struct xusbps_req, req);
 	/* allocate a small amount of memory to get valid address */
 	udc->status_req->req.buf = kmalloc(8, GFP_KERNEL);
-	udc->status_req->req.dma = virt_to_phys(udc->status_req->req.buf);
 
 	udc->resume_state = USB_STATE_NOTATTACHED;
 	udc->usb_state = USB_STATE_POWERED;
@@ -2714,7 +2769,7 @@ static int __devinit struct_udc_setup(struct xusbps_udc *udc,
  * ep0out is not used so do nothing here
  * ep0in should be taken care
  *--------------------------------------------------------------*/
-static int __devinit struct_ep_setup(struct xusbps_udc *udc,
+static int struct_ep_setup(struct xusbps_udc *udc,
 				unsigned char index, char *name, int link)
 {
 	struct xusbps_ep *ep = &udc->eps[index];
@@ -2747,7 +2802,7 @@ static int __devinit struct_ep_setup(struct xusbps_udc *udc,
  * all intialization operations implemented here except enabling usb_intr reg
  * board setup should have been done in the platform code
  */
-static int __devinit xusbps_udc_probe(struct platform_device *pdev)
+static int xusbps_udc_probe(struct platform_device *pdev)
 {
 	int ret = -ENODEV;
 	unsigned int i;
@@ -2774,7 +2829,7 @@ static int __devinit xusbps_udc_probe(struct platform_device *pdev)
 	spin_lock_init(&udc_controller->lock);
 	udc_controller->stopped = 1;
 
-	dr_regs = (struct usb_dr_device *)pdata->regs;
+	dr_regs = (struct usb_dr_device __iomem *)pdata->regs;
 	if (!dr_regs) {
 		ret = -ENOMEM;
 		goto err_kfree;
@@ -2839,7 +2894,7 @@ static int __devinit xusbps_udc_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&udc_controller->gadget.ep_list);
 	udc_controller->gadget.name = driver_name;
 #ifdef CONFIG_USB_XUSBPS_OTG
-	udc_controller->gadget.is_otg = (pdata->otg != 0);
+	udc_controller->gadget.is_otg = (pdata->otg != NULL);
 #endif
 
 	/* Setup gadget.dev and register with kernel */
@@ -2858,7 +2913,7 @@ static int __devinit xusbps_udc_probe(struct platform_device *pdev)
 	/* for ep0: the desc defined here;
 	 * for other eps, gadget layer called ep_enable with defined desc
 	 */
-	udc_controller->eps[0].desc = &xusbps_ep0_desc;
+	udc_controller->eps[0].ep.desc = &xusbps_ep0_desc;
 	udc_controller->eps[0].ep.maxpacket = USB_MAX_CTRL_PAYLOAD;
 
 	/* setup the udc->eps[] for non-control endpoints and link
@@ -2880,6 +2935,10 @@ static int __devinit xusbps_udc_probe(struct platform_device *pdev)
 		ret = -ENOMEM;
 		goto err_unregister;
 	}
+
+	/* TODO: Check if VBUS can be dynamically detected by VBUS session
+	 * interrupts using OTGSC register */
+	udc_controller->vbus_active = 1;
 
 	ret = usb_add_gadget_udc(&pdev->dev, &udc_controller->gadget);
 	if (ret)
@@ -2993,7 +3052,7 @@ static const struct dev_pm_ops xusbps_udc_dev_pm_ops = {
 
 static struct platform_driver udc_driver = {
 	.probe   = xusbps_udc_probe,
-	.remove  = __exit_p(xusbps_udc_remove),
+	.remove  = xusbps_udc_remove,
 	/* these suspend and resume are not usb suspend and resume */
 	.driver  = {
 		.name = (char *)driver_name,

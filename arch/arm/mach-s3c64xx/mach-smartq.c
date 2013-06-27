@@ -25,22 +25,22 @@
 
 #include <mach/map.h>
 #include <mach/regs-gpio.h>
-#include <mach/regs-modem.h>
 
 #include <plat/clock.h>
 #include <plat/cpu.h>
 #include <plat/devs.h>
-#include <plat/iic.h>
+#include <linux/platform_data/i2c-s3c2410.h>
 #include <plat/gpio-cfg.h>
-#include <plat/hwmon.h>
+#include <linux/platform_data/hwmon-s3c.h>
 #include <plat/regs-serial.h>
-#include <plat/usb-control.h>
+#include <linux/platform_data/usb-ohci-s3c2410.h>
 #include <plat/sdhci.h>
-#include <plat/ts.h>
+#include <linux/platform_data/touchscreen-s3c2410.h>
 
 #include <video/platform_lcd.h>
 
 #include "common.h"
+#include "regs-modem.h"
 
 #define UCON S3C2410_UCON_DEFAULT
 #define ULCON (S3C2410_LCON_CS8 | S3C2410_LCON_PNONE)

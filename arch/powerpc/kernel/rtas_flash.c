@@ -21,7 +21,6 @@
 #include <asm/delay.h>
 #include <asm/uaccess.h>
 #include <asm/rtas.h>
-#include <asm/abs_addr.h>
 
 #define MODULE_VERS "1.0"
 #define MODULE_NAME "rtas_flash"
@@ -192,7 +191,7 @@ static void free_flash_list(struct flash_block_list *f)
 
 static int rtas_flash_release(struct inode *inode, struct file *file)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_update_flash_t *uf;
 	
 	uf = (struct rtas_update_flash_t *) dp->data;
@@ -254,7 +253,7 @@ static void get_flash_status_msg(int status, char *buf)
 static ssize_t rtas_flash_read(struct file *file, char __user *buf,
 			       size_t count, loff_t *ppos)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_update_flash_t *uf;
 	char msg[RTAS_MSG_MAXLEN];
 
@@ -283,7 +282,7 @@ void rtas_block_ctor(void *ptr)
 static ssize_t rtas_flash_write(struct file *file, const char __user *buffer,
 				size_t count, loff_t *off)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_update_flash_t *uf;
 	char *p;
 	int next_free;
@@ -375,7 +374,7 @@ static void manage_flash(struct rtas_manage_flash_t *args_buf)
 static ssize_t manage_flash_read(struct file *file, char __user *buf,
 			       size_t count, loff_t *ppos)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_manage_flash_t *args_buf;
 	char msg[RTAS_MSG_MAXLEN];
 	int msglen;
@@ -392,7 +391,7 @@ static ssize_t manage_flash_read(struct file *file, char __user *buf,
 static ssize_t manage_flash_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *off)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_manage_flash_t *args_buf;
 	const char reject_str[] = "0";
 	const char commit_str[] = "1";
@@ -463,7 +462,7 @@ static int get_validate_flash_msg(struct rtas_validate_flash_t *args_buf,
 static ssize_t validate_flash_read(struct file *file, char __user *buf,
 			       size_t count, loff_t *ppos)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_validate_flash_t *args_buf;
 	char msg[RTAS_MSG_MAXLEN];
 	int msglen;
@@ -478,7 +477,7 @@ static ssize_t validate_flash_read(struct file *file, char __user *buf,
 static ssize_t validate_flash_write(struct file *file, const char __user *buf,
 				    size_t count, loff_t *off)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_validate_flash_t *args_buf;
 	int rc;
 
@@ -527,7 +526,7 @@ done:
 
 static int validate_flash_release(struct inode *inode, struct file *file)
 {
-	struct proc_dir_entry *dp = PDE(file->f_path.dentry->d_inode);
+	struct proc_dir_entry *dp = PDE(file_inode(file));
 	struct rtas_validate_flash_t *args_buf;
 
 	args_buf = (struct rtas_validate_flash_t *) dp->data;
@@ -582,7 +581,7 @@ static void rtas_flash_firmware(int reboot_type)
 	flist = (struct flash_block_list *)&rtas_data_buf[0];
 	flist->num_blocks = 0;
 	flist->next = rtas_firmware_flash_list;
-	rtas_block_list = virt_to_abs(flist);
+	rtas_block_list = __pa(flist);
 	if (rtas_block_list >= 4UL*1024*1024*1024) {
 		printk(KERN_ALERT "FLASH: kernel bug...flash list header addr above 4GB\n");
 		spin_unlock(&rtas_data_buf_lock);
@@ -596,13 +595,13 @@ static void rtas_flash_firmware(int reboot_type)
 	for (f = flist; f; f = next) {
 		/* Translate data addrs to absolute */
 		for (i = 0; i < f->num_blocks; i++) {
-			f->blocks[i].data = (char *)virt_to_abs(f->blocks[i].data);
+			f->blocks[i].data = (char *)__pa(f->blocks[i].data);
 			image_size += f->blocks[i].length;
 		}
 		next = f->next;
 		/* Don't translate NULL pointer for last entry */
 		if (f->next)
-			f->next = (struct flash_block_list *)virt_to_abs(f->next);
+			f->next = (struct flash_block_list *)__pa(f->next);
 		else
 			f->next = NULL;
 		/* make num_blocks into the version/length field */
@@ -651,10 +650,8 @@ static int initialize_flash_pde_data(const char *rtas_call_name,
 	int token;
 
 	dp->data = kzalloc(buf_size, GFP_KERNEL);
-	if (dp->data == NULL) {
-		remove_flash_pde(dp);
+	if (dp->data == NULL)
 		return -ENOMEM;
-	}
 
 	/*
 	 * This code assumes that the status int is the first member of the

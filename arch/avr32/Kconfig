@@ -7,6 +7,7 @@ config AVR32
 	select HAVE_OPROFILE
 	select HAVE_KPROBES
 	select HAVE_GENERIC_HARDIRQS
+	select VIRT_TO_BUS
 	select GENERIC_IRQ_PROBE
 	select GENERIC_ATOMIC64
 	select HARDIRQS_SW_RESEND
@@ -15,6 +16,8 @@ config AVR32
 	select ARCH_WANT_IPC_PARSE_VERSION
 	select ARCH_HAVE_NMI_SAFE_CMPXCHG
 	select GENERIC_CLOCKEVENTS
+	select HAVE_MOD_ARCH_SPECIFIC
+	select MODULES_USE_ELF_RELA
 	help
 	  AVR32 is a high-performance 32-bit RISC microprocessor core,
 	  designed for cost-sensitive embedded applications, with particular
@@ -78,7 +81,6 @@ config PLATFORM_AT32AP
 	select ARCH_REQUIRE_GPIOLIB
 	select GENERIC_ALLOCATOR
 	select HAVE_FB_ATMEL
-	select HAVE_NET_MACB
 
 #
 # CPU types
@@ -190,9 +192,6 @@ source "kernel/Kconfig.preempt"
 
 config QUICKLIST
 	def_bool y
-
-config HAVE_ARCH_BOOTMEM
-	def_bool n
 
 config ARCH_HAVE_MEMORY_PRESENT
 	def_bool n

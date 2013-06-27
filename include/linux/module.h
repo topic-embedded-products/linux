@@ -21,6 +21,9 @@
 #include <linux/percpu.h>
 #include <asm/module.h>
 
+/* In stripped ARM and x86-64 modules, ~ is surprisingly rare. */
+#define MODULE_SIG_STRING "~Module signature appended~\n"
+
 /* Not Yet Implemented */
 #define MODULE_SUPPORTED_DEVICE(name)
 
@@ -196,11 +199,11 @@ struct module_use {
 	struct module *source, *target;
 };
 
-enum module_state
-{
-	MODULE_STATE_LIVE,
-	MODULE_STATE_COMING,
-	MODULE_STATE_GOING,
+enum module_state {
+	MODULE_STATE_LIVE,	/* Normal state. */
+	MODULE_STATE_COMING,	/* Full formed, running module_init. */
+	MODULE_STATE_GOING,	/* Going away. */
+	MODULE_STATE_UNFORMED,	/* Still setting it up. */
 };
 
 /**
@@ -258,6 +261,11 @@ struct module
 	unsigned int num_unused_gpl_syms;
 	const struct kernel_symbol *unused_gpl_syms;
 	const unsigned long *unused_gpl_crcs;
+#endif
+
+#ifdef CONFIG_MODULE_SIG
+	/* Signature was verified. */
+	bool sig_ok;
 #endif
 
 	/* symbols that will be GPL-only in the near future. */
@@ -388,13 +396,13 @@ bool is_module_address(unsigned long addr);
 bool is_module_percpu_address(unsigned long addr);
 bool is_module_text_address(unsigned long addr);
 
-static inline int within_module_core(unsigned long addr, struct module *mod)
+static inline int within_module_core(unsigned long addr, const struct module *mod)
 {
 	return (unsigned long)mod->module_core <= addr &&
 	       addr < (unsigned long)mod->module_core + mod->core_size;
 }
 
-static inline int within_module_init(unsigned long addr, struct module *mod)
+static inline int within_module_init(unsigned long addr, const struct module *mod)
 {
 	return (unsigned long)mod->module_init <= addr &&
 	       addr < (unsigned long)mod->module_init + mod->init_size;

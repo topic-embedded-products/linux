@@ -265,6 +265,15 @@ config HID_GYRATION
 	---help---
 	Support for Gyration remote control.
 
+config HID_ICADE
+	tristate "ION iCade arcade controller"
+	depends on BT_HIDP
+	---help---
+	Support for the ION iCade arcade controller to work as a joystick.
+
+	To compile this driver as a module, choose M here: the
+	module will be called hid-icade.
+
 config HID_TWINHAN
 	tristate "Twinhan IR remote control"
 	depends on USB_HID
@@ -307,12 +316,11 @@ config HID_LOGITECH
 config HID_LOGITECH_DJ
 	tristate "Logitech Unifying receivers full support"
 	depends on HID_LOGITECH
-	default m
 	---help---
 	Say Y if you want support for Logitech Unifying receivers and devices.
 	Unifying receivers are capable of pairing up to 6 Logitech compliant
 	devices to the same receiver. Without this driver it will be handled by
-	generic USB_HID driver and all incomming events will be multiplexed
+	generic USB_HID driver and all incoming events will be multiplexed
 	into a single mouse and a single keyboard device.
 
 config LOGITECH_FF
@@ -527,12 +535,29 @@ config HID_PICOLCD_LEDS
 	---help---
 	  Provide access to PicoLCD's GPO pins via leds class.
 
+config HID_PICOLCD_CIR
+	bool "CIR via RC class" if EXPERT
+	default !EXPERT
+	depends on HID_PICOLCD
+	depends on HID_PICOLCD=RC_CORE || RC_CORE=y
+	---help---
+	  Provide access to PicoLCD's CIR interface via remote control (LIRC).
+
 config HID_PRIMAX
 	tristate "Primax non-fully HID-compliant devices"
 	depends on USB_HID
 	---help---
 	Support for Primax devices that are not fully compliant with the
 	HID standard.
+
+config HID_PS3REMOTE
+	tristate "Sony PS3 BD Remote Control"
+	depends on BT_HIDP
+	---help---
+	Support for the Sony PS3 Blue-ray Disk Remote Control and Logitech
+	Harmony Adapter for PS3, which connect over Bluetooth.
+
+	Support for the 6-axis controllers is provided by HID_SONY.
 
 config HID_ROCCAT
 	tristate "Roccat device support"
@@ -561,13 +586,21 @@ config HID_SONY
 	tristate "Sony PS3 controller"
 	depends on USB_HID
 	---help---
-	Support for Sony PS3 controller.
+	Support for Sony PS3 6-axis controllers.
+
+	Support for the Sony PS3 BD Remote is provided by HID_PS3REMOTE.
 
 config HID_SPEEDLINK
 	tristate "Speedlink VAD Cezanne mouse support"
 	depends on USB_HID
 	---help---
 	Support for Speedlink Vicious and Divine Cezanne mouse.
+
+config HID_STEELSERIES
+	tristate "Steelseries SRW-S1 steering wheel support"
+	depends on USB_HID
+	---help---
+	Support for Steelseries SRW-S1 steering wheel
 
 config HID_SUNPLUS
 	tristate "Sunplus wireless desktop"
@@ -627,6 +660,16 @@ config HID_TOPSEED
 	---help---
 	Say Y if you have a TopSeed Cyberlink or BTC Emprex or Conceptronic
 	CLLRCMCE remote control.
+
+config HID_THINGM
+	tristate "ThingM blink(1) USB RGB LED"
+	depends on USB_HID
+	depends on LEDS_CLASS
+	---help---
+	Support for the ThingM blink(1) USB RGB LED. This driver registers a
+	Linux LED class instance, plus additional sysfs attributes to control
+	RGB colors, fade time and playing. The device is exposed through hidraw
+	to access other functions.
 
 config HID_THRUSTMASTER
 	tristate "ThrustMaster devices support"
@@ -690,10 +733,26 @@ config HID_ZYDACRON
 	---help---
 	Support for Zydacron remote control.
 
+config HID_SENSOR_HUB
+	tristate "HID Sensors framework support"
+	depends on USB_HID && GENERIC_HARDIRQS
+	select MFD_CORE
+	default n
+	-- help---
+	  Support for HID Sensor framework. This creates a MFD instance
+	  for a sensor hub and identifies all the sensors connected to it.
+	  Each sensor is registered as a MFD cell, so that sensor specific
+	  processing can be done in a separate driver. Each sensor
+	  drivers can use the service provided by this driver to register
+	  for events and handle data streams. Each sensor driver can format
+	  data and present to user mode using input or IIO interface.
+
 endmenu
 
 endif # HID
 
 source "drivers/hid/usbhid/Kconfig"
+
+source "drivers/hid/i2c-hid/Kconfig"
 
 endmenu

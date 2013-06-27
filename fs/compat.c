@@ -558,6 +558,10 @@ ssize_t compat_rw_copy_check_uvector(int type,
 	}
 	*ret_pointer = iov;
 
+	ret = -EFAULT;
+	if (!access_ok(VERIFY_READ, uvector, nr_segs*sizeof(*uvector)))
+		goto out;
+
 	/*
 	 * Single unix specification:
 	 * We should -EINVAL if an element length is not >= 0 and fitting an
@@ -776,16 +780,16 @@ asmlinkage long compat_sys_mount(const char __user * dev_name,
 	char *kernel_type;
 	unsigned long data_page;
 	char *kernel_dev;
-	char *dir_page;
+	struct filename *dir;
 	int retval;
 
 	retval = copy_mount_string(type, &kernel_type);
 	if (retval < 0)
 		goto out;
 
-	dir_page = getname(dir_name);
-	retval = PTR_ERR(dir_page);
-	if (IS_ERR(dir_page))
+	dir = getname(dir_name);
+	retval = PTR_ERR(dir);
+	if (IS_ERR(dir))
 		goto out1;
 
 	retval = copy_mount_string(dev_name, &kernel_dev);
@@ -807,7 +811,7 @@ asmlinkage long compat_sys_mount(const char __user * dev_name,
 		}
 	}
 
-	retval = do_mount(kernel_dev, dir_page, kernel_type,
+	retval = do_mount(kernel_dev, dir->name, kernel_type,
 			flags, (void*)data_page);
 
  out4:
@@ -815,7 +819,7 @@ asmlinkage long compat_sys_mount(const char __user * dev_name,
  out3:
 	kfree(kernel_dev);
  out2:
-	putname(dir_page);
+	putname(dir);
  out1:
 	kfree(kernel_type);
  out:
@@ -870,22 +874,20 @@ asmlinkage long compat_sys_old_readdir(unsigned int fd,
 	struct compat_old_linux_dirent __user *dirent, unsigned int count)
 {
 	int error;
-	struct file *file;
-	int fput_needed;
+	struct fd f = fdget(fd);
 	struct compat_readdir_callback buf;
 
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	if (!f.file)
 		return -EBADF;
 
 	buf.result = 0;
 	buf.dirent = dirent;
 
-	error = vfs_readdir(file, compat_fillonedir, &buf);
+	error = vfs_readdir(f.file, compat_fillonedir, &buf);
 	if (buf.result)
 		error = buf.result;
 
-	fput_light(file, fput_needed);
+	fdput(f);
 	return error;
 }
 
@@ -949,17 +951,16 @@ efault:
 asmlinkage long compat_sys_getdents(unsigned int fd,
 		struct compat_linux_dirent __user *dirent, unsigned int count)
 {
-	struct file * file;
+	struct fd f;
 	struct compat_linux_dirent __user * lastdirent;
 	struct compat_getdents_callback buf;
-	int fput_needed;
 	int error;
 
 	if (!access_ok(VERIFY_WRITE, dirent, count))
 		return -EFAULT;
 
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	f = fdget(fd);
+	if (!f.file)
 		return -EBADF;
 
 	buf.current_dir = dirent;
@@ -967,17 +968,17 @@ asmlinkage long compat_sys_getdents(unsigned int fd,
 	buf.count = count;
 	buf.error = 0;
 
-	error = vfs_readdir(file, compat_filldir, &buf);
+	error = vfs_readdir(f.file, compat_filldir, &buf);
 	if (error >= 0)
 		error = buf.error;
 	lastdirent = buf.previous;
 	if (lastdirent) {
-		if (put_user(file->f_pos, &lastdirent->d_off))
+		if (put_user(f.file->f_pos, &lastdirent->d_off))
 			error = -EFAULT;
 		else
 			error = count - buf.count;
 	}
-	fput_light(file, fput_needed);
+	fdput(f);
 	return error;
 }
 
@@ -1035,17 +1036,16 @@ efault:
 asmlinkage long compat_sys_getdents64(unsigned int fd,
 		struct linux_dirent64 __user * dirent, unsigned int count)
 {
-	struct file * file;
+	struct fd f;
 	struct linux_dirent64 __user * lastdirent;
 	struct compat_getdents_callback64 buf;
-	int fput_needed;
 	int error;
 
 	if (!access_ok(VERIFY_WRITE, dirent, count))
 		return -EFAULT;
 
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	f = fdget(fd);
+	if (!f.file)
 		return -EBADF;
 
 	buf.current_dir = dirent;
@@ -1053,18 +1053,18 @@ asmlinkage long compat_sys_getdents64(unsigned int fd,
 	buf.count = count;
 	buf.error = 0;
 
-	error = vfs_readdir(file, compat_filldir64, &buf);
+	error = vfs_readdir(f.file, compat_filldir64, &buf);
 	if (error >= 0)
 		error = buf.error;
 	lastdirent = buf.previous;
 	if (lastdirent) {
-		typeof(lastdirent->d_off) d_off = file->f_pos;
+		typeof(lastdirent->d_off) d_off = f.file->f_pos;
 		if (__put_user_unaligned(d_off, &lastdirent->d_off))
 			error = -EFAULT;
 		else
 			error = count - buf.count;
 	}
-	fput_light(file, fput_needed);
+	fdput(f);
 	return error;
 }
 #endif /* ! __ARCH_OMIT_COMPAT_SYS_GETDENTS64 */
@@ -1084,17 +1084,12 @@ static ssize_t compat_do_readv_writev(int type, struct file *file,
 	if (!file->f_op)
 		goto out;
 
-	ret = -EFAULT;
-	if (!access_ok(VERIFY_READ, uvector, nr_segs*sizeof(*uvector)))
-		goto out;
-
-	tot_len = compat_rw_copy_check_uvector(type, uvector, nr_segs,
+	ret = compat_rw_copy_check_uvector(type, uvector, nr_segs,
 					       UIO_FASTIOV, iovstack, &iov);
-	if (tot_len == 0) {
-		ret = 0;
+	if (ret <= 0)
 		goto out;
-	}
 
+	tot_len = ret;
 	ret = rw_verify_area(type, file, pos, tot_len);
 	if (ret < 0)
 		goto out;
@@ -1152,18 +1147,16 @@ asmlinkage ssize_t
 compat_sys_readv(unsigned long fd, const struct compat_iovec __user *vec,
 		 unsigned long vlen)
 {
-	struct file *file;
-	int fput_needed;
+	struct fd f = fdget(fd);
 	ssize_t ret;
 	loff_t pos;
 
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	if (!f.file)
 		return -EBADF;
-	pos = file->f_pos;
-	ret = compat_readv(file, vec, vlen, &pos);
-	file->f_pos = pos;
-	fput_light(file, fput_needed);
+	pos = f.file->f_pos;
+	ret = compat_readv(f.file, vec, vlen, &pos);
+	f.file->f_pos = pos;
+	fdput(f);
 	return ret;
 }
 
@@ -1171,19 +1164,18 @@ asmlinkage ssize_t
 compat_sys_preadv64(unsigned long fd, const struct compat_iovec __user *vec,
 		    unsigned long vlen, loff_t pos)
 {
-	struct file *file;
-	int fput_needed;
+	struct fd f;
 	ssize_t ret;
 
 	if (pos < 0)
 		return -EINVAL;
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	f = fdget(fd);
+	if (!f.file)
 		return -EBADF;
 	ret = -ESPIPE;
-	if (file->f_mode & FMODE_PREAD)
-		ret = compat_readv(file, vec, vlen, &pos);
-	fput_light(file, fput_needed);
+	if (f.file->f_mode & FMODE_PREAD)
+		ret = compat_readv(f.file, vec, vlen, &pos);
+	fdput(f);
 	return ret;
 }
 
@@ -1221,18 +1213,16 @@ asmlinkage ssize_t
 compat_sys_writev(unsigned long fd, const struct compat_iovec __user *vec,
 		  unsigned long vlen)
 {
-	struct file *file;
-	int fput_needed;
+	struct fd f = fdget(fd);
 	ssize_t ret;
 	loff_t pos;
 
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	if (!f.file)
 		return -EBADF;
-	pos = file->f_pos;
-	ret = compat_writev(file, vec, vlen, &pos);
-	file->f_pos = pos;
-	fput_light(file, fput_needed);
+	pos = f.file->f_pos;
+	ret = compat_writev(f.file, vec, vlen, &pos);
+	f.file->f_pos = pos;
+	fdput(f);
 	return ret;
 }
 
@@ -1240,19 +1230,18 @@ asmlinkage ssize_t
 compat_sys_pwritev64(unsigned long fd, const struct compat_iovec __user *vec,
 		     unsigned long vlen, loff_t pos)
 {
-	struct file *file;
-	int fput_needed;
+	struct fd f;
 	ssize_t ret;
 
 	if (pos < 0)
 		return -EINVAL;
-	file = fget_light(fd, &fput_needed);
-	if (!file)
+	f = fdget(fd);
+	if (!f.file)
 		return -EBADF;
 	ret = -ESPIPE;
-	if (file->f_mode & FMODE_PWRITE)
-		ret = compat_writev(file, vec, vlen, &pos);
-	fput_light(file, fput_needed);
+	if (f.file->f_mode & FMODE_PWRITE)
+		ret = compat_writev(f.file, vec, vlen, &pos);
+	fdput(f);
 	return ret;
 }
 
@@ -1288,8 +1277,7 @@ compat_sys_vmsplice(int fd, const struct compat_iovec __user *iov32,
  * Exactly like fs/open.c:sys_open(), except that it doesn't set the
  * O_LARGEFILE flag.
  */
-asmlinkage long
-compat_sys_open(const char __user *filename, int flags, umode_t mode)
+COMPAT_SYSCALL_DEFINE3(open, const char __user *, filename, int, flags, umode_t, mode)
 {
 	return do_sys_open(AT_FDCWD, filename, flags, mode);
 }
@@ -1298,8 +1286,7 @@ compat_sys_open(const char __user *filename, int flags, umode_t mode)
  * Exactly like fs/open.c:sys_openat(), except that it doesn't set the
  * O_LARGEFILE flag.
  */
-asmlinkage long
-compat_sys_openat(unsigned int dfd, const char __user *filename, int flags, umode_t mode)
+COMPAT_SYSCALL_DEFINE4(openat, int, dfd, const char __user *, filename, int, flags, umode_t, mode)
 {
 	return do_sys_open(dfd, filename, flags, mode);
 }
@@ -1749,56 +1736,36 @@ asmlinkage long compat_sys_signalfd(int ufd,
 }
 #endif /* CONFIG_SIGNALFD */
 
-#ifdef CONFIG_TIMERFD
-
-asmlinkage long compat_sys_timerfd_settime(int ufd, int flags,
-				   const struct compat_itimerspec __user *utmr,
-				   struct compat_itimerspec __user *otmr)
-{
-	int error;
-	struct itimerspec t;
-	struct itimerspec __user *ut;
-
-	if (get_compat_itimerspec(&t, utmr))
-		return -EFAULT;
-	ut = compat_alloc_user_space(2 * sizeof(struct itimerspec));
-	if (copy_to_user(&ut[0], &t, sizeof(t)))
-		return -EFAULT;
-	error = sys_timerfd_settime(ufd, flags, &ut[0], &ut[1]);
-	if (!error && otmr)
-		error = (copy_from_user(&t, &ut[1], sizeof(struct itimerspec)) ||
-			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
-
-	return error;
-}
-
-asmlinkage long compat_sys_timerfd_gettime(int ufd,
-				   struct compat_itimerspec __user *otmr)
-{
-	int error;
-	struct itimerspec t;
-	struct itimerspec __user *ut;
-
-	ut = compat_alloc_user_space(sizeof(struct itimerspec));
-	error = sys_timerfd_gettime(ufd, ut);
-	if (!error)
-		error = (copy_from_user(&t, ut, sizeof(struct itimerspec)) ||
-			 put_compat_itimerspec(otmr, &t)) ? -EFAULT: 0;
-
-	return error;
-}
-
-#endif /* CONFIG_TIMERFD */
-
 #ifdef CONFIG_FHANDLE
 /*
  * Exactly like fs/open.c:sys_open_by_handle_at(), except that it
  * doesn't set the O_LARGEFILE flag.
  */
-asmlinkage long
-compat_sys_open_by_handle_at(int mountdirfd,
-			     struct file_handle __user *handle, int flags)
+COMPAT_SYSCALL_DEFINE3(open_by_handle_at, int, mountdirfd,
+			     struct file_handle __user *, handle, int, flags)
 {
 	return do_handle_open(mountdirfd, handle, flags);
 }
 #endif
+
+#ifdef __ARCH_WANT_COMPAT_SYS_SENDFILE
+asmlinkage long compat_sys_sendfile(int out_fd, int in_fd,
+				    compat_off_t __user *offset, compat_size_t count)
+{
+	loff_t pos;
+	off_t off;
+	ssize_t ret;
+
+	if (offset) {
+		if (unlikely(get_user(off, offset)))
+			return -EFAULT;
+		pos = off;
+		ret = do_sendfile(out_fd, in_fd, &pos, count, MAX_NON_LFS);
+		if (unlikely(put_user(pos, offset)))
+			return -EFAULT;
+		return ret;
+	}
+
+	return do_sendfile(out_fd, in_fd, NULL, count, 0);
+}
+#endif /* __ARCH_WANT_COMPAT_SYS_SENDFILE */

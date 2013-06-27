@@ -1,7 +1,7 @@
 #ifndef _FS_CEPH_LIBCEPH_H
 #define _FS_CEPH_LIBCEPH_H
 
-#include "ceph_debug.h"
+#include <linux/ceph/ceph_debug.h>
 
 #include <asm/unaligned.h>
 #include <linux/backing-dev.h>
@@ -15,12 +15,12 @@
 #include <linux/writeback.h>
 #include <linux/slab.h>
 
-#include "types.h"
-#include "messenger.h"
-#include "msgpool.h"
-#include "mon_client.h"
-#include "osd_client.h"
-#include "ceph_fs.h"
+#include <linux/ceph/types.h>
+#include <linux/ceph/messenger.h>
+#include <linux/ceph/msgpool.h>
+#include <linux/ceph/mon_client.h>
+#include <linux/ceph/osd_client.h>
+#include <linux/ceph/ceph_fs.h>
 
 /*
  * mount options
@@ -43,7 +43,6 @@ struct ceph_options {
 	struct ceph_entity_addr my_addr;
 	int mount_timeout;
 	int osd_idle_ttl;
-	int osd_timeout;
 	int osd_keepalive_timeout;
 
 	/*
@@ -63,7 +62,6 @@ struct ceph_options {
  * defaults
  */
 #define CEPH_MOUNT_TIMEOUT_DEFAULT  60
-#define CEPH_OSD_TIMEOUT_DEFAULT    60  /* seconds */
 #define CEPH_OSD_KEEPALIVE_DEFAULT  5
 #define CEPH_OSD_IDLE_TTL_DEFAULT    60
 
@@ -195,6 +193,8 @@ static inline int calc_pages_for(u64 off, u64 len)
 }
 
 /* ceph_common.c */
+extern bool libceph_compatible(void *data);
+
 extern const char *ceph_msg_type_name(int type);
 extern int ceph_check_fsid(struct ceph_client *client, struct ceph_fsid *fsid);
 extern struct kmem_cache *ceph_inode_cachep;
@@ -222,7 +222,7 @@ extern int ceph_open_session(struct ceph_client *client);
 /* pagevec.c */
 extern void ceph_release_page_vector(struct page **pages, int num_pages);
 
-extern struct page **ceph_get_direct_page_vector(const char __user *data,
+extern struct page **ceph_get_direct_page_vector(const void __user *data,
 						 int num_pages,
 						 bool write_page);
 extern void ceph_put_page_vector(struct page **pages, int num_pages,
@@ -230,15 +230,15 @@ extern void ceph_put_page_vector(struct page **pages, int num_pages,
 extern void ceph_release_page_vector(struct page **pages, int num_pages);
 extern struct page **ceph_alloc_page_vector(int num_pages, gfp_t flags);
 extern int ceph_copy_user_to_page_vector(struct page **pages,
-					 const char __user *data,
+					 const void __user *data,
 					 loff_t off, size_t len);
-extern int ceph_copy_to_page_vector(struct page **pages,
-				    const char *data,
+extern void ceph_copy_to_page_vector(struct page **pages,
+				    const void *data,
 				    loff_t off, size_t len);
-extern int ceph_copy_from_page_vector(struct page **pages,
-				    char *data,
+extern void ceph_copy_from_page_vector(struct page **pages,
+				    void *data,
 				    loff_t off, size_t len);
-extern int ceph_copy_page_vector_to_user(struct page **pages, char __user *data,
+extern int ceph_copy_page_vector_to_user(struct page **pages, void __user *data,
 				    loff_t off, size_t len);
 extern void ceph_zero_page_vector_range(int off, int len, struct page **pages);
 

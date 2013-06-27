@@ -66,7 +66,7 @@
 
 /*
  * We have up to 8 empty zeroed pages so we can map one of the right colour
- * when needed.  This is necessary only on R4000 / R4400 SC and MC versions
+ * when needed.	 This is necessary only on R4000 / R4400 SC and MC versions
  * where we have to avoid VCED / VECI exceptions for good performance at
  * any price.  Since page is never written to after the initialization we
  * don't have to care about aliases on other CPUs.
@@ -380,7 +380,7 @@ void __init mem_init(void)
 	high_memory = (void *) __va(max_low_pfn << PAGE_SHIFT);
 
 	totalram_pages += free_all_bootmem();
-	totalram_pages -= setup_zero_pages();	/* Setup zeroed pages.  */
+	totalram_pages -= setup_zero_pages();	/* Setup zeroed pages.	*/
 
 	reservedpages = ram = 0;
 	for (tmp = 0; tmp < max_low_pfn; tmp++)
@@ -469,19 +469,20 @@ void __init_refok free_initmem(void)
 #ifndef CONFIG_MIPS_PGD_C0_CONTEXT
 unsigned long pgd_current[NR_CPUS];
 #endif
-/*
- * On 64-bit we've got three-level pagetables with a slightly
- * different layout ...
- */
-#define __page_aligned(order) __attribute__((__aligned__(PAGE_SIZE<<order)))
 
 /*
  * gcc 3.3 and older have trouble determining that PTRS_PER_PGD and PGD_ORDER
  * are constants.  So we use the variants from asm-offset.h until that gcc
  * will officially be retired.
+ *
+ * Align swapper_pg_dir in to 64K, allows its address to be loaded
+ * with a single LUI instruction in the TLB handlers.  If we used
+ * __aligned(64K), its size would get rounded up to the alignment
+ * size, and waste space.  So we place it in its own section and align
+ * it in the linker script.
  */
-pgd_t swapper_pg_dir[_PTRS_PER_PGD] __page_aligned(_PGD_ORDER);
+pgd_t swapper_pg_dir[_PTRS_PER_PGD] __section(.bss..swapper_pg_dir);
 #ifndef __PAGETABLE_PMD_FOLDED
-pmd_t invalid_pmd_table[PTRS_PER_PMD] __page_aligned(PMD_ORDER);
+pmd_t invalid_pmd_table[PTRS_PER_PMD] __page_aligned_bss;
 #endif
-pte_t invalid_pte_table[PTRS_PER_PTE] __page_aligned(PTE_ORDER);
+pte_t invalid_pte_table[PTRS_PER_PTE] __page_aligned_bss;

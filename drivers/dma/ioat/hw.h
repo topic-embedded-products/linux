@@ -22,7 +22,6 @@
 #define _IOAT_HW_H_
 
 /* PCI Configuration Space Values */
-#define IOAT_PCI_VID            0x8086
 #define IOAT_MMIO_BAR		0
 
 /* CB device ID's */
@@ -31,13 +30,21 @@
 #define IOAT_PCI_DID_SCNB       0x65FF
 #define IOAT_PCI_DID_SNB        0x402F
 
-#define IOAT_PCI_RID            0x00
-#define IOAT_PCI_SVID           0x8086
-#define IOAT_PCI_SID            0x8086
 #define IOAT_VER_1_2            0x12    /* Version 1.2 */
 #define IOAT_VER_2_0            0x20    /* Version 2.0 */
 #define IOAT_VER_3_0            0x30    /* Version 3.0 */
 #define IOAT_VER_3_2            0x32    /* Version 3.2 */
+
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB0	0x0e20
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB1	0x0e21
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB2	0x0e22
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB3	0x0e23
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB4	0x0e24
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB5	0x0e25
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB6	0x0e26
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB7	0x0e27
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB8	0x0e2e
+#define PCI_DEVICE_ID_INTEL_IOAT_IVB9	0x0e2f
 
 int system_has_dca_enabled(struct pci_dev *pdev);
 

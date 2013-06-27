@@ -263,9 +263,6 @@ static long xwdt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		xwdt_keepalive();
 		return 0;
 
-	case WDIOC_SETTIMEOUT:
-		printk(KERN_INFO "This feature is not implemented yet!\n");
-
 	case WDIOC_GETTIMEOUT:
 		if (no_timeout)
 			return -ENOTTY;
@@ -292,7 +289,7 @@ static struct miscdevice xwdt_miscdev = {
 	.fops       = &xwdt_fops,
 };
 
-static int __devinit xwdt_probe(struct platform_device *pdev)
+static int xwdt_probe(struct platform_device *pdev)
 {
 	int rc;
 	u32 *tmptr;
@@ -386,7 +383,7 @@ err_out:
 	return rc;
 }
 
-static int __devexit xwdt_remove(struct platform_device *dev)
+static int xwdt_remove(struct platform_device *dev)
 {
 	misc_deregister(&xwdt_miscdev);
 	iounmap(xdev.base);
@@ -396,8 +393,7 @@ static int __devexit xwdt_remove(struct platform_device *dev)
 }
 
 /* Match table for of_platform binding */
-static struct of_device_id __devinitdata xwdt_of_match[] = {
-	{ .compatible = "xlnx,xps-timebase-wdt-1.01.a", },
+static struct of_device_id xwdt_of_match[] = {
 	{ .compatible = "xlnx,xps-timebase-wdt-1.00.a", },
 	{},
 };
@@ -405,7 +401,7 @@ MODULE_DEVICE_TABLE(of, xwdt_of_match);
 
 static struct platform_driver xwdt_driver = {
 	.probe       = xwdt_probe,
-	.remove      = __devexit_p(xwdt_remove),
+	.remove      = xwdt_remove,
 	.driver = {
 		.owner = THIS_MODULE,
 		.name  = WATCHDOG_NAME,

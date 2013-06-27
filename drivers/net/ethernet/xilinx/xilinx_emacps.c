@@ -39,10 +39,8 @@
 #include <linux/vmalloc.h>
 #include <linux/version.h>
 #include <linux/of.h>
-#include <mach/slcr.h>
 #include <linux/interrupt.h>
 #include <linux/clocksource.h>
-#include <linux/timecompare.h>
 #include <linux/net_tstamp.h>
 #include <linux/pm_runtime.h>
 #include <linux/clk.h>
@@ -88,8 +86,8 @@ MDC_DIV_64, MDC_DIV_96, MDC_DIV_128, MDC_DIV_224 };
 #undef  DEBUG
 #define DEBUG
 
-#define XEMACPS_SEND_BD_CNT		32
-#define XEMACPS_RECV_BD_CNT		32
+#define XEMACPS_SEND_BD_CNT		256
+#define XEMACPS_RECV_BD_CNT		256
 
 #define XEMACPS_NAPI_WEIGHT		64
 
@@ -466,18 +464,14 @@ MDC_DIV_64, MDC_DIV_96, MDC_DIV_128, MDC_DIV_224 };
 
 #define XEAMCPS_GEN_PURPOSE_TIMER_LOAD	100 /* timeout value is msecs */
 
-#define XSLCR_EMAC0_CLK_CTRL_OFFSET	0x140 /* EMAC0 Reference Clk Control */
-#define XSLCR_EMAC1_CLK_CTRL_OFFSET	0x144 /* EMAC1 Reference Clk Control */
+#define XEMACPS_GMII2RGMII_SPEED1000_FD		0x140
+#define XEMACPS_GMII2RGMII_SPEED100_FD		0x2100
+#define XEMACPS_GMII2RGMII_SPEED10_FD		0x100
+#define XEMACPS_GMII2RGMII_REG_NUM			0x10
+
 #define BOARD_TYPE_ZYNQ			0x01
 #define BOARD_TYPE_PEEP			0x02
 
-#define XEMACPS_DFLT_SLCR_DIV0_1000	8
-#define XEMACPS_DFLT_SLCR_DIV1_1000	1
-#define XEMACPS_DFLT_SLCR_DIV0_100	8
-#define XEMACPS_DFLT_SLCR_DIV1_100	5
-#define XEMACPS_DFLT_SLCR_DIV0_10	8
-#define XEMACPS_DFLT_SLCR_DIV1_10	50
-#define XEMACPS_SLCR_DIV_MASK		0xFC0FC0FF
 
 #ifdef CONFIG_XILINX_PS_EMAC_HWTSTAMP
 #define NS_PER_SEC			1000000000ULL /* Nanoseconds per
@@ -486,15 +480,14 @@ MDC_DIV_64, MDC_DIV_96, MDC_DIV_128, MDC_DIV_224 };
 #endif
 
 #define xemacps_read(base, reg)						\
-	__raw_readl((void __iomem *)((base) + (reg)))
+	__raw_readl(((void __iomem *)(base)) + (reg))
 #define xemacps_write(base, reg, val)					\
-	__raw_writel((val), (void __iomem *)((base) + (reg)))
-
-
+	__raw_writel((val), ((void __iomem *)(base)) + (reg))
 
 struct ring_info {
 	struct sk_buff *skb;
 	dma_addr_t mapping;
+	size_t len;
 };
 
 /* DMA buffer descriptor structure. Each BD is two words */
@@ -512,6 +505,7 @@ struct net_local {
 	struct notifier_block clk_rate_change_nb;
 
 	struct device_node *phy_node;
+	struct device_node *gmii2rgmii_phy_node;
 	struct ring_info *tx_skb;
 	struct ring_info *rx_skb;
 
@@ -527,10 +521,15 @@ struct net_local {
 
 	u32 tx_bd_freecnt;
 
-	spinlock_t lock;
+	spinlock_t tx_lock;
+	spinlock_t rx_lock;
+	spinlock_t nwctrlreg_lock;
 
 	struct platform_device *pdev;
 	struct net_device *ndev; /* this device */
+	struct tasklet_struct tx_bdreclaim_tasklet;
+	struct workqueue_struct *txtimeout_handler_wq;
+	struct work_struct txtimeout_reinit;
 
 	struct napi_struct napi; /* napi information for device */
 	struct net_device_stats stats; /* Statistics for this device */
@@ -540,18 +539,18 @@ struct net_local {
 	/* Manage internal timer for packet timestamping */
 	struct cyclecounter cycles;
 	struct timecounter clock;
-	struct timecompare compare;
 	struct hwtstamp_config hwtstamp_config;
 
 	struct mii_bus *mii_bus;
 	struct phy_device *phy_dev;
+	struct phy_device *gmii2rgmii_phy_dev;
+	phy_interface_t phy_interface;
 	unsigned int link;
 	unsigned int speed;
 	unsigned int duplex;
 	/* RX ip/tcp/udp checksum */
 	unsigned ip_summed;
 	unsigned int enetnum;
-	unsigned int board_type;
 	unsigned int lastrxfrmscntr;
 #ifdef CONFIG_XILINX_PS_EMAC_HWTSTAMP
 	unsigned int ptpenetclk;
@@ -650,39 +649,6 @@ static int xemacps_mdio_reset(struct mii_bus *bus)
 	return 0;
 }
 
-static void xemacps_phy_init(struct net_device *ndev)
-{
-	struct net_local *lp = netdev_priv(ndev);
-	u16 regval;
-	int i = 0;
-
-	/* set RX delay */
-	regval = xemacps_mdio_read(lp->mii_bus, lp->phy_dev->addr, 20);
-	/* 0x0080 for 100Mbps, 0x0060 for 1Gbps. */
-	regval |= 0x0080;
-	xemacps_mdio_write(lp->mii_bus, lp->phy_dev->addr, 20, regval);
-
-	/* 0x2100 for 100Mbps, 0x0140 for 1Gbps. */
-	xemacps_mdio_write(lp->mii_bus, lp->phy_dev->addr, 0, 0x2100);
-
-	regval = xemacps_mdio_read(lp->mii_bus, lp->phy_dev->addr, 0);
-	regval |= 0x8000;
-	xemacps_mdio_write(lp->mii_bus, lp->phy_dev->addr, 0, regval);
-	for (i = 0; i < 10; i++)
-		mdelay(500);
-#ifdef DEBUG_VERBOSE
-	dev_dbg(&lp->pdev->dev,
-			"phy register dump, start from 0, four in a row.");
-	for (i = 0; i <= 30; i++) {
-		if (!(i%4))
-			dev_dbg(&lp->pdev->dev, "\n %02d:  ", i);
-		regval = xemacps_mdio_read(lp->mii_bus, lp->phy_dev->addr, i);
-		dev_dbg(&lp->pdev->dev, " 0x%08x", regval);
-	}
-	dev_dbg(&lp->pdev->dev, "\n");
-#endif
-}
-
 /**
  * xemacps_set_freq() - Set a clock to a new frequency
  * @clk		Pointer to the clock to change
@@ -692,10 +658,8 @@ static void xemacps_phy_init(struct net_device *ndev)
 static void xemacps_set_freq(struct clk *clk, long rate, struct device *dev)
 {
 	rate = clk_round_rate(clk, rate);
-	if (rate < 0) {
-		dev_warn(dev, "round rate failed\n");
+	if (rate < 0)
 		return;
-	}
 
 	dev_info(dev, "Set clk to %ld Hz\n", rate);
 	if (clk_set_rate(clk, rate))
@@ -711,6 +675,7 @@ static void xemacps_adjust_link(struct net_device *ndev)
 {
 	struct net_local *lp = netdev_priv(ndev);
 	struct phy_device *phydev = lp->phy_dev;
+	struct phy_device *gmii2rgmii_phydev = lp->gmii2rgmii_phy_dev;
 	int status_change = 0;
 	u32 regval;
 
@@ -746,8 +711,26 @@ static void xemacps_adjust_link(struct net_device *ndev)
 			}
 
 			xemacps_write(lp->baseaddr, XEMACPS_NWCFG_OFFSET,
-				regval);
+			regval);
 
+			if (gmii2rgmii_phydev != NULL) {
+				if (regval & XEMACPS_NWCFG_1000_MASK) {
+					xemacps_mdio_write(lp->mii_bus,
+					gmii2rgmii_phydev->addr,
+					XEMACPS_GMII2RGMII_REG_NUM,
+					XEMACPS_GMII2RGMII_SPEED1000_FD);
+				} else if (regval & XEMACPS_NWCFG_100_MASK) {
+					xemacps_mdio_write(lp->mii_bus,
+					gmii2rgmii_phydev->addr,
+					XEMACPS_GMII2RGMII_REG_NUM,
+					XEMACPS_GMII2RGMII_SPEED100_FD);
+				} else {
+					xemacps_mdio_write(lp->mii_bus,
+					gmii2rgmii_phydev->addr,
+					XEMACPS_GMII2RGMII_REG_NUM,
+					XEMACPS_GMII2RGMII_SPEED10_FD);
+				}
+			}
 			lp->speed = phydev->speed;
 			lp->duplex = phydev->duplex;
 			status_change = 1;
@@ -816,12 +799,7 @@ static int xemacps_mii_probe(struct net_device *ndev)
 					lp->phy_node,
 					&xemacps_adjust_link,
 					0,
-					PHY_INTERFACE_MODE_RGMII_ID);
-
-		if (!phydev) {
-			printk(KERN_ERR "%s: no PHY found\n", ndev->name);
-			return -1;
-		}
+					lp->phy_interface);
 	}
 	if (!phydev) {
 		dev_err(&lp->pdev->dev, "%s: no PHY found\n", ndev->name);
@@ -841,16 +819,27 @@ static int xemacps_mii_probe(struct net_device *ndev)
 	lp->duplex  = -1;
 	lp->phy_dev = phydev;
 
-	if (lp->board_type == BOARD_TYPE_ZYNQ)
-		phy_start(lp->phy_dev);
-	else
-		xemacps_phy_init(lp->ndev);
+	phy_start(lp->phy_dev);
 
 	dev_dbg(&lp->pdev->dev, "phy_addr 0x%x, phy_id 0x%08x\n",
 			lp->phy_dev->addr, lp->phy_dev->phy_id);
 
 	dev_dbg(&lp->pdev->dev, "attach [%s] phy driver\n",
 			lp->phy_dev->drv->name);
+
+	if (lp->gmii2rgmii_phy_node) {
+		phydev = of_phy_connect(lp->ndev,
+					lp->gmii2rgmii_phy_node,
+					NULL,
+					0, 0);
+		if (!phydev) {
+			dev_err(&lp->pdev->dev, "%s: no gmii to rgmii converter found\n",
+			ndev->name);
+			return -1;
+		}
+		lp->gmii2rgmii_phy_dev = phydev;
+	} else
+		lp->gmii2rgmii_phy_dev = NULL;
 
 	return 0;
 }
@@ -910,7 +899,7 @@ err_out:
  * MAC address is not valid, reconfigure with a good one.
  * @lp: local device instance pointer
  **/
-static void __devinit xemacps_update_hwaddr(struct net_local *lp)
+static void xemacps_update_hwaddr(struct net_local *lp)
 {
 	u32 regvall;
 	u16 regvalh;
@@ -1117,7 +1106,20 @@ static int xemacps_rx(struct net_local *lp, int budget)
 	cur_p = &lp->rx_bd[lp->rx_bd_ci];
 	regval = cur_p->addr;
 	rmb();
-	while (regval & XEMACPS_RXBUF_NEW_MASK) {
+	while (numbdfree < budget) {
+		if (!(regval & XEMACPS_RXBUF_NEW_MASK))
+			break;
+
+		new_skb = netdev_alloc_skb(lp->ndev, XEMACPS_RX_BUF_SIZE);
+		if (new_skb == NULL) {
+			dev_err(&lp->ndev->dev, "no memory for new sk_buff\n");
+			break;
+		}
+		/* Get dma handle of skb->data */
+		new_skb_baddr = (u32) dma_map_single(lp->ndev->dev.parent,
+					new_skb->data,
+					XEMACPS_RX_BUF_SIZE,
+					DMA_FROM_DEVICE);
 
 		/* the packet length */
 		len = cur_p->ctrl & XEMACPS_RXBUF_LEN_MASK;
@@ -1125,7 +1127,7 @@ static int xemacps_rx(struct net_local *lp, int budget)
 		skb = lp->rx_skb[lp->rx_bd_ci].skb;
 		dma_unmap_single(lp->ndev->dev.parent,
 				lp->rx_skb[lp->rx_bd_ci].mapping,
-				XEMACPS_RX_BUF_SIZE,
+				lp->rx_skb[lp->rx_bd_ci].len,
 				DMA_FROM_DEVICE);
 
 		/* setup received skb and send it upstream */
@@ -1162,20 +1164,11 @@ static int xemacps_rx(struct net_local *lp, int budget)
 		packets++;
 		netif_receive_skb(skb);
 
-		new_skb = netdev_alloc_skb(lp->ndev, XEMACPS_RX_BUF_SIZE);
-		if (new_skb == NULL) {
-			dev_err(&lp->ndev->dev, "no memory for new sk_buff\n");
-			return 0;
-		}
-		/* Get dma handle of skb->data */
-		new_skb_baddr = (u32) dma_map_single(lp->ndev->dev.parent,
-					new_skb->data,
-					XEMACPS_RX_BUF_SIZE,
-					DMA_FROM_DEVICE);
 		cur_p->addr = (cur_p->addr & ~XEMACPS_RXBUF_ADD_MASK)
 					| (new_skb_baddr);
 		lp->rx_skb[lp->rx_bd_ci].skb = new_skb;
 		lp->rx_skb[lp->rx_bd_ci].mapping = new_skb_baddr;
+		lp->rx_skb[lp->rx_bd_ci].len = XEMACPS_RX_BUF_SIZE;
 
 		cur_p->ctrl = 0;
 		cur_p->addr &= (~XEMACPS_RXBUF_NEW_MASK);
@@ -1187,8 +1180,6 @@ static int xemacps_rx(struct net_local *lp, int budget)
 		regval = cur_p->addr;
 		rmb();
 		numbdfree++;
-		if (numbdfree == budget)
-			break;
 	}
 	wmb();
 	lp->stats.rx_packets += packets;
@@ -1205,38 +1196,49 @@ static int xemacps_rx_poll(struct napi_struct *napi, int budget)
 {
 	struct net_local *lp = container_of(napi, struct net_local, napi);
 	int work_done = 0;
-	int temp_work_done;
 	u32 regval;
 
-
-	while (work_done < budget) {
+	spin_lock(&lp->rx_lock);
+	while (1) {
 		regval = xemacps_read(lp->baseaddr, XEMACPS_RXSR_OFFSET);
 		xemacps_write(lp->baseaddr, XEMACPS_RXSR_OFFSET, regval);
-		temp_work_done = xemacps_rx(lp, budget - work_done);
-		work_done += temp_work_done;
-		if (temp_work_done <= 0)
+		if (regval & XEMACPS_RXSR_HRESPNOK_MASK)
+			dev_err(&lp->pdev->dev, "RX error 0x%x\n", regval);
+
+		work_done += xemacps_rx(lp, budget - work_done);
+		if (work_done >= budget)
 			break;
+
+		napi_complete(napi);
+		/* We disabled RX interrupts in interrupt service
+		 * routine, now it is time to enable it back.
+		 */
+		xemacps_write(lp->baseaddr,
+			XEMACPS_IER_OFFSET, XEMACPS_IXR_FRAMERX_MASK);
+
+		/* If a packet has come in between the last check of the BD
+		 * list and unmasking the interrupts, we may have missed the
+		 * interrupt, so reschedule here.
+		 */
+		if ((lp->rx_bd[lp->rx_bd_ci].addr & XEMACPS_RXBUF_NEW_MASK)
+		&&  napi_reschedule(napi)) {
+			xemacps_write(lp->baseaddr,
+				XEMACPS_IDR_OFFSET, XEMACPS_IXR_FRAMERX_MASK);
+			continue;
+		}
+		break;
 	}
-
-	if (work_done >= budget)
-		return work_done;
-
-	napi_complete(napi);
-	/* We disabled RX interrupts in interrupt service
-	 * routine, now it is time to enable it back.
-	 */
-	xemacps_write(lp->baseaddr,
-		XEMACPS_IER_OFFSET, XEMACPS_IXR_FRAMERX_MASK);
-
+	spin_unlock(&lp->rx_lock);
 	return work_done;
 }
 
 /**
- * xemacps_tx_poll - tx isr handler routine
+ * xemacps_tx_poll - tx bd reclaim tasklet handler
  * @data: pointer to network interface device structure
  **/
-static void xemacps_tx_poll(struct net_device *ndev)
+static void xemacps_tx_poll(unsigned long data)
 {
+	struct net_device *ndev = (struct net_device *)data;
 	struct net_local *lp = netdev_priv(ndev);
 	u32 regval;
 	u32 len = 0;
@@ -1246,37 +1248,37 @@ static void xemacps_tx_poll(struct net_device *ndev)
 	struct xemacps_bd *cur_p;
 	u32 cur_i;
 	u32 numbdstofree;
+	u32 numbdsinhw;
 	struct ring_info *rp;
 	struct sk_buff *skb;
+	unsigned long flags;
 
+	spin_lock(&lp->tx_lock);
 	regval = xemacps_read(lp->baseaddr, XEMACPS_TXSR_OFFSET);
 	xemacps_write(lp->baseaddr, XEMACPS_TXSR_OFFSET, regval);
 	dev_dbg(&lp->pdev->dev, "TX status 0x%x\n", regval);
-
-	/* This may happen when a buffer becomes complete
-	 * between reading the ISR and scanning the descriptors.
-	 * Nothing to worry about.
-	 */
-	if (!(regval & XEMACPS_TXSR_TXCOMPL_MASK))
-		goto tx_poll_out;
+	if (regval & (XEMACPS_TXSR_HRESPNOK_MASK | XEMACPS_TXSR_BUFEXH_MASK))
+		dev_err(&lp->pdev->dev, "TX error 0x%x\n", regval);
 
 	cur_i = lp->tx_bd_ci;
 	cur_p = &lp->tx_bd[cur_i];
-	while (bdcount < XEMACPS_SEND_BD_CNT) {
-		if ((sop == 0) && (cur_p->ctrl & XEMACPS_TXBUF_USED_MASK))
-			sop = 1;
-		else
-			break;
-
-		if (sop == 1) {
-			bdcount++;
-			bdpartialcount++;
+	numbdsinhw = XEMACPS_SEND_BD_CNT - lp->tx_bd_freecnt;
+	while (bdcount < numbdsinhw) {
+		if (sop == 0) {
+			if (cur_p->ctrl & XEMACPS_TXBUF_USED_MASK)
+				sop = 1;
+			else
+				break;
 		}
+
+		bdcount++;
+		bdpartialcount++;
+
 		/* hardware has processed this BD so check the "last" bit.
 		 * If it is clear, then there are more BDs for the current
 		 * packet. Keep a count of these partial packet BDs.
 		 */
-		if ((sop == 1) && (cur_p->ctrl & XEMACPS_TXBUF_LAST_MASK)) {
+		if (cur_p->ctrl & XEMACPS_TXBUF_LAST_MASK) {
 			sop = 0;
 			bdpartialcount = 0;
 		}
@@ -1287,13 +1289,16 @@ static void xemacps_tx_poll(struct net_device *ndev)
 	}
 	numbdstofree = bdcount - bdpartialcount;
 	lp->tx_bd_freecnt += numbdstofree;
+	numbdsinhw -= numbdstofree;
+	if (!numbdstofree)
+		goto tx_poll_out;
+
 	cur_p = &lp->tx_bd[lp->tx_bd_ci];
 	while (numbdstofree) {
 		rp = &lp->tx_skb[lp->tx_bd_ci];
 		skb = rp->skb;
 
-		BUG_ON(skb == NULL);
-		len += skb->len;
+		len += (cur_p->ctrl & XEMACPS_TXBUF_LEN_MASK);
 
 #ifdef CONFIG_XILINX_PS_EMAC_HWTSTAMP
 		if ((lp->hwtstamp_config.tx_type == HWTSTAMP_TX_ON) &&
@@ -1314,21 +1319,21 @@ static void xemacps_tx_poll(struct net_device *ndev)
 		}
 #endif /* CONFIG_XILINX_PS_EMAC_HWTSTAMP */
 
-		dma_unmap_single(&lp->pdev->dev, rp->mapping, skb->len,
+		dma_unmap_single(&lp->pdev->dev, rp->mapping, rp->len,
 			DMA_TO_DEVICE);
 		rp->skb = NULL;
-		dev_kfree_skb_irq(skb);
+		dev_kfree_skb(skb);
 		/* log tx completed packets and bytes, errors logs
 		 * are in other error counters.
 		 */
 		if (cur_p->ctrl & XEMACPS_TXBUF_LAST_MASK) {
-			if (!(cur_p->ctrl & XEMACPS_TXBUF_ERR_MASK)) {
-				lp->stats.tx_packets++;
-				lp->stats.tx_bytes += len;
-			}
+			lp->stats.tx_packets++;
+			lp->stats.tx_bytes += len;
+			len = 0;
 		}
 
-		/* Preserve used and wrap bits; clear everything else. */
+		/* Set used bit, preserve wrap bit; clear everything else. */
+		cur_p->ctrl |= XEMACPS_TXBUF_USED_MASK;
 		cur_p->ctrl &= (XEMACPS_TXBUF_USED_MASK |
 					XEMACPS_TXBUF_WRAP_MASK);
 
@@ -1339,9 +1344,18 @@ static void xemacps_tx_poll(struct net_device *ndev)
 	}
 	wmb();
 
+	if (numbdsinhw) {
+		spin_lock_irqsave(&lp->nwctrlreg_lock, flags);
+		regval = xemacps_read(lp->baseaddr, XEMACPS_NWCTRL_OFFSET);
+		regval |= XEMACPS_NWCTRL_STARTTX_MASK;
+		xemacps_write(lp->baseaddr, XEMACPS_NWCTRL_OFFSET, regval);
+		spin_unlock_irqrestore(&lp->nwctrlreg_lock, flags);
+	}
+
+	netif_wake_queue(ndev);
+
 tx_poll_out:
-	if (netif_queue_stopped(ndev))
-		netif_start_queue(ndev);
+	spin_unlock(&lp->tx_lock);
 }
 
 /**
@@ -1357,26 +1371,26 @@ static irqreturn_t xemacps_interrupt(int irq, void *dev_id)
 	u32 regisr;
 	u32 regctrl;
 
-	spin_lock(&lp->lock);
 	regisr = xemacps_read(lp->baseaddr, XEMACPS_ISR_OFFSET);
-	if (unlikely(!regisr)) {
-		spin_unlock(&lp->lock);
+	if (unlikely(!regisr))
 		return IRQ_NONE;
-	}
+
 	xemacps_write(lp->baseaddr, XEMACPS_ISR_OFFSET, regisr);
 
 	while (regisr) {
 		if (regisr & (XEMACPS_IXR_TXCOMPL_MASK |
 				XEMACPS_IXR_TX_ERR_MASK)) {
-			xemacps_tx_poll(ndev);
+			tasklet_schedule(&lp->tx_bdreclaim_tasklet);
 		}
 
 		if (regisr & XEMACPS_IXR_RXUSED_MASK) {
+			spin_lock(&lp->nwctrlreg_lock);
 			regctrl = xemacps_read(lp->baseaddr,
 					XEMACPS_NWCTRL_OFFSET);
 			regctrl |= XEMACPS_NWCTRL_FLUSH_DPRAM_MASK;
 			xemacps_write(lp->baseaddr,
 					XEMACPS_NWCTRL_OFFSET, regctrl);
+			spin_unlock(&lp->nwctrlreg_lock);
 		}
 
 		if (regisr & XEMACPS_IXR_FRAMERX_MASK) {
@@ -1387,7 +1401,6 @@ static irqreturn_t xemacps_interrupt(int irq, void *dev_id)
 		regisr = xemacps_read(lp->baseaddr, XEMACPS_ISR_OFFSET);
 		xemacps_write(lp->baseaddr, XEMACPS_ISR_OFFSET, regisr);
 	}
-	spin_unlock(&lp->lock);
 
 	return IRQ_HANDLED;
 }
@@ -1403,7 +1416,7 @@ static void xemacps_clean_rings(struct net_local *lp)
 		if (lp->rx_skb && lp->rx_skb[i].skb) {
 			dma_unmap_single(lp->ndev->dev.parent,
 					 lp->rx_skb[i].mapping,
-					 XEMACPS_RX_BUF_SIZE,
+					 lp->rx_skb[i].len,
 					 DMA_FROM_DEVICE);
 
 			dev_kfree_skb(lp->rx_skb[i].skb);
@@ -1416,7 +1429,7 @@ static void xemacps_clean_rings(struct net_local *lp)
 		if (lp->tx_skb && lp->tx_skb[i].skb) {
 			dma_unmap_single(lp->ndev->dev.parent,
 					 lp->tx_skb[i].mapping,
-					 lp->tx_skb[i].skb->len,
+					 lp->tx_skb[i].len,
 					 DMA_TO_DEVICE);
 
 			dev_kfree_skb(lp->tx_skb[i].skb);
@@ -1511,6 +1524,7 @@ static int xemacps_descriptor_init(struct net_local *lp)
 					| (new_skb_baddr);
 		lp->rx_skb[i].skb = new_skb;
 		lp->rx_skb[i].mapping = new_skb_baddr;
+		lp->rx_skb[i].len = XEMACPS_RX_BUF_SIZE;
 		wmb();
 	}
 	cur_p = &lp->rx_bd[XEMACPS_RECV_BD_CNT - 1];
@@ -1626,8 +1640,7 @@ static void xemacps_init_hw(struct net_local *lp)
 	regval |= XEMACPS_NWCFG_100_MASK;
 	regval |= XEMACPS_NWCFG_HDRXEN_MASK;
 
-	if (lp->board_type == BOARD_TYPE_ZYNQ)
-		regval |= (MDC_DIV_224 << XEMACPS_NWCFG_MDC_SHIFT_MASK);
+	regval |= (MDC_DIV_224 << XEMACPS_NWCFG_MDC_SHIFT_MASK);
 	if (lp->ndev->flags & IFF_PROMISC)	/* copy all */
 		regval |= XEMACPS_NWCFG_COPYALLEN_MASK;
 	if (!(lp->ndev->flags & IFF_BROADCAST))	/* No broadcast */
@@ -1683,9 +1696,9 @@ static void xemacps_resetrx_for_no_rxdata(unsigned long data)
 	unsigned long tempcntr;
 	unsigned long flags;
 
-	spin_lock_irqsave(&lp->lock, flags);
 	tempcntr = xemacps_read(lp->baseaddr, XEMACPS_RXCNT_OFFSET);
 	if ((!tempcntr) && (!(lp->lastrxfrmscntr))) {
+		spin_lock_irqsave(&lp->nwctrlreg_lock, flags);
 		regctrl = xemacps_read(lp->baseaddr,
 				XEMACPS_NWCTRL_OFFSET);
 		regctrl &= (~XEMACPS_NWCTRL_RXEN_MASK);
@@ -1694,9 +1707,9 @@ static void xemacps_resetrx_for_no_rxdata(unsigned long data)
 		regctrl = xemacps_read(lp->baseaddr, XEMACPS_NWCTRL_OFFSET);
 		regctrl |= (XEMACPS_NWCTRL_RXEN_MASK);
 		xemacps_write(lp->baseaddr, XEMACPS_NWCTRL_OFFSET, regctrl);
+		spin_unlock_irqrestore(&lp->nwctrlreg_lock, flags);
 	}
 	lp->lastrxfrmscntr = tempcntr;
-	spin_unlock_irqrestore(&lp->lock, flags);
 }
 
 /**
@@ -1708,57 +1721,62 @@ static void xemacps_update_stats(unsigned long data)
 {
 	struct net_local *lp = (struct net_local *)data;
 	struct net_device_stats *nstat = &lp->stats;
+	u32 cnt;
 
-	nstat->rx_errors +=
-			(xemacps_read(lp->baseaddr, XEMACPS_RXUNDRCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXOVRCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXJABCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXFCSCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXLENGTHCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXORCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXRESERRCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXALIGNCNT_OFFSET));
-	nstat->rx_length_errors +=
-			(xemacps_read(lp->baseaddr, XEMACPS_RXUNDRCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXOVRCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXJABCNT_OFFSET) +
-			xemacps_read(lp->baseaddr, XEMACPS_RXLENGTHCNT_OFFSET));
-	nstat->rx_over_errors +=
-			xemacps_read(lp->baseaddr, XEMACPS_RXORCNT_OFFSET);
-	nstat->rx_crc_errors +=
-			xemacps_read(lp->baseaddr, XEMACPS_RXFCSCNT_OFFSET);
-	nstat->rx_frame_errors +=
-			xemacps_read(lp->baseaddr, XEMACPS_RXALIGNCNT_OFFSET);
-	nstat->rx_fifo_errors +=
-			xemacps_read(lp->baseaddr, XEMACPS_RXORCNT_OFFSET);
-	nstat->tx_errors +=
-			(xemacps_read(lp->baseaddr, XEMACPS_TXURUNCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_SNGLCOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_MULTICOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_EXCESSCOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_LATECOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_CSENSECNT_OFFSET));
-	nstat->tx_aborted_errors +=
-			xemacps_read(lp->baseaddr,
-					XEMACPS_EXCESSCOLLCNT_OFFSET);
-	nstat->tx_carrier_errors +=
-			xemacps_read(lp->baseaddr, XEMACPS_CSENSECNT_OFFSET);
-	nstat->tx_fifo_errors +=
-			xemacps_read(lp->baseaddr, XEMACPS_TXURUNCNT_OFFSET);
-	nstat->collisions +=
-			(xemacps_read(lp->baseaddr,
-					XEMACPS_SNGLCOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_MULTICOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_EXCESSCOLLCNT_OFFSET) +
-			xemacps_read(lp->baseaddr,
-					XEMACPS_LATECOLLCNT_OFFSET));
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXUNDRCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_length_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXOVRCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_length_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXJABCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_length_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXFCSCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_crc_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXLENGTHCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_length_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXALIGNCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_frame_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXRESERRCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_missed_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_RXORCNT_OFFSET);
+	nstat->rx_errors += cnt;
+	nstat->rx_fifo_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_TXURUNCNT_OFFSET);
+	nstat->tx_errors += cnt;
+	nstat->tx_fifo_errors += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_SNGLCOLLCNT_OFFSET);
+	nstat->collisions += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_MULTICOLLCNT_OFFSET);
+	nstat->collisions += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_EXCESSCOLLCNT_OFFSET);
+	nstat->tx_errors += cnt;
+	nstat->tx_aborted_errors += cnt;
+	nstat->collisions += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_LATECOLLCNT_OFFSET);
+	nstat->tx_errors += cnt;
+	nstat->collisions += cnt;
+
+	cnt = xemacps_read(lp->baseaddr, XEMACPS_CSENSECNT_OFFSET);
+	nstat->tx_errors += cnt;
+	nstat->tx_carrier_errors += cnt;
 }
 
 /**
@@ -1818,7 +1836,6 @@ static int xemacps_open(struct net_device *ndev)
 		goto err_free_rings;
 	}
 
-
 	xemacps_init_hw(lp);
 	napi_enable(&lp->napi);
 	rc = xemacps_mii_probe(ndev);
@@ -1841,6 +1858,7 @@ static int xemacps_open(struct net_device *ndev)
 
 	netif_carrier_on(ndev);
 	netif_start_queue(ndev);
+	tasklet_enable(&lp->tx_bdreclaim_tasklet);
 
 	return 0;
 
@@ -1865,17 +1883,18 @@ err_free_rings:
 static int xemacps_close(struct net_device *ndev)
 {
 	struct net_local *lp = netdev_priv(ndev);
-	unsigned long flags;
 
 	del_timer(&(lp->gen_purpose_timer));
 	netif_stop_queue(ndev);
 	napi_disable(&lp->napi);
-	spin_lock_irqsave(&lp->lock, flags);
-	xemacps_reset_hw(lp);
+	tasklet_disable(&lp->tx_bdreclaim_tasklet);
 	netif_carrier_off(ndev);
-	spin_unlock_irqrestore(&lp->lock, flags);
+	xemacps_reset_hw(lp);
 	if (lp->phy_dev)
 		phy_disconnect(lp->phy_dev);
+	if (lp->gmii2rgmii_phy_node)
+		phy_disconnect(lp->gmii2rgmii_phy_dev);
+	mdelay(500);
 	xemacps_descriptor_free(lp);
 
 	pm_runtime_put(&lp->pdev->dev);
@@ -1884,31 +1903,31 @@ static int xemacps_close(struct net_device *ndev)
 }
 
 /**
- * xemacps_tx_timeout - callback uses when the transmitter has not made
- * any progress for dev->watchdog ticks.
- * @ndev: network interface device structure
+ * xemacps_reinit_for_txtimeout - work queue scheduled for the tx timeout
+ * handling.
+ * @ndev: queue work structure
  **/
-static void xemacps_tx_timeout(struct net_device *ndev)
+static void xemacps_reinit_for_txtimeout(struct work_struct *data)
 {
-	struct net_local *lp = netdev_priv(ndev);
-	unsigned long flags;
+	struct net_local *lp = container_of(data, struct net_local,
+		txtimeout_reinit);
 	int rc;
 
-	dev_err(&lp->pdev->dev, "transmit timeout %lu ms, reseting...\n",
-		TX_TIMEOUT * 1000UL / HZ);
-	netif_stop_queue(ndev);
-
-	spin_lock_irqsave(&lp->lock, flags);
+	netif_stop_queue(lp->ndev);
 	napi_disable(&lp->napi);
+	tasklet_disable(&lp->tx_bdreclaim_tasklet);
+	spin_lock_bh(&lp->tx_lock);
 	xemacps_reset_hw(lp);
-	xemacps_descriptor_free(lp);
+	spin_unlock_bh(&lp->tx_lock);
+
 	if (lp->phy_dev)
 		phy_stop(lp->phy_dev);
+
+	xemacps_descriptor_free(lp);
 	rc = xemacps_descriptor_init(lp);
 	if (rc) {
 		dev_err(&lp->pdev->dev,
 			"Unable to allocate DMA memory, rc %d\n", rc);
-		spin_unlock(&lp->lock);
 		return;
 	}
 
@@ -1917,12 +1936,28 @@ static void xemacps_tx_timeout(struct net_device *ndev)
 	lp->link    = 0;
 	lp->speed   = 0;
 	lp->duplex  = -1;
+
 	if (lp->phy_dev)
 		phy_start(lp->phy_dev);
-	napi_enable(&lp->napi);
 
-	spin_unlock_irqrestore(&lp->lock, flags);
-	netif_start_queue(ndev);
+	napi_enable(&lp->napi);
+	tasklet_enable(&lp->tx_bdreclaim_tasklet);
+	lp->ndev->trans_start = jiffies;
+	netif_wake_queue(lp->ndev);
+}
+
+/**
+ * xemacps_tx_timeout - callback used when the transmitter has not made
+ * any progress for dev->watchdog ticks.
+ * @ndev: network interface device structure
+ **/
+static void xemacps_tx_timeout(struct net_device *ndev)
+{
+	struct net_local *lp = netdev_priv(ndev);
+
+	dev_err(&lp->pdev->dev, "transmit timeout %lu ms, reseting...\n",
+		TX_TIMEOUT * 1000UL / HZ);
+	queue_work(lp->txtimeout_handler_wq, &lp->txtimeout_reinit);
 }
 
 /**
@@ -1968,19 +2003,22 @@ static int xemacps_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	void       *virt_addr;
 	skb_frag_t *frag;
 	struct xemacps_bd *cur_p;
+	unsigned long flags;
+	int bd_tail;
+	int temp_bd_index;
 
 	nr_frags = skb_shinfo(skb)->nr_frags + 1;
-	spin_lock_irq(&lp->lock);
+	spin_lock_bh(&lp->tx_lock);
 
 	cur_p = &(lp->tx_bd[lp->tx_bd_tail]);
 	if (nr_frags >= lp->tx_bd_freecnt) {
 		netif_stop_queue(ndev); /* stop send queue */
-		spin_unlock_irq(&lp->lock);
+		spin_unlock_bh(&lp->tx_lock);
 		return NETDEV_TX_BUSY;
 	}
 	lp->tx_bd_freecnt -= nr_frags;
 	frag = &skb_shinfo(skb)->frags[0];
-
+	bd_tail = lp->tx_bd_tail;
 	for (i = 0; i < nr_frags; i++) {
 		if (i == 0) {
 			len = skb_headlen(skb);
@@ -1992,21 +2030,23 @@ static int xemacps_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 			mapping = dma_map_single(&lp->pdev->dev, virt_addr,
 				len, DMA_TO_DEVICE);
 			frag++;
+			skb_get(skb);
 		}
 
 		lp->tx_skb[lp->tx_bd_tail].skb = skb;
 		lp->tx_skb[lp->tx_bd_tail].mapping = mapping;
-
+		lp->tx_skb[lp->tx_bd_tail].len = len;
 		cur_p->addr = mapping;
 
 		/* Preserve only critical status bits.  Packet is NOT to be
-		 * committed to hardware at this time.
+		 * committed to hardware at this time. This ensures that
+		 * the Used bit will still be set. The clearing of Used bits
+		 * happen in a loop after this loop.
 		 */
 		regval = cur_p->ctrl;
 		regval &= (XEMACPS_TXBUF_USED_MASK | XEMACPS_TXBUF_WRAP_MASK);
 		/* update length field */
 		regval |= ((regval & ~XEMACPS_TXBUF_LEN_MASK) | len);
-		regval &= ~XEMACPS_TXBUF_USED_MASK;
 		/* last fragment of this packet? */
 		if (i == (nr_frags - 1))
 			regval |= XEMACPS_TXBUF_LAST_MASK;
@@ -2017,13 +2057,45 @@ static int xemacps_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 		cur_p = &(lp->tx_bd[lp->tx_bd_tail]);
 	}
-	wmb();
 
+	/* Remember the bd index for the first bd in the bd chain allocated
+	 * for the fragments. The Used bit for the 1st BD will need to be
+	 * updated last.
+	 */
+	temp_bd_index = bd_tail;
+	bd_tail++;
+	bd_tail = bd_tail % XEMACPS_SEND_BD_CNT;
+	cur_p = &(lp->tx_bd[bd_tail]);
+	/* Clear the used bits for the BDs for a packet that consists of
+	 *  multiple BDs. For single BD packets, this loop will not execute.
+	 *  For multiple BD packets, the Used bit updates will happen for
+	 * all BDs except the 1st BD in the BD chain allocated for the packet.
+	 */
+	for (i = 1; i < nr_frags; i++) {
+		regval = cur_p->ctrl;
+		regval &= ~XEMACPS_TXBUF_USED_MASK;
+		cur_p->ctrl = regval;
+		bd_tail++;
+		bd_tail = bd_tail % XEMACPS_SEND_BD_CNT;
+		cur_p = &(lp->tx_bd[bd_tail]);
+	}
+	/* Clear the Used bit. For single BD packets, the clearing of
+	 * Used bit happens here. For multi-BD packets, the clearing of
+	 * the Used bit of the 1st BD happens here.
+	 */
+	cur_p = &(lp->tx_bd[temp_bd_index]);
+	regval = cur_p->ctrl;
+	regval &= ~XEMACPS_TXBUF_USED_MASK;
+	cur_p->ctrl = regval;
+
+	wmb();
+	spin_lock_irqsave(&lp->nwctrlreg_lock, flags);
 	regval = xemacps_read(lp->baseaddr, XEMACPS_NWCTRL_OFFSET);
 	xemacps_write(lp->baseaddr, XEMACPS_NWCTRL_OFFSET,
 			(regval | XEMACPS_NWCTRL_STARTTX_MASK));
+	spin_unlock_irqrestore(&lp->nwctrlreg_lock, flags);
 
-	spin_unlock_irq(&lp->lock);
+	spin_unlock_bh(&lp->tx_lock);
 	ndev->trans_start = jiffies;
 	return 0;
 }
@@ -2282,11 +2354,10 @@ static void
 xemacps_get_wol(struct net_device *ndev, struct ethtool_wolinfo *ewol)
 {
 	struct net_local *lp = netdev_priv(ndev);
-	unsigned long flags;
 	u32 regval;
 
 	ewol->supported = WAKE_MAGIC | WAKE_ARP | WAKE_UCAST | WAKE_MCAST;
-	spin_lock_irqsave(&lp->lock, flags);
+
 	regval = xemacps_read(lp->baseaddr, XEMACPS_WOL_OFFSET);
 	if (regval | XEMACPS_WOL_MCAST_MASK)
 		ewol->wolopts |= WAKE_MCAST;
@@ -2296,7 +2367,7 @@ xemacps_get_wol(struct net_device *ndev, struct ethtool_wolinfo *ewol)
 		ewol->wolopts |= WAKE_UCAST;
 	if (regval | XEMACPS_WOL_MAGIC_MASK)
 		ewol->wolopts |= WAKE_MAGIC;
-	spin_unlock_irqrestore(&lp->lock, flags);
+
 }
 
 /**
@@ -2313,13 +2384,11 @@ static int
 xemacps_set_wol(struct net_device *ndev, struct ethtool_wolinfo *ewol)
 {
 	struct net_local *lp = netdev_priv(ndev);
-	unsigned long flags;
 	u32 regval;
 
 	if (ewol->wolopts & ~(WAKE_MAGIC | WAKE_ARP | WAKE_UCAST | WAKE_MCAST))
 		return -EOPNOTSUPP;
 
-	spin_lock_irqsave(&lp->lock, flags);
 	regval  = xemacps_read(lp->baseaddr, XEMACPS_WOL_OFFSET);
 	regval &= ~(XEMACPS_WOL_MCAST_MASK | XEMACPS_WOL_ARP_MASK |
 		XEMACPS_WOL_SPEREG1_MASK | XEMACPS_WOL_MAGIC_MASK);
@@ -2334,7 +2403,6 @@ xemacps_set_wol(struct net_device *ndev, struct ethtool_wolinfo *ewol)
 		regval |= XEMACPS_WOL_MCAST_MASK;
 
 	xemacps_write(lp->baseaddr, XEMACPS_WOL_OFFSET, regval);
-	spin_unlock_irqrestore(&lp->lock, flags);
 
 	return 0;
 }
@@ -2352,16 +2420,13 @@ xemacps_get_pauseparam(struct net_device *ndev,
 		struct ethtool_pauseparam *epauseparm)
 {
 	struct net_local *lp = netdev_priv(ndev);
-	unsigned long flags;
 	u32 regval;
 
 	epauseparm->autoneg  = 0;
 	epauseparm->rx_pause = 0;
 
-	spin_lock_irqsave(&lp->lock, flags);
 	regval = xemacps_read(lp->baseaddr, XEMACPS_NWCFG_OFFSET);
 	epauseparm->tx_pause = regval & XEMACPS_NWCFG_PAUSEEN_MASK;
-	spin_unlock_irqrestore(&lp->lock, flags);
 }
 
 /**
@@ -2378,7 +2443,6 @@ xemacps_set_pauseparam(struct net_device *ndev,
 		struct ethtool_pauseparam *epauseparm)
 {
 	struct net_local *lp = netdev_priv(ndev);
-	unsigned long flags;
 	u32 regval;
 
 	if (netif_running(ndev)) {
@@ -2387,7 +2451,6 @@ xemacps_set_pauseparam(struct net_device *ndev,
 		return -EFAULT;
 	}
 
-	spin_lock_irqsave(&lp->lock, flags);
 	regval = xemacps_read(lp->baseaddr, XEMACPS_NWCFG_OFFSET);
 
 	if (epauseparm->tx_pause)
@@ -2396,8 +2459,6 @@ xemacps_set_pauseparam(struct net_device *ndev,
 		regval &= ~XEMACPS_NWCFG_PAUSEEN_MASK;
 
 	xemacps_write(lp->baseaddr, XEMACPS_NWCFG_OFFSET, regval);
-	spin_unlock_irqrestore(&lp->lock, flags);
-
 	return 0;
 }
 
@@ -2522,14 +2583,12 @@ static int xemacps_ioctl(struct net_device *ndev, struct ifreq *rq, int cmd)
  *
  * Return 0 on success, negative value if error
  */
-static int __devinit xemacps_probe(struct platform_device *pdev)
+static int xemacps_probe(struct platform_device *pdev)
 {
 	struct resource *r_mem = NULL;
 	struct resource *r_irq = NULL;
 	struct net_device *ndev;
 	struct net_local *lp;
-	struct device_node *np;
-	const void *prop;
 	u32 regval = 0;
 	int rc = -ENXIO;
 
@@ -2554,7 +2613,9 @@ static int __devinit xemacps_probe(struct platform_device *pdev)
 	lp->pdev = pdev;
 	lp->ndev = ndev;
 
-	spin_lock_init(&lp->lock);
+	spin_lock_init(&lp->tx_lock);
+	spin_lock_init(&lp->rx_lock);
+	spin_lock_init(&lp->nwctrlreg_lock);
 
 	lp->baseaddr = ioremap(r_mem->start, (r_mem->end - r_mem->start + 1));
 	if (!lp->baseaddr) {
@@ -2568,28 +2629,19 @@ static int __devinit xemacps_probe(struct platform_device *pdev)
 
 	ndev->irq = platform_get_irq(pdev, 0);
 
-	rc = request_irq(ndev->irq, xemacps_interrupt, 0,
-		ndev->name, ndev);
-	if (rc) {
-		dev_err(&lp->pdev->dev, "Unable to request IRQ %p, error %d\n",
-				r_irq, rc);
-		goto err_out_iounmap;
-	}
-
 	ndev->netdev_ops = &netdev_ops;
 	ndev->watchdog_timeo = TX_TIMEOUT;
 	ndev->ethtool_ops = &xemacps_ethtool_ops;
 	ndev->base_addr = r_mem->start;
-	ndev->features = NETIF_F_IP_CSUM;
+	ndev->features = NETIF_F_IP_CSUM | NETIF_F_SG;
 	netif_napi_add(ndev, &lp->napi, xemacps_rx_poll, XEMACPS_NAPI_WEIGHT);
 
 	lp->ip_summed = CHECKSUM_UNNECESSARY;
-	lp->board_type = BOARD_TYPE_ZYNQ;
 
 	rc = register_netdev(ndev);
 	if (rc) {
 		dev_err(&pdev->dev, "Cannot register net device, aborting.\n");
-		goto err_out_free_irq;
+		goto err_out_iounmap;
 	}
 
 	if (ndev->irq == 54)
@@ -2597,77 +2649,67 @@ static int __devinit xemacps_probe(struct platform_device *pdev)
 	else
 		lp->enetnum = 1;
 
-	np = of_get_next_parent(lp->pdev->dev.of_node);
-	np = of_get_next_parent(np);
-	prop = of_get_property(np, "compatible", NULL);
-
-	if (prop != NULL) {
-		if ((strcmp((const char *)prop, "xlnx,zynq-ep107")) == 0)
-			lp->board_type = BOARD_TYPE_PEEP;
-		else
-			lp->board_type = BOARD_TYPE_ZYNQ;
-	} else {
-		lp->board_type = BOARD_TYPE_ZYNQ;
+	if (lp->enetnum == 0)
+		lp->aperclk = clk_get_sys("GEM0_APER", NULL);
+	else
+		lp->aperclk = clk_get_sys("GEM1_APER", NULL);
+	if (IS_ERR(lp->aperclk)) {
+		dev_err(&pdev->dev, "APER clock not found.\n");
+		rc = PTR_ERR(lp->aperclk);
+		goto err_out_unregister_netdev;
 	}
-	if (lp->board_type == BOARD_TYPE_ZYNQ) {
-		if (lp->enetnum == 0)
-			lp->aperclk = clk_get_sys("GEM0_APER", NULL);
-		else
-			lp->aperclk = clk_get_sys("GEM1_APER", NULL);
-		if (IS_ERR(lp->aperclk)) {
-			dev_err(&pdev->dev, "APER clock not found.\n");
-			rc = PTR_ERR(lp->aperclk);
-			goto err_out_unregister_netdev;
-		}
-		if (lp->enetnum == 0)
-			lp->devclk = clk_get_sys("GEM0", NULL);
-		else
-			lp->devclk = clk_get_sys("GEM1", NULL);
-		if (IS_ERR(lp->devclk)) {
-			dev_err(&pdev->dev, "Device clock not found.\n");
-			rc = PTR_ERR(lp->devclk);
-			goto err_out_clk_put_aper;
-		}
-
-		rc = clk_prepare_enable(lp->aperclk);
-		if (rc) {
-			dev_err(&pdev->dev, "Unable to enable APER clock.\n");
-			goto err_out_clk_put;
-		}
-		rc = clk_prepare_enable(lp->devclk);
-		if (rc) {
-			dev_err(&pdev->dev, "Unable to enable device clock.\n");
-			goto err_out_clk_dis_aper;
-		}
-
-		lp->clk_rate_change_nb.notifier_call = xemacps_clk_notifier_cb;
-		lp->clk_rate_change_nb.next = NULL;
-		if (clk_notifier_register(lp->devclk, &lp->clk_rate_change_nb))
-			dev_warn(&pdev->dev,
-				"Unable to register clock notifier.\n");
+	if (lp->enetnum == 0)
+		lp->devclk = clk_get_sys("GEM0", NULL);
+	else
+		lp->devclk = clk_get_sys("GEM1", NULL);
+	if (IS_ERR(lp->devclk)) {
+		dev_err(&pdev->dev, "Device clock not found.\n");
+		rc = PTR_ERR(lp->devclk);
+		goto err_out_clk_put_aper;
 	}
+
+	rc = clk_prepare_enable(lp->aperclk);
+	if (rc) {
+		dev_err(&pdev->dev, "Unable to enable APER clock.\n");
+		goto err_out_clk_put;
+	}
+	rc = clk_prepare_enable(lp->devclk);
+	if (rc) {
+		dev_err(&pdev->dev, "Unable to enable device clock.\n");
+		goto err_out_clk_dis_aper;
+	}
+
+	lp->clk_rate_change_nb.notifier_call = xemacps_clk_notifier_cb;
+	lp->clk_rate_change_nb.next = NULL;
+	if (clk_notifier_register(lp->devclk, &lp->clk_rate_change_nb))
+		dev_warn(&pdev->dev,
+			"Unable to register clock notifier.\n");
 
 #ifdef CONFIG_XILINX_PS_EMAC_HWTSTAMP
-	if (lp->board_type == BOARD_TYPE_ZYNQ) {
-		prop = of_get_property(lp->pdev->dev.of_node,
-					"xlnx,ptp-enet-clock", NULL);
-		if (prop)
-			lp->ptpenetclk = (u32)be32_to_cpup(prop);
-		else
-			lp->ptpenetclk = 133333328;
-	} else {
-		lp->ptpenetclk = PEEP_TSU_CLK;
-	}
+	prop = of_get_property(lp->pdev->dev.of_node,
+				"xlnx,ptp-enet-clock", NULL);
+	if (prop)
+		lp->ptpenetclk = (u32)be32_to_cpup(prop);
+	else
+		lp->ptpenetclk = 133333328;
 #endif
 
 	lp->phy_node = of_parse_phandle(lp->pdev->dev.of_node,
 						"phy-handle", 0);
-
-	if (lp->board_type == BOARD_TYPE_ZYNQ) {
-		/* Set MDIO clock divider */
-		regval = (MDC_DIV_224 << XEMACPS_NWCFG_MDC_SHIFT_MASK);
-		xemacps_write(lp->baseaddr, XEMACPS_NWCFG_OFFSET, regval);
+	lp->gmii2rgmii_phy_node = of_parse_phandle(lp->pdev->dev.of_node,
+						"gmii2rgmii-phy-handle", 0);
+	rc = of_get_phy_mode(lp->pdev->dev.of_node);
+	if (rc < 0) {
+		dev_err(&lp->pdev->dev, "error in getting phy i/f\n");
+		goto err_out_unregister_clk_notifier;
 	}
+
+	lp->phy_interface = rc;
+
+	/* Set MDIO clock divider */
+	regval = (MDC_DIV_224 << XEMACPS_NWCFG_MDC_SHIFT_MASK);
+	xemacps_write(lp->baseaddr, XEMACPS_NWCFG_OFFSET, regval);
+
 
 	regval = XEMACPS_NWCTRL_MDEN_MASK;
 	xemacps_write(lp->baseaddr, XEMACPS_NWCTRL_OFFSET, regval);
@@ -2679,6 +2721,12 @@ static int __devinit xemacps_probe(struct platform_device *pdev)
 	}
 
 	xemacps_update_hwaddr(lp);
+	tasklet_init(&lp->tx_bdreclaim_tasklet, xemacps_tx_poll,
+		     (unsigned long) ndev);
+	tasklet_disable(&lp->tx_bdreclaim_tasklet);
+
+	lp->txtimeout_handler_wq = create_singlethread_workqueue(DRIVER_NAME);
+	INIT_WORK(&lp->txtimeout_reinit, xemacps_reinit_for_txtimeout);
 
 	platform_set_drvdata(pdev, ndev);
 	pm_runtime_set_active(&pdev->dev);
@@ -2686,6 +2734,14 @@ static int __devinit xemacps_probe(struct platform_device *pdev)
 
 	dev_info(&lp->pdev->dev, "pdev->id %d, baseaddr 0x%08lx, irq %d\n",
 		pdev->id, ndev->base_addr, ndev->irq);
+
+	rc = request_irq(ndev->irq, xemacps_interrupt, 0,
+		ndev->name, ndev);
+	if (rc) {
+		dev_err(&lp->pdev->dev, "Unable to request IRQ %p, error %d\n",
+				r_irq, rc);
+		goto err_out_unregister_clk_notifier;
+	}
 
 	return 0;
 
@@ -2700,8 +2756,6 @@ err_out_clk_put_aper:
 	clk_put(lp->aperclk);
 err_out_unregister_netdev:
 	unregister_netdev(ndev);
-err_out_free_irq:
-	free_irq(ndev->irq, ndev);
 err_out_iounmap:
 	iounmap(lp->baseaddr);
 err_out_free_netdev:
@@ -2724,8 +2778,6 @@ static int __exit xemacps_remove(struct platform_device *pdev)
 
 	if (ndev) {
 		lp = netdev_priv(ndev);
-		if (lp->phy_dev)
-			phy_disconnect(lp->phy_dev);
 
 		mdiobus_unregister(lp->mii_bus);
 		kfree(lp->mii_bus->irq);
@@ -2862,7 +2914,7 @@ static struct net_device_ops netdev_ops = {
 	.ndo_get_stats		= xemacps_get_stats,
 };
 
-static struct of_device_id xemacps_of_match[] __devinitdata = {
+static struct of_device_id xemacps_of_match[] = {
 	{ .compatible = "xlnx,ps7-ethernet-1.00.a", },
 	{ /* end of table */}
 };
@@ -2870,7 +2922,7 @@ MODULE_DEVICE_TABLE(of, xemacps_of_match);
 
 static struct platform_driver xemacps_driver = {
 	.probe   = xemacps_probe,
-	.remove  = __exit_p(xemacps_remove),
+	.remove  = xemacps_remove,
 	.driver  = {
 		.name  = DRIVER_NAME,
 		.owner = THIS_MODULE,

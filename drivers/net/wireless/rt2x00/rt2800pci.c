@@ -41,6 +41,7 @@
 #include <linux/eeprom_93cx6.h>
 
 #include "rt2x00.h"
+#include "rt2x00mmio.h"
 #include "rt2x00pci.h"
 #include "rt2x00soc.h"
 #include "rt2800lib.h"
@@ -53,6 +54,11 @@
 static bool modparam_nohwcrypt = false;
 module_param_named(nohwcrypt, modparam_nohwcrypt, bool, S_IRUGO);
 MODULE_PARM_DESC(nohwcrypt, "Disable hardware encryption.");
+
+static bool rt2800pci_hwcrypt_disabled(struct rt2x00_dev *rt2x00dev)
+{
+	return modparam_nohwcrypt;
+}
 
 static void rt2800pci_mcu_status(struct rt2x00_dev *rt2x00dev, const u8 token)
 {
@@ -84,20 +90,25 @@ static void rt2800pci_mcu_status(struct rt2x00_dev *rt2x00dev, const u8 token)
 	rt2x00pci_register_write(rt2x00dev, H2M_MAILBOX_CID, ~0);
 }
 
-#if defined(CONFIG_RALINK_RT288X) || defined(CONFIG_RALINK_RT305X)
-static void rt2800pci_read_eeprom_soc(struct rt2x00_dev *rt2x00dev)
+#if defined(CONFIG_SOC_RT288X) || defined(CONFIG_SOC_RT305X)
+static int rt2800pci_read_eeprom_soc(struct rt2x00_dev *rt2x00dev)
 {
 	void __iomem *base_addr = ioremap(0x1F040000, EEPROM_SIZE);
+
+	if (!base_addr)
+		return -ENOMEM;
 
 	memcpy_fromio(rt2x00dev->eeprom, base_addr, EEPROM_SIZE);
 
 	iounmap(base_addr);
+	return 0;
 }
 #else
-static inline void rt2800pci_read_eeprom_soc(struct rt2x00_dev *rt2x00dev)
+static inline int rt2800pci_read_eeprom_soc(struct rt2x00_dev *rt2x00dev)
 {
+	return -ENOMEM;
 }
-#endif /* CONFIG_RALINK_RT288X || CONFIG_RALINK_RT305X */
+#endif /* CONFIG_SOC_RT288X || CONFIG_SOC_RT305X */
 
 #ifdef CONFIG_PCI
 static void rt2800pci_eepromregister_read(struct eeprom_93cx6 *eeprom)
@@ -130,7 +141,7 @@ static void rt2800pci_eepromregister_write(struct eeprom_93cx6 *eeprom)
 	rt2x00pci_register_write(rt2x00dev, E2PROM_CSR, reg);
 }
 
-static void rt2800pci_read_eeprom_pci(struct rt2x00_dev *rt2x00dev)
+static int rt2800pci_read_eeprom_pci(struct rt2x00_dev *rt2x00dev)
 {
 	struct eeprom_93cx6 eeprom;
 	u32 reg;
@@ -159,6 +170,8 @@ static void rt2800pci_read_eeprom_pci(struct rt2x00_dev *rt2x00dev)
 
 	eeprom_93cx6_multiread(&eeprom, EEPROM_BASE, rt2x00dev->eeprom,
 			       EEPROM_SIZE / sizeof(u16));
+
+	return 0;
 }
 
 static int rt2800pci_efuse_detect(struct rt2x00_dev *rt2x00dev)
@@ -166,13 +179,14 @@ static int rt2800pci_efuse_detect(struct rt2x00_dev *rt2x00dev)
 	return rt2800_efuse_detect(rt2x00dev);
 }
 
-static inline void rt2800pci_read_eeprom_efuse(struct rt2x00_dev *rt2x00dev)
+static inline int rt2800pci_read_eeprom_efuse(struct rt2x00_dev *rt2x00dev)
 {
-	rt2800_read_eeprom_efuse(rt2x00dev);
+	return rt2800_read_eeprom_efuse(rt2x00dev);
 }
 #else
-static inline void rt2800pci_read_eeprom_pci(struct rt2x00_dev *rt2x00dev)
+static inline int rt2800pci_read_eeprom_pci(struct rt2x00_dev *rt2x00dev)
 {
+	return -EOPNOTSUPP;
 }
 
 static inline int rt2800pci_efuse_detect(struct rt2x00_dev *rt2x00dev)
@@ -180,8 +194,9 @@ static inline int rt2800pci_efuse_detect(struct rt2x00_dev *rt2x00dev)
 	return 0;
 }
 
-static inline void rt2800pci_read_eeprom_efuse(struct rt2x00_dev *rt2x00dev)
+static inline int rt2800pci_read_eeprom_efuse(struct rt2x00_dev *rt2x00dev)
 {
+	return -EOPNOTSUPP;
 }
 #endif /* CONFIG_PCI */
 
@@ -965,85 +980,18 @@ static irqreturn_t rt2800pci_interrupt(int irq, void *dev_instance)
 /*
  * Device probe functions.
  */
-static int rt2800pci_validate_eeprom(struct rt2x00_dev *rt2x00dev)
-{
-	/*
-	 * Read EEPROM into buffer
-	 */
-	if (rt2x00_is_soc(rt2x00dev))
-		rt2800pci_read_eeprom_soc(rt2x00dev);
-	else if (rt2800pci_efuse_detect(rt2x00dev))
-		rt2800pci_read_eeprom_efuse(rt2x00dev);
-	else
-		rt2800pci_read_eeprom_pci(rt2x00dev);
-
-	return rt2800_validate_eeprom(rt2x00dev);
-}
-
-static int rt2800pci_probe_hw(struct rt2x00_dev *rt2x00dev)
+static int rt2800pci_read_eeprom(struct rt2x00_dev *rt2x00dev)
 {
 	int retval;
-	u32 reg;
 
-	/*
-	 * Allocate eeprom data.
-	 */
-	retval = rt2800pci_validate_eeprom(rt2x00dev);
-	if (retval)
-		return retval;
+	if (rt2x00_is_soc(rt2x00dev))
+		retval = rt2800pci_read_eeprom_soc(rt2x00dev);
+	else if (rt2800pci_efuse_detect(rt2x00dev))
+		retval = rt2800pci_read_eeprom_efuse(rt2x00dev);
+	else
+		retval = rt2800pci_read_eeprom_pci(rt2x00dev);
 
-	retval = rt2800_init_eeprom(rt2x00dev);
-	if (retval)
-		return retval;
-
-	/*
-	 * Enable rfkill polling by setting GPIO direction of the
-	 * rfkill switch GPIO pin correctly.
-	 */
-	rt2x00pci_register_read(rt2x00dev, GPIO_CTRL_CFG, &reg);
-	rt2x00_set_field32(&reg, GPIO_CTRL_CFG_GPIOD_BIT2, 1);
-	rt2x00pci_register_write(rt2x00dev, GPIO_CTRL_CFG, reg);
-
-	/*
-	 * Initialize hw specifications.
-	 */
-	retval = rt2800_probe_hw_mode(rt2x00dev);
-	if (retval)
-		return retval;
-
-	/*
-	 * This device has multiple filters for control frames
-	 * and has a separate filter for PS Poll frames.
-	 */
-	__set_bit(CAPABILITY_CONTROL_FILTERS, &rt2x00dev->cap_flags);
-	__set_bit(CAPABILITY_CONTROL_FILTER_PSPOLL, &rt2x00dev->cap_flags);
-
-	/*
-	 * This device has a pre tbtt interrupt and thus fetches
-	 * a new beacon directly prior to transmission.
-	 */
-	__set_bit(CAPABILITY_PRE_TBTT_INTERRUPT, &rt2x00dev->cap_flags);
-
-	/*
-	 * This device requires firmware.
-	 */
-	if (!rt2x00_is_soc(rt2x00dev))
-		__set_bit(REQUIRE_FIRMWARE, &rt2x00dev->cap_flags);
-	__set_bit(REQUIRE_DMA, &rt2x00dev->cap_flags);
-	__set_bit(REQUIRE_L2PAD, &rt2x00dev->cap_flags);
-	__set_bit(REQUIRE_TXSTATUS_FIFO, &rt2x00dev->cap_flags);
-	__set_bit(REQUIRE_TASKLET_CONTEXT, &rt2x00dev->cap_flags);
-	if (!modparam_nohwcrypt)
-		__set_bit(CAPABILITY_HW_CRYPTO, &rt2x00dev->cap_flags);
-	__set_bit(CAPABILITY_LINK_TUNING, &rt2x00dev->cap_flags);
-	__set_bit(REQUIRE_HT_TX_DESC, &rt2x00dev->cap_flags);
-
-	/*
-	 * Set the rssi offset.
-	 */
-	rt2x00dev->rssi_offset = DEFAULT_RSSI_OFFSET;
-
-	return 0;
+	return retval;
 }
 
 static const struct ieee80211_ops rt2800pci_mac80211_ops = {
@@ -1081,6 +1029,8 @@ static const struct rt2800_ops rt2800pci_rt2800_ops = {
 	.register_multiread	= rt2x00pci_register_multiread,
 	.register_multiwrite	= rt2x00pci_register_multiwrite,
 	.regbusy_read		= rt2x00pci_regbusy_read,
+	.read_eeprom		= rt2800pci_read_eeprom,
+	.hwcrypt_disabled	= rt2800pci_hwcrypt_disabled,
 	.drv_write_firmware	= rt2800pci_write_firmware,
 	.drv_init_registers	= rt2800pci_init_registers,
 	.drv_get_txwi		= rt2800pci_get_txwi,
@@ -1093,7 +1043,7 @@ static const struct rt2x00lib_ops rt2800pci_rt2x00_ops = {
 	.tbtt_tasklet		= rt2800pci_tbtt_tasklet,
 	.rxdone_tasklet		= rt2800pci_rxdone_tasklet,
 	.autowake_tasklet	= rt2800pci_autowake_tasklet,
-	.probe_hw		= rt2800pci_probe_hw,
+	.probe_hw		= rt2800_probe_hw,
 	.get_firmware_name	= rt2800pci_get_firmware_name,
 	.check_firmware		= rt2800_check_firmware,
 	.load_firmware		= rt2800_load_firmware,
@@ -1152,7 +1102,6 @@ static const struct data_queue_desc rt2800pci_queue_bcn = {
 static const struct rt2x00_ops rt2800pci_ops = {
 	.name			= KBUILD_MODNAME,
 	.drv_data_size		= sizeof(struct rt2800_drv_data),
-	.max_sta_intf		= 1,
 	.max_ap_intf		= 8,
 	.eeprom_size		= EEPROM_SIZE,
 	.rf_size		= RF_SIZE,
@@ -1204,6 +1153,7 @@ static DEFINE_PCI_DEVICE_TABLE(rt2800pci_device_table) = {
 	{ PCI_DEVICE(0x1814, 0x3562) },
 	{ PCI_DEVICE(0x1814, 0x3592) },
 	{ PCI_DEVICE(0x1814, 0x3593) },
+	{ PCI_DEVICE(0x1814, 0x359f) },
 #endif
 #ifdef CONFIG_RT2800PCI_RT53XX
 	{ PCI_DEVICE(0x1814, 0x5360) },
@@ -1228,7 +1178,7 @@ MODULE_DEVICE_TABLE(pci, rt2800pci_device_table);
 #endif /* CONFIG_PCI */
 MODULE_LICENSE("GPL");
 
-#if defined(CONFIG_RALINK_RT288X) || defined(CONFIG_RALINK_RT305X)
+#if defined(CONFIG_SOC_RT288X) || defined(CONFIG_SOC_RT305X)
 static int rt2800soc_probe(struct platform_device *pdev)
 {
 	return rt2x00soc_probe(pdev, &rt2800pci_ops);
@@ -1241,11 +1191,11 @@ static struct platform_driver rt2800soc_driver = {
 		.mod_name	= KBUILD_MODNAME,
 	},
 	.probe		= rt2800soc_probe,
-	.remove		= __devexit_p(rt2x00soc_remove),
+	.remove		= rt2x00soc_remove,
 	.suspend	= rt2x00soc_suspend,
 	.resume		= rt2x00soc_resume,
 };
-#endif /* CONFIG_RALINK_RT288X || CONFIG_RALINK_RT305X */
+#endif /* CONFIG_SOC_RT288X || CONFIG_SOC_RT305X */
 
 #ifdef CONFIG_PCI
 static int rt2800pci_probe(struct pci_dev *pci_dev,
@@ -1258,7 +1208,7 @@ static struct pci_driver rt2800pci_driver = {
 	.name		= KBUILD_MODNAME,
 	.id_table	= rt2800pci_device_table,
 	.probe		= rt2800pci_probe,
-	.remove		= __devexit_p(rt2x00pci_remove),
+	.remove		= rt2x00pci_remove,
 	.suspend	= rt2x00pci_suspend,
 	.resume		= rt2x00pci_resume,
 };
@@ -1268,7 +1218,7 @@ static int __init rt2800pci_init(void)
 {
 	int ret = 0;
 
-#if defined(CONFIG_RALINK_RT288X) || defined(CONFIG_RALINK_RT305X)
+#if defined(CONFIG_SOC_RT288X) || defined(CONFIG_SOC_RT305X)
 	ret = platform_driver_register(&rt2800soc_driver);
 	if (ret)
 		return ret;
@@ -1276,7 +1226,7 @@ static int __init rt2800pci_init(void)
 #ifdef CONFIG_PCI
 	ret = pci_register_driver(&rt2800pci_driver);
 	if (ret) {
-#if defined(CONFIG_RALINK_RT288X) || defined(CONFIG_RALINK_RT305X)
+#if defined(CONFIG_SOC_RT288X) || defined(CONFIG_SOC_RT305X)
 		platform_driver_unregister(&rt2800soc_driver);
 #endif
 		return ret;
@@ -1291,7 +1241,7 @@ static void __exit rt2800pci_exit(void)
 #ifdef CONFIG_PCI
 	pci_unregister_driver(&rt2800pci_driver);
 #endif
-#if defined(CONFIG_RALINK_RT288X) || defined(CONFIG_RALINK_RT305X)
+#if defined(CONFIG_SOC_RT288X) || defined(CONFIG_SOC_RT305X)
 	platform_driver_unregister(&rt2800soc_driver);
 #endif
 }

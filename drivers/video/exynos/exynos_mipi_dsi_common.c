@@ -25,6 +25,7 @@
 #include <linux/io.h>
 #include <linux/memory.h>
 #include <linux/delay.h>
+#include <linux/irqreturn.h>
 #include <linux/kthread.h>
 
 #include <video/mipi_display.h>
@@ -78,11 +79,6 @@ irqreturn_t exynos_mipi_dsi_interrupt_handler(int irq, void *dev_id)
 {
 	struct mipi_dsim_device *dsim = dev_id;
 	unsigned int intsrc, intmsk;
-
-	if (dsim == NULL) {
-		dev_err(dsim->dev, "%s: wrong parameter\n", __func__);
-		return IRQ_NONE;
-	}
 
 	intsrc = exynos_mipi_dsi_read_interrupt(dsim);
 	intmsk = exynos_mipi_dsi_read_interrupt_mask(dsim);
@@ -288,9 +284,6 @@ int exynos_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		mutex_unlock(&dsim->lock);
 		return -EINVAL;
 	}
-
-	mutex_unlock(&dsim->lock);
-	return 0;
 }
 
 static unsigned int exynos_mipi_dsi_long_data_rd(struct mipi_dsim_device *dsim,

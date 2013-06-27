@@ -108,12 +108,12 @@ static struct regulator_consumer_supply dummy_supplies[] = {
 #define FPGA_ETH_IRQ		(FPGA_IRQ0 + 15)
 static u16 bonito_fpga_read(u32 offset)
 {
-	return __raw_readw(0xf0003000 + offset);
+	return __raw_readw(IOMEM(0xf0003000) + offset);
 }
 
 static void bonito_fpga_write(u32 offset, u16 val)
 {
-	__raw_writew(val, 0xf0003000 + offset);
+	__raw_writew(val, IOMEM(0xf0003000) + offset);
 }
 
 static void bonito_fpga_irq_disable(struct irq_data *data)
@@ -361,8 +361,8 @@ static void __init bonito_map_io(void)
 #define BIT_ON(sw, bit)		(sw & (1 << bit))
 #define BIT_OFF(sw, bit)	(!(sw & (1 << bit)))
 
-#define VCCQ1CR		0xE6058140
-#define VCCQ1LCDCR	0xE6058186
+#define VCCQ1CR		IOMEM(0xE6058140)
+#define VCCQ1LCDCR	IOMEM(0xE6058186)
 
 static void __init bonito_init(void)
 {
@@ -392,8 +392,7 @@ static void __init bonito_init(void)
 	/*
 	 * base board settings
 	 */
-	gpio_request(GPIO_PORT176, NULL);
-	gpio_direction_input(GPIO_PORT176);
+	gpio_request_one(GPIO_PORT176, GPIOF_IN, NULL);
 	if (!gpio_get_value(GPIO_PORT176)) {
 		u16 bsw2;
 		u16 bsw3;
@@ -462,8 +461,8 @@ static void __init bonito_init(void)
 			gpio_request(GPIO_FN_LCD0_DISP,		NULL);
 			gpio_request(GPIO_FN_LCD0_LCLK_PORT165,	NULL);
 
-			gpio_request(GPIO_PORT61, NULL); /* LCDDON */
-			gpio_direction_output(GPIO_PORT61, 1);
+			gpio_request_one(GPIO_PORT61, GPIOF_OUT_INIT_HIGH,
+					 NULL); /* LCDDON */
 
 			/* backlight on */
 			bonito_fpga_write(LCDCR, 1);
@@ -499,9 +498,6 @@ static void __init bonito_earlytimer_init(void)
 static void __init bonito_add_early_devices(void)
 {
 	r8a7740_add_early_devices();
-
-	/* override timer setup with board-specific code */
-	shmobile_timer.init = bonito_earlytimer_init;
 }
 
 MACHINE_START(BONITO, "bonito")
@@ -511,5 +507,5 @@ MACHINE_START(BONITO, "bonito")
 	.handle_irq	= shmobile_handle_irq_intc,
 	.init_machine	= bonito_init,
 	.init_late	= shmobile_init_late,
-	.timer		= &shmobile_timer,
+	.init_time	= bonito_earlytimer_init,
 MACHINE_END

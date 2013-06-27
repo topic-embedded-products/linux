@@ -291,30 +291,6 @@ static struct panel_config generic_dpi_panels[] = {
 		.name			= "h4",
 	},
 
-	/* Unknown panel used in Samsung OMAP2 Apollon */
-	{
-		{
-			.x_res		= 480,
-			.y_res		= 272,
-
-			.pixel_clock	= 6250,
-
-			.hsw		= 41,
-			.hfp		= 2,
-			.hbp		= 2,
-
-			.vsw		= 10,
-			.vfp		= 2,
-			.vbp		= 2,
-
-			.vsync_level	= OMAPDSS_SIG_ACTIVE_LOW,
-			.hsync_level	= OMAPDSS_SIG_ACTIVE_LOW,
-			.data_pclk_edge	= OMAPDSS_DRIVE_SIG_RISING_EDGE,
-			.de_level	= OMAPDSS_SIG_ACTIVE_HIGH,
-			.sync_pclk_edge	= OMAPDSS_DRIVE_SIG_OPPOSITE_EDGES,
-		},
-		.name			= "apollon",
-	},
 	/* FocalTech ETM070003DH6 */
 	{
 		{
@@ -545,6 +521,8 @@ struct panel_drv_data {
 	struct omap_dss_device *dssdev;
 
 	struct panel_config *panel_config;
+
+	struct mutex lock;
 };
 
 static inline struct panel_generic_dpi_data
@@ -562,6 +540,9 @@ static int generic_dpi_panel_power_on(struct omap_dss_device *dssdev)
 
 	if (dssdev->state == OMAP_DSS_DISPLAY_ACTIVE)
 		return 0;
+
+	omapdss_dpi_set_timings(dssdev, &dssdev->panel.timings);
+	omapdss_dpi_set_data_lines(dssdev, dssdev->phy.dpi.data_lines);
 
 	r = omapdss_dpi_display_enable(dssdev);
 	if (r)
@@ -634,6 +615,8 @@ static int generic_dpi_panel_probe(struct omap_dss_device *dssdev)
 	drv_data->dssdev = dssdev;
 	drv_data->panel_config = panel_config;
 
+	mutex_init(&drv_data->lock);
+
 	dev_set_drvdata(&dssdev->dev, drv_data);
 
 	return 0;
@@ -652,56 +635,74 @@ static void __exit generic_dpi_panel_remove(struct omap_dss_device *dssdev)
 
 static int generic_dpi_panel_enable(struct omap_dss_device *dssdev)
 {
-	int r = 0;
+	struct panel_drv_data *drv_data = dev_get_drvdata(&dssdev->dev);
+	int r;
+
+	mutex_lock(&drv_data->lock);
 
 	r = generic_dpi_panel_power_on(dssdev);
 	if (r)
-		return r;
+		goto err;
 
 	dssdev->state = OMAP_DSS_DISPLAY_ACTIVE;
+err:
+	mutex_unlock(&drv_data->lock);
 
-	return 0;
+	return r;
 }
 
 static void generic_dpi_panel_disable(struct omap_dss_device *dssdev)
 {
+	struct panel_drv_data *drv_data = dev_get_drvdata(&dssdev->dev);
+
+	mutex_lock(&drv_data->lock);
+
 	generic_dpi_panel_power_off(dssdev);
 
 	dssdev->state = OMAP_DSS_DISPLAY_DISABLED;
-}
 
-static int generic_dpi_panel_suspend(struct omap_dss_device *dssdev)
-{
-	generic_dpi_panel_power_off(dssdev);
-
-	dssdev->state = OMAP_DSS_DISPLAY_SUSPENDED;
-
-	return 0;
-}
-
-static int generic_dpi_panel_resume(struct omap_dss_device *dssdev)
-{
-	int r = 0;
-
-	r = generic_dpi_panel_power_on(dssdev);
-	if (r)
-		return r;
-
-	dssdev->state = OMAP_DSS_DISPLAY_ACTIVE;
-
-	return 0;
+	mutex_unlock(&drv_data->lock);
 }
 
 static void generic_dpi_panel_set_timings(struct omap_dss_device *dssdev,
 		struct omap_video_timings *timings)
 {
-	dpi_set_timings(dssdev, timings);
+	struct panel_drv_data *drv_data = dev_get_drvdata(&dssdev->dev);
+
+	mutex_lock(&drv_data->lock);
+
+	omapdss_dpi_set_timings(dssdev, timings);
+
+	dssdev->panel.timings = *timings;
+
+	mutex_unlock(&drv_data->lock);
+}
+
+static void generic_dpi_panel_get_timings(struct omap_dss_device *dssdev,
+		struct omap_video_timings *timings)
+{
+	struct panel_drv_data *drv_data = dev_get_drvdata(&dssdev->dev);
+
+	mutex_lock(&drv_data->lock);
+
+	*timings = dssdev->panel.timings;
+
+	mutex_unlock(&drv_data->lock);
 }
 
 static int generic_dpi_panel_check_timings(struct omap_dss_device *dssdev,
 		struct omap_video_timings *timings)
 {
-	return dpi_check_timings(dssdev, timings);
+	struct panel_drv_data *drv_data = dev_get_drvdata(&dssdev->dev);
+	int r;
+
+	mutex_lock(&drv_data->lock);
+
+	r = dpi_check_timings(dssdev, timings);
+
+	mutex_unlock(&drv_data->lock);
+
+	return r;
 }
 
 static struct omap_dss_driver dpi_driver = {
@@ -710,10 +711,9 @@ static struct omap_dss_driver dpi_driver = {
 
 	.enable		= generic_dpi_panel_enable,
 	.disable	= generic_dpi_panel_disable,
-	.suspend	= generic_dpi_panel_suspend,
-	.resume		= generic_dpi_panel_resume,
 
 	.set_timings	= generic_dpi_panel_set_timings,
+	.get_timings	= generic_dpi_panel_get_timings,
 	.check_timings	= generic_dpi_panel_check_timings,
 
 	.driver         = {

@@ -55,7 +55,9 @@
 #define DWC3_ENDPOINTS_NUM	32
 #define DWC3_XHCI_RESOURCES_NUM	2
 
-#define DWC3_EVENT_BUFFERS_SIZE	PAGE_SIZE
+#define DWC3_EVENT_SIZE		4	/* bytes */
+#define DWC3_EVENT_MAX_NUM	64	/* 2 events/endpoint */
+#define DWC3_EVENT_BUFFERS_SIZE	(DWC3_EVENT_SIZE * DWC3_EVENT_MAX_NUM)
 #define DWC3_EVENT_TYPE_MASK	0xfe
 
 #define DWC3_EVENT_TYPE_DEV	0
@@ -405,7 +407,6 @@ struct dwc3_event_buffer {
  * @number: endpoint number (1 - 15)
  * @type: set to bmAttributes & USB_ENDPOINT_XFERTYPE_MASK
  * @resource_index: Resource transfer index
- * @current_uf: Current uf received through last event parameter
  * @interval: the intervall on which the ISOC transfer is started
  * @name: a human readable name e.g. ep1out-bulk
  * @direction: true for TX, false for RX
@@ -439,7 +440,6 @@ struct dwc3_ep {
 	u8			number;
 	u8			type;
 	u8			resource_index;
-	u16			current_uf;
 	u32			interval;
 
 	char			name[20];
@@ -457,7 +457,6 @@ enum dwc3_phy {
 enum dwc3_ep0_next {
 	DWC3_EP0_UNKNOWN = 0,
 	DWC3_EP0_COMPLETE,
-	DWC3_EP0_NRDY_SETUP,
 	DWC3_EP0_NRDY_DATA,
 	DWC3_EP0_NRDY_STATUS,
 };
@@ -582,6 +581,7 @@ struct dwc3_request {
 	struct usb_request	request;
 	struct list_head	list;
 	struct dwc3_ep		*dep;
+	u32			start_slot;
 
 	u8			epnum;
 	struct dwc3_trb		*trb;
@@ -624,6 +624,8 @@ struct dwc3_scratchpad_array {
  * @maximum_speed: maximum speed requested (mainly for testing purposes)
  * @revision: revision register contents
  * @mode: mode of operation
+ * @usb2_phy: pointer to USB2 PHY
+ * @usb3_phy: pointer to USB3 PHY
  * @is_selfpowered: true when we are selfpowered
  * @three_stage_setup: set if we perform a three phase setup
  * @ep0_bounced: true when we used bounce buffer
@@ -666,6 +668,9 @@ struct dwc3 {
 
 	struct usb_gadget	gadget;
 	struct usb_gadget_driver *gadget_driver;
+
+	struct usb_phy		*usb2_phy;
+	struct usb_phy		*usb3_phy;
 
 	void __iomem		*regs;
 	size_t			regs_size;
@@ -717,6 +722,7 @@ struct dwc3 {
 
 	struct dwc3_hwparams	hwparams;
 	struct dentry		*root;
+	struct debugfs_regset32	*regset;
 
 	u8			test_mode;
 	u8			test_mode_nr;
@@ -779,7 +785,6 @@ struct dwc3_event_depevt {
 #define DEPEVT_STREAMEVT_NOTFOUND	2
 
 /* Control-only Status */
-#define DEPEVT_STATUS_CONTROL_SETUP	0
 #define DEPEVT_STATUS_CONTROL_DATA	1
 #define DEPEVT_STATUS_CONTROL_STATUS	2
 
@@ -859,13 +864,24 @@ union dwc3_event {
 void dwc3_set_mode(struct dwc3 *dwc, u32 mode);
 int dwc3_gadget_resize_tx_fifos(struct dwc3 *dwc);
 
+#if IS_ENABLED(CONFIG_USB_DWC3_HOST) || IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)
 int dwc3_host_init(struct dwc3 *dwc);
 void dwc3_host_exit(struct dwc3 *dwc);
+#else
+static inline int dwc3_host_init(struct dwc3 *dwc)
+{ return 0; }
+static inline void dwc3_host_exit(struct dwc3 *dwc)
+{ }
+#endif
 
+#if IS_ENABLED(CONFIG_USB_DWC3_GADGET) || IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)
 int dwc3_gadget_init(struct dwc3 *dwc);
 void dwc3_gadget_exit(struct dwc3 *dwc);
-
-extern int dwc3_get_device_id(void);
-extern void dwc3_put_device_id(int id);
+#else
+static inline int dwc3_gadget_init(struct dwc3 *dwc)
+{ return 0; }
+static inline void dwc3_gadget_exit(struct dwc3 *dwc)
+{ }
+#endif
 
 #endif /* __DRIVERS_USB_DWC3_CORE_H */

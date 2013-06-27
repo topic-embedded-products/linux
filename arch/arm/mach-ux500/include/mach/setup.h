@@ -28,8 +28,7 @@ extern struct device *ux500_soc_device_init(const char *soc_id);
 struct amba_device;
 extern void __init amba_add_devices(struct amba_device *devs[], int num);
 
-struct sys_timer;
-extern struct sys_timer ux500_timer;
+extern void ux500_timer_init(void);
 
 #define __IO_DEV_DESC(x, sz)	{		\
 	.virtual	= IO_ADDRESS(x),	\
@@ -44,5 +43,8 @@ extern struct sys_timer ux500_timer;
 	.length		= sz,			\
 	.type		= MT_MEMORY,		\
 }
+
+extern struct smp_operations ux500_smp_ops;
+extern void ux500_cpu_die(unsigned int cpu);
 
 #endif /*  __ASM_ARCH_SETUP_H */

@@ -632,7 +632,7 @@ static void pcan_free(struct pcmcia_device *pdev)
 /*
  * setup PCMCIA socket and probe for PEAK-System PC-CARD
  */
-static int __devinit pcan_probe(struct pcmcia_device *pdev)
+static int pcan_probe(struct pcmcia_device *pdev)
 {
 	struct pcan_pccard *card;
 	int err;
@@ -660,7 +660,6 @@ static int __devinit pcan_probe(struct pcmcia_device *pdev)
 
 	card = kzalloc(sizeof(struct pcan_pccard), GFP_KERNEL);
 	if (!card) {
-		dev_err(&pdev->dev, "couldn't allocate card memory\n");
 		err = -ENOMEM;
 		goto probe_err_2;
 	}
@@ -686,8 +685,10 @@ static int __devinit pcan_probe(struct pcmcia_device *pdev)
 
 	/* detect available channels */
 	pcan_add_channels(card);
-	if (!card->chan_count)
+	if (!card->chan_count) {
+		err = -ENOMEM;
 		goto probe_err_4;
+	}
 
 	/* init the timer which controls the leds */
 	init_timer(&card->led_timer);

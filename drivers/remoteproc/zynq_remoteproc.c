@@ -28,14 +28,15 @@
 #include <linux/interrupt.h>
 #include <linux/of_irq.h>
 #include <linux/smp.h>
-#include <asm/hardware/gic.h>
+#include <linux/irqchip/arm-gic.h>
 #include <asm/outercache.h>
 #include <asm/cacheflush.h>
-#include <mach/system.h>
 #include <linux/slab.h>
 #include <linux/cpu.h>
 
 #include "remoteproc_internal.h"
+
+extern int __cpuinit zynq_cpun_start(u32 address, int cpu);
 
 /* Module parameter */
 static char *firmware;
@@ -168,14 +169,14 @@ static void clear_irq(struct platform_device *pdev)
 	}
 }
 
-static int __devinit zynq_remoteproc_probe(struct platform_device *pdev)
+static int zynq_remoteproc_probe(struct platform_device *pdev)
 {
 	const unsigned char *prop;
 	const void *of_prop;
 	struct resource *res; /* IO mem resources */
 	int ret = 0;
 	struct irq_list *tmp;
-	int count;
+	int count = 0;
 	struct zynq_rproc_pdata *local;
 
 	ret = cpu_down(1);
@@ -221,9 +222,12 @@ static int __devinit zynq_remoteproc_probe(struct platform_device *pdev)
 	/* Init list for IRQs - it can be long list */
 	INIT_LIST_HEAD(&local->mylist.list);
 
-	count = of_irq_count(pdev->dev.of_node);
 	/* Alloc IRQ based on DTS to be sure that no other driver will use it */
-	while (count--) {
+	do {
+		res = platform_get_resource(pdev, IORESOURCE_IRQ, count++);
+		if (!res)
+			break;
+
 		tmp = kzalloc(sizeof(struct irq_list), GFP_KERNEL);
 		if (!tmp) {
 			dev_err(&pdev->dev, "Unable to alloc irq list\n");
@@ -231,7 +235,7 @@ static int __devinit zynq_remoteproc_probe(struct platform_device *pdev)
 			goto irq_fault;
 		}
 
-		tmp->irq = irq_of_parse_and_map(pdev->dev.of_node, count);
+		tmp->irq = res->start;
 
 		dev_dbg(&pdev->dev, "%d: Alloc irq: %d\n", count, tmp->irq);
 
@@ -253,20 +257,20 @@ static int __devinit zynq_remoteproc_probe(struct platform_device *pdev)
 		 */
 		gic_set_cpu(1, tmp->irq);
 		list_add(&(tmp->list), &(local->mylist.list));
-	}
+	} while (res);
 
 	/* Allocate free IPI number */
 	of_prop = of_get_property(pdev->dev.of_node, "ipino", NULL);
 	if (!of_prop) {
 		dev_err(&pdev->dev, "Please specify ipino node property\n");
-		goto ipi_fault;
+		goto irq_fault;
 	}
 
 	local->ipino = be32_to_cpup(of_prop);
 	ret = set_ipi_handler(local->ipino, ipi_kick, "Firmware kick");
 	if (ret) {
 		dev_err(&pdev->dev, "IPI handler already registered\n");
-		goto ipi_fault;
+		goto irq_fault;
 	}
 
 	/* Read vring0 ipi number */
@@ -327,7 +331,7 @@ dma_fault:
 	return ret;
 }
 
-static int __devexit zynq_remoteproc_remove(struct platform_device *pdev)
+static int zynq_remoteproc_remove(struct platform_device *pdev)
 {
 	struct zynq_rproc_pdata *local = platform_get_drvdata(pdev);
 	u32 ret;
@@ -351,7 +355,7 @@ static int __devexit zynq_remoteproc_remove(struct platform_device *pdev)
 }
 
 /* Match table for OF platform binding */
-static struct of_device_id zynq_remoteproc_match[] __devinitdata = {
+static struct of_device_id zynq_remoteproc_match[] = {
 	{ .compatible = "xlnx,zynq_remoteproc", },
 	{ /* end of list */ },
 };
@@ -359,7 +363,7 @@ MODULE_DEVICE_TABLE(of, zynq_remoteproc_match);
 
 static struct platform_driver zynq_remoteproc_driver = {
 	.probe = zynq_remoteproc_probe,
-	.remove = __devexit_p(zynq_remoteproc_remove),
+	.remove = zynq_remoteproc_remove,
 	.driver = {
 		.name = "zynq_remoteproc",
 		.owner = THIS_MODULE,

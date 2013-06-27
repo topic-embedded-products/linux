@@ -280,9 +280,7 @@ static void __cache_size_refresh(void)
 	BUG_ON(!mutex_is_locked(&dm_bufio_clients_lock));
 	BUG_ON(dm_bufio_client_count < 0);
 
-	dm_bufio_cache_size_latch = dm_bufio_cache_size;
-
-	barrier();
+	dm_bufio_cache_size_latch = ACCESS_ONCE(dm_bufio_cache_size);
 
 	/*
 	 * Use default if set to 0 and report the actual cache size used.
@@ -441,8 +439,7 @@ static void __relink_lru(struct dm_buffer *b, int dirty)
 	c->n_buffers[b->list_mode]--;
 	c->n_buffers[dirty]++;
 	b->list_mode = dirty;
-	list_del(&b->lru_list);
-	list_add(&b->lru_list, &c->lru[dirty]);
+	list_move(&b->lru_list, &c->lru[dirty]);
 }
 
 /*----------------------------------------------------------------
@@ -813,7 +810,7 @@ static void __get_memory_limit(struct dm_bufio_client *c,
 {
 	unsigned long buffers;
 
-	if (dm_bufio_cache_size != dm_bufio_cache_size_latch) {
+	if (ACCESS_ONCE(dm_bufio_cache_size) != dm_bufio_cache_size_latch) {
 		mutex_lock(&dm_bufio_clients_lock);
 		__cache_size_refresh();
 		mutex_unlock(&dm_bufio_clients_lock);
@@ -862,9 +859,8 @@ static void __check_watermark(struct dm_bufio_client *c)
 static struct dm_buffer *__find(struct dm_bufio_client *c, sector_t block)
 {
 	struct dm_buffer *b;
-	struct hlist_node *hn;
 
-	hlist_for_each_entry(b, hn, &c->cache_hash[DM_BUFIO_HASH(block)],
+	hlist_for_each_entry(b, &c->cache_hash[DM_BUFIO_HASH(block)],
 			     hash_list) {
 		dm_bufio_cond_resched();
 		if (b->block == block)
@@ -1028,6 +1024,8 @@ void dm_bufio_prefetch(struct dm_bufio_client *c,
 		       sector_t block, unsigned n_blocks)
 {
 	struct blk_plug plug;
+
+	BUG_ON(dm_bufio_in_request());
 
 	blk_start_plug(&plug);
 	dm_bufio_lock(c);
@@ -1196,7 +1194,7 @@ EXPORT_SYMBOL_GPL(dm_bufio_write_dirty_buffers);
 int dm_bufio_issue_flush(struct dm_bufio_client *c)
 {
 	struct dm_io_request io_req = {
-		.bi_rw = REQ_FLUSH,
+		.bi_rw = WRITE_FLUSH,
 		.mem.type = DM_IO_KMEM,
 		.mem.ptr.addr = NULL,
 		.client = c->dm_io,
@@ -1591,10 +1589,8 @@ EXPORT_SYMBOL_GPL(dm_bufio_client_destroy);
 
 static void cleanup_old_buffers(void)
 {
-	unsigned long max_age = dm_bufio_max_age;
+	unsigned long max_age = ACCESS_ONCE(dm_bufio_max_age);
 	struct dm_bufio_client *c;
-
-	barrier();
 
 	if (max_age > ULONG_MAX / HZ)
 		max_age = ULONG_MAX / HZ;

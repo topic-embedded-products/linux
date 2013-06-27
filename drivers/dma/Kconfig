@@ -59,7 +59,7 @@ config ASYNC_TX_ENABLE_CHANNEL_SWITCH
 
 config AMBA_PL08X
 	bool "ARM PrimeCell PL080 or PL081 support"
-	depends on ARM_AMBA && EXPERIMENTAL
+	depends on ARM_AMBA
 	select DMA_ENGINE
 	select DMA_VIRTUAL_CHANNELS
 	help
@@ -91,12 +91,23 @@ config INTEL_IOP_ADMA
 
 config DW_DMAC
 	tristate "Synopsys DesignWare AHB DMA support"
-	depends on HAVE_CLK
+	depends on GENERIC_HARDIRQS
 	select DMA_ENGINE
 	default y if CPU_AT32AP7000
 	help
 	  Support the Synopsys DesignWare AHB DMA controller.  This
 	  can be integrated in chips such as the Atmel AT32ap7000.
+
+config DW_DMAC_BIG_ENDIAN_IO
+	bool "Use big endian I/O register access"
+	default y if AVR32
+	depends on DW_DMAC
+	help
+	  Say yes here to use big endian I/O access when reading and writing
+	  to the DMA controller registers. This is needed on some platforms,
+	  like the Atmel AVR32 architecture.
+
+	  If unsure, use the default setting.
 
 config AT_HDMAC
 	tristate "Atmel AHB DMA support"
@@ -121,6 +132,8 @@ config MPC512X_DMA
 	select DMA_ENGINE
 	---help---
 	  Enable support for the Freescale MPC512x built-in DMA engine.
+
+source "drivers/dma/bestcomm/Kconfig"
 
 config MV_XOR
 	bool "Marvell XOR engine support"
@@ -210,11 +223,21 @@ config TIMB_DMA
 	  Enable support for the Timberdale FPGA DMA engine.
 
 config SIRF_DMA
-	tristate "CSR SiRFprimaII DMA support"
-	depends on ARCH_PRIMA2
+	tristate "CSR SiRFprimaII/SiRFmarco DMA support"
+	depends on ARCH_SIRF
 	select DMA_ENGINE
 	help
 	  Enable support for the CSR SiRFprimaII DMA engine.
+
+config TI_EDMA
+	tristate "TI EDMA support"
+	depends on ARCH_DAVINCI
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	default n
+	help
+	  Enable support for the TI EDMA controller. This DMA
+	  engine is found on TI DaVinci and AM33xx parts.
 
 config ARCH_HAS_ASYNC_TX_FIND_CHANNEL
 	bool
@@ -308,11 +331,22 @@ config DMA_OMAP
 	select DMA_ENGINE
 	select DMA_VIRTUAL_CHANNELS
 
+config MMP_PDMA
+	bool "MMP PDMA support"
+	depends on (ARCH_MMP || ARCH_PXA)
+	select DMA_ENGINE
+	help
+	  Support the MMP PDMA engine for PXA and MMP platfrom.
+
 config DMA_ENGINE
 	bool
 
 config DMA_VIRTUAL_CHANNELS
 	tristate
+
+config DMA_OF
+	def_bool y
+	depends on OF
 
 comment "DMA Clients"
 	depends on DMA_ENGINE

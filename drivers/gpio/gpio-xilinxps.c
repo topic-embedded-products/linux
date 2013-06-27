@@ -540,7 +540,7 @@ static const struct dev_pm_ops xgpiops_dev_pm_ops = {
  * Note: Interrupts are disabled for all the banks during initialization.
  * Returns 0 on success, negative error otherwise.
  */
-static int __devinit xgpiops_probe(struct platform_device *pdev)
+static int xgpiops_probe(struct platform_device *pdev)
 {
 	int ret;
 	unsigned int irq_num;
@@ -603,8 +603,7 @@ static int __devinit xgpiops_probe(struct platform_device *pdev)
 	chip->ngpio = XGPIOPS_NR_GPIOS;
 	chip->can_sleep = 0;
 
-	/* FIXME Setup 0 instead of 256 when PCIe is fixed */
-	gpio->irq_base = irq_alloc_descs(-1, 256, chip->ngpio, 0);
+	gpio->irq_base = irq_alloc_descs(-1, 0, chip->ngpio, 0);
 	if (gpio->irq_base < 0) {
 		dev_err(&pdev->dev, "Couldn't allocate IRQ numbers\n");
 		ret = -ENODEV;
@@ -692,7 +691,7 @@ static int xgpiops_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct of_device_id xgpiops_of_match[] __devinitdata = {
+static struct of_device_id xgpiops_of_match[] = {
 	{ .compatible = "xlnx,ps7-gpio-1.00.a", },
 	{ /* end of table */}
 };

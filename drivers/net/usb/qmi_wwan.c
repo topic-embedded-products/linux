@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/netdevice.h>
 #include <linux/ethtool.h>
+#include <linux/etherdevice.h>
 #include <linux/mii.h>
 #include <linux/usb.h>
 #include <linux/usb/cdc.h>
@@ -50,6 +51,96 @@ struct qmi_wwan_state {
 	unsigned long unused;
 	struct usb_interface *control;
 	struct usb_interface *data;
+};
+
+/* default ethernet address used by the modem */
+static const u8 default_modem_addr[ETH_ALEN] = {0x02, 0x50, 0xf3};
+
+/* Make up an ethernet header if the packet doesn't have one.
+ *
+ * A firmware bug common among several devices cause them to send raw
+ * IP packets under some circumstances.  There is no way for the
+ * driver/host to know when this will happen.  And even when the bug
+ * hits, some packets will still arrive with an intact header.
+ *
+ * The supported devices are only capably of sending IPv4, IPv6 and
+ * ARP packets on a point-to-point link. Any packet with an ethernet
+ * header will have either our address or a broadcast/multicast
+ * address as destination.  ARP packets will always have a header.
+ *
+ * This means that this function will reliably add the appropriate
+ * header iff necessary, provided our hardware address does not start
+ * with 4 or 6.
+ *
+ * Another common firmware bug results in all packets being addressed
+ * to 00:a0:c6:00:00:00 despite the host address being different.
+ * This function will also fixup such packets.
+ */
+static int qmi_wwan_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
+{
+	__be16 proto;
+
+	/* usbnet rx_complete guarantees that skb->len is at least
+	 * hard_header_len, so we can inspect the dest address without
+	 * checking skb->len
+	 */
+	switch (skb->data[0] & 0xf0) {
+	case 0x40:
+		proto = htons(ETH_P_IP);
+		break;
+	case 0x60:
+		proto = htons(ETH_P_IPV6);
+		break;
+	case 0x00:
+		if (is_multicast_ether_addr(skb->data))
+			return 1;
+		/* possibly bogus destination - rewrite just in case */
+		skb_reset_mac_header(skb);
+		goto fix_dest;
+	default:
+		/* pass along other packets without modifications */
+		return 1;
+	}
+	if (skb_headroom(skb) < ETH_HLEN)
+		return 0;
+	skb_push(skb, ETH_HLEN);
+	skb_reset_mac_header(skb);
+	eth_hdr(skb)->h_proto = proto;
+	memset(eth_hdr(skb)->h_source, 0, ETH_ALEN);
+fix_dest:
+	memcpy(eth_hdr(skb)->h_dest, dev->net->dev_addr, ETH_ALEN);
+	return 1;
+}
+
+/* very simplistic detection of IPv4 or IPv6 headers */
+static bool possibly_iphdr(const char *data)
+{
+	return (data[0] & 0xd0) == 0x40;
+}
+
+/* disallow addresses which may be confused with IP headers */
+static int qmi_wwan_mac_addr(struct net_device *dev, void *p)
+{
+	int ret;
+	struct sockaddr *addr = p;
+
+	ret = eth_prepare_mac_addr_change(dev, p);
+	if (ret < 0)
+		return ret;
+	if (possibly_iphdr(addr->sa_data))
+		return -EADDRNOTAVAIL;
+	eth_commit_mac_addr_change(dev, p);
+	return 0;
+}
+
+static const struct net_device_ops qmi_wwan_netdev_ops = {
+	.ndo_open		= usbnet_open,
+	.ndo_stop		= usbnet_stop,
+	.ndo_start_xmit		= usbnet_start_xmit,
+	.ndo_tx_timeout		= usbnet_tx_timeout,
+	.ndo_change_mtu		= usbnet_change_mtu,
+	.ndo_set_mac_address	= qmi_wwan_mac_addr,
+	.ndo_validate_addr	= eth_validate_addr,
 };
 
 /* using a counter to merge subdriver requests with our own into a combined state */
@@ -108,7 +199,7 @@ static int qmi_wwan_register_subdriver(struct usbnet *dev)
 	atomic_set(&info->pmcount, 0);
 
 	/* register subdriver */
-	subdriver = usb_cdc_wdm_register(info->control, &dev->status->desc, 512, &qmi_wwan_cdc_wdm_manage_power);
+	subdriver = usb_cdc_wdm_register(info->control, &dev->status->desc, 4096, &qmi_wwan_cdc_wdm_manage_power);
 	if (IS_ERR(subdriver)) {
 		dev_err(&info->control->dev, "subdriver registration failed\n");
 		rv = PTR_ERR(subdriver);
@@ -139,10 +230,11 @@ static int qmi_wwan_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	BUILD_BUG_ON((sizeof(((struct usbnet *)0)->data) < sizeof(struct qmi_wwan_state)));
 
-	/* require a single interrupt status endpoint for subdriver */
-	if (intf->cur_altsetting->desc.bNumEndpoints != 1)
-		goto err;
+	/* set up initial state */
+	info->control = intf;
+	info->data = intf;
 
+	/* and a number of CDC descriptors */
 	while (len > 3) {
 		struct usb_descriptor_header *h = (void *)buf;
 
@@ -199,25 +291,14 @@ next_desc:
 		buf += h->bLength;
 	}
 
-	/* did we find all the required ones? */
-	if (!(found & (1 << USB_CDC_HEADER_TYPE)) ||
-	    !(found & (1 << USB_CDC_UNION_TYPE))) {
-		dev_err(&intf->dev, "CDC functional descriptors missing\n");
-		goto err;
-	}
-
-	/* verify CDC Union */
-	if (desc->bInterfaceNumber != cdc_union->bMasterInterface0) {
-		dev_err(&intf->dev, "bogus CDC Union: master=%u\n", cdc_union->bMasterInterface0);
-		goto err;
-	}
-
-	/* need to save these for unbind */
-	info->control = intf;
-	info->data = usb_ifnum_to_if(dev->udev,	cdc_union->bSlaveInterface0);
-	if (!info->data) {
-		dev_err(&intf->dev, "bogus CDC Union: slave=%u\n", cdc_union->bSlaveInterface0);
-		goto err;
+	/* Use separate control and data interfaces if we found a CDC Union */
+	if (cdc_union) {
+		info->data = usb_ifnum_to_if(dev->udev, cdc_union->bSlaveInterface0);
+		if (desc->bInterfaceNumber != cdc_union->bMasterInterface0 || !info->data) {
+			dev_err(&intf->dev, "bogus CDC Union: master=%u, slave=%u\n",
+				cdc_union->bMasterInterface0, cdc_union->bSlaveInterface0);
+			goto err;
+		}
 	}
 
 	/* errors aren't fatal - we can live with the dynamic address */
@@ -227,32 +308,32 @@ next_desc:
 	}
 
 	/* claim data interface and set it up */
-	status = usb_driver_claim_interface(driver, info->data, dev);
-	if (status < 0)
-		goto err;
+	if (info->control != info->data) {
+		status = usb_driver_claim_interface(driver, info->data, dev);
+		if (status < 0)
+			goto err;
+	}
 
 	status = qmi_wwan_register_subdriver(dev);
-	if (status < 0) {
+	if (status < 0 && info->control != info->data) {
 		usb_set_intfdata(info->data, NULL);
 		usb_driver_release_interface(driver, info->data);
 	}
 
+	/* Never use the same address on both ends of the link, even
+	 * if the buggy firmware told us to.
+	 */
+	if (!compare_ether_addr(dev->net->dev_addr, default_modem_addr))
+		eth_hw_addr_random(dev->net);
+
+	/* make MAC addr easily distinguishable from an IP header */
+	if (possibly_iphdr(dev->net->dev_addr)) {
+		dev->net->dev_addr[0] |= 0x02;	/* set local assignment bit */
+		dev->net->dev_addr[0] &= 0xbf;	/* clear "IP" bit */
+	}
+	dev->net->netdev_ops = &qmi_wwan_netdev_ops;
 err:
 	return status;
-}
-
-/* Some devices combine the "control" and "data" functions into a
- * single interface with all three endpoints: interrupt + bulk in and
- * out
- */
-static int qmi_wwan_bind_shared(struct usbnet *dev, struct usb_interface *intf)
-{
-	struct qmi_wwan_state *info = (void *)&dev->data;
-
-	/*  control and data is shared */
-	info->control = intf;
-	info->data = intf;
-	return qmi_wwan_register_subdriver(dev);
 }
 
 static void qmi_wwan_unbind(struct usbnet *dev, struct usb_interface *intf)
@@ -329,14 +410,7 @@ static const struct driver_info	qmi_wwan_info = {
 	.bind		= qmi_wwan_bind,
 	.unbind		= qmi_wwan_unbind,
 	.manage_power	= qmi_wwan_manage_power,
-};
-
-static const struct driver_info	qmi_wwan_shared = {
-	.description	= "WWAN/QMI device",
-	.flags		= FLAG_WWAN,
-	.bind		= qmi_wwan_bind_shared,
-	.unbind		= qmi_wwan_unbind,
-	.manage_power	= qmi_wwan_manage_power,
+	.rx_fixup       = qmi_wwan_rx_fixup,
 };
 
 #define HUAWEI_VENDOR_ID	0x12D1
@@ -344,7 +418,7 @@ static const struct driver_info	qmi_wwan_shared = {
 /* map QMI/wwan function by a fixed interface number */
 #define QMI_FIXED_INTF(vend, prod, num) \
 	USB_DEVICE_INTERFACE_NUMBER(vend, prod, num), \
-	.driver_info = (unsigned long)&qmi_wwan_shared
+	.driver_info = (unsigned long)&qmi_wwan_info
 
 /* Gobi 1000 QMI/wwan interface number is 3 according to qcserial */
 #define QMI_GOBI1K_DEVICE(vend, prod) \
@@ -364,6 +438,10 @@ static const struct usb_device_id products[] = {
 		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 1, 57),
 		.driver_info        = (unsigned long)&qmi_wwan_info,
 	},
+	{	/* HUAWEI_INTERFACE_NDIS_CONTROL_QUALCOMM */
+		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 0x01, 0x69),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
 
 	/* 2. Combined interface devices matching on class+protocol */
 	{	/* Huawei E367 and possibly others in "Windows mode" */
@@ -372,34 +450,125 @@ static const struct usb_device_id products[] = {
 	},
 	{	/* Huawei E392, E398 and possibly others in "Windows mode" */
 		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 1, 17),
-		.driver_info        = (unsigned long)&qmi_wwan_shared,
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* HUAWEI_NDIS_SINGLE_INTERFACE_VDF */
+		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 0x01, 0x37),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* HUAWEI_INTERFACE_NDIS_HW_QUALCOMM */
+		USB_VENDOR_AND_INTERFACE_INFO(HUAWEI_VENDOR_ID, USB_CLASS_VENDOR_SPEC, 0x01, 0x67),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
 	},
 	{	/* Pantech UML290, P4200 and more */
 		USB_VENDOR_AND_INTERFACE_INFO(0x106c, USB_CLASS_VENDOR_SPEC, 0xf0, 0xff),
-		.driver_info        = (unsigned long)&qmi_wwan_shared,
+		.driver_info        = (unsigned long)&qmi_wwan_info,
 	},
 	{	/* Pantech UML290 - newer firmware */
 		USB_VENDOR_AND_INTERFACE_INFO(0x106c, USB_CLASS_VENDOR_SPEC, 0xf1, 0xff),
-		.driver_info        = (unsigned long)&qmi_wwan_shared,
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* Novatel USB551L and MC551 */
+		USB_DEVICE_AND_INTERFACE_INFO(0x1410, 0xb001,
+		                              USB_CLASS_COMM,
+		                              USB_CDC_SUBCLASS_ETHERNET,
+		                              USB_CDC_PROTO_NONE),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* Novatel E362 */
+		USB_DEVICE_AND_INTERFACE_INFO(0x1410, 0x9010,
+		                              USB_CLASS_COMM,
+		                              USB_CDC_SUBCLASS_ETHERNET,
+		                              USB_CDC_PROTO_NONE),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* Dell Wireless 5800 (Novatel E362) */
+		USB_DEVICE_AND_INTERFACE_INFO(0x413C, 0x8195,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_ETHERNET,
+					      USB_CDC_PROTO_NONE),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* Dell Wireless 5800 V2 (Novatel E362) */
+		USB_DEVICE_AND_INTERFACE_INFO(0x413C, 0x8196,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_ETHERNET,
+					      USB_CDC_PROTO_NONE),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
+	},
+	{	/* ADU960S */
+		USB_DEVICE_AND_INTERFACE_INFO(0x16d5, 0x650a,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_ETHERNET,
+					      USB_CDC_PROTO_NONE),
+		.driver_info        = (unsigned long)&qmi_wwan_info,
 	},
 
 	/* 3. Combined interface devices matching on interface number */
+	{QMI_FIXED_INTF(0x0408, 0xea42, 4)},	/* Yota / Megafon M100-1 */
+	{QMI_FIXED_INTF(0x12d1, 0x140c, 1)},	/* Huawei E173 */
+	{QMI_FIXED_INTF(0x19d2, 0x0002, 1)},
+	{QMI_FIXED_INTF(0x19d2, 0x0012, 1)},
+	{QMI_FIXED_INTF(0x19d2, 0x0017, 3)},
+	{QMI_FIXED_INTF(0x19d2, 0x0021, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x0025, 1)},
+	{QMI_FIXED_INTF(0x19d2, 0x0031, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x0042, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x0049, 5)},
+	{QMI_FIXED_INTF(0x19d2, 0x0052, 4)},
 	{QMI_FIXED_INTF(0x19d2, 0x0055, 1)},	/* ZTE (Vodafone) K3520-Z */
+	{QMI_FIXED_INTF(0x19d2, 0x0058, 4)},
 	{QMI_FIXED_INTF(0x19d2, 0x0063, 4)},	/* ZTE (Vodafone) K3565-Z */
 	{QMI_FIXED_INTF(0x19d2, 0x0104, 4)},	/* ZTE (Vodafone) K4505-Z */
+	{QMI_FIXED_INTF(0x19d2, 0x0113, 5)},
+	{QMI_FIXED_INTF(0x19d2, 0x0118, 5)},
+	{QMI_FIXED_INTF(0x19d2, 0x0121, 5)},
+	{QMI_FIXED_INTF(0x19d2, 0x0123, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x0124, 5)},
+	{QMI_FIXED_INTF(0x19d2, 0x0125, 6)},
+	{QMI_FIXED_INTF(0x19d2, 0x0126, 5)},
+	{QMI_FIXED_INTF(0x19d2, 0x0130, 1)},
+	{QMI_FIXED_INTF(0x19d2, 0x0133, 3)},
+	{QMI_FIXED_INTF(0x19d2, 0x0141, 5)},
 	{QMI_FIXED_INTF(0x19d2, 0x0157, 5)},	/* ZTE MF683 */
+	{QMI_FIXED_INTF(0x19d2, 0x0158, 3)},
 	{QMI_FIXED_INTF(0x19d2, 0x0167, 4)},	/* ZTE MF820D */
+	{QMI_FIXED_INTF(0x19d2, 0x0168, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x0176, 3)},
+	{QMI_FIXED_INTF(0x19d2, 0x0178, 3)},
+	{QMI_FIXED_INTF(0x19d2, 0x0191, 4)},	/* ZTE EuFi890 */
+	{QMI_FIXED_INTF(0x19d2, 0x0199, 1)},	/* ZTE MF820S */
+	{QMI_FIXED_INTF(0x19d2, 0x0200, 1)},
+	{QMI_FIXED_INTF(0x19d2, 0x0257, 3)},	/* ZTE MF821 */
+	{QMI_FIXED_INTF(0x19d2, 0x0265, 4)},	/* ONDA MT8205 4G LTE */
+	{QMI_FIXED_INTF(0x19d2, 0x0284, 4)},	/* ZTE MF880 */
 	{QMI_FIXED_INTF(0x19d2, 0x0326, 4)},	/* ZTE MF821D */
 	{QMI_FIXED_INTF(0x19d2, 0x1008, 4)},	/* ZTE (Vodafone) K3570-Z */
 	{QMI_FIXED_INTF(0x19d2, 0x1010, 4)},	/* ZTE (Vodafone) K3571-Z */
+	{QMI_FIXED_INTF(0x19d2, 0x1012, 4)},
 	{QMI_FIXED_INTF(0x19d2, 0x1018, 3)},	/* ZTE (Vodafone) K5006-Z */
+	{QMI_FIXED_INTF(0x19d2, 0x1021, 2)},
+	{QMI_FIXED_INTF(0x19d2, 0x1245, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x1247, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x1252, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x1254, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x1255, 3)},
+	{QMI_FIXED_INTF(0x19d2, 0x1255, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x1256, 4)},
+	{QMI_FIXED_INTF(0x19d2, 0x1401, 2)},
 	{QMI_FIXED_INTF(0x19d2, 0x1402, 2)},	/* ZTE MF60 */
+	{QMI_FIXED_INTF(0x19d2, 0x1424, 2)},
+	{QMI_FIXED_INTF(0x19d2, 0x1425, 2)},
+	{QMI_FIXED_INTF(0x19d2, 0x1426, 2)},	/* ZTE MF91 */
 	{QMI_FIXED_INTF(0x19d2, 0x2002, 4)},	/* ZTE (Vodafone) K3765-Z */
 	{QMI_FIXED_INTF(0x0f3d, 0x68a2, 8)},    /* Sierra Wireless MC7700 */
 	{QMI_FIXED_INTF(0x114f, 0x68a2, 8)},    /* Sierra Wireless MC7750 */
 	{QMI_FIXED_INTF(0x1199, 0x68a2, 8)},	/* Sierra Wireless MC7710 in QMI mode */
 	{QMI_FIXED_INTF(0x1199, 0x68a2, 19)},	/* Sierra Wireless MC7710 in QMI mode */
 	{QMI_FIXED_INTF(0x1199, 0x901c, 8)},    /* Sierra Wireless EM7700 */
+	{QMI_FIXED_INTF(0x1bbb, 0x011e, 4)},	/* Telekom Speedstick LTE II (Alcatel One Touch L100V LTE) */
+	{QMI_FIXED_INTF(0x2357, 0x0201, 4)},	/* TP-LINK HSUPA Modem MA180 */
+	{QMI_FIXED_INTF(0x1bc7, 0x1200, 5)},	/* Telit LE920 */
 
 	/* 4. Gobi 1000 devices */
 	{QMI_GOBI1K_DEVICE(0x05c6, 0x9212)},	/* Acer Gobi Modem Device */
@@ -467,7 +636,7 @@ static int qmi_wwan_probe(struct usb_interface *intf, const struct usb_device_id
 	 */
 	if (!id->driver_info) {
 		dev_dbg(&intf->dev, "setting defaults for dynamic device id\n");
-		id->driver_info = (unsigned long)&qmi_wwan_shared;
+		id->driver_info = (unsigned long)&qmi_wwan_info;
 	}
 
 	return usbnet_probe(intf, id);

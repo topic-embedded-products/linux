@@ -20,8 +20,6 @@
 #include <linux/usb/serial.h>
 #include <linux/uaccess.h>
 
-static bool debug;
-
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(0x05e0, 0x0600) },
 	{ },
@@ -50,7 +48,6 @@ static void symbol_int_callback(struct urb *urb)
 	unsigned char *data = urb->transfer_buffer;
 	struct usb_serial_port *port = priv->port;
 	int status = urb->status;
-	struct tty_struct *tty;
 	int result;
 	int data_length;
 
@@ -71,8 +68,7 @@ static void symbol_int_callback(struct urb *urb)
 		goto exit;
 	}
 
-	usb_serial_debug_data(debug, &port->dev, __func__, urb->actual_length,
-			      data);
+	usb_serial_debug_data(&port->dev, __func__, urb->actual_length, data);
 
 	if (urb->actual_length > 1) {
 		data_length = urb->actual_length - 1;
@@ -85,12 +81,8 @@ static void symbol_int_callback(struct urb *urb)
 		 * we pretty much just ignore the size and send everything
 		 * else to the tty layer.
 		 */
-		tty = tty_port_tty_get(&port->port);
-		if (tty) {
-			tty_insert_flip_string(tty, &data[1], data_length);
-			tty_flip_buffer_push(tty);
-			tty_kref_put(tty);
-		}
+		tty_insert_flip_string(&port->port, &data[1], data_length);
+		tty_flip_buffer_push(&port->port);
 	} else {
 		dev_dbg(&priv->udev->dev,
 			"Improper amount of data received from the device, "
@@ -292,6 +284,3 @@ static struct usb_serial_driver * const serial_drivers[] = {
 module_usb_serial_driver(serial_drivers, id_table);
 
 MODULE_LICENSE("GPL");
-
-module_param(debug, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(debug, "Debug enabled or not");

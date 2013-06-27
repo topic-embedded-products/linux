@@ -31,7 +31,6 @@
 /*
  * Callbacks for platform drivers to implement.
  */
-extern void (*pm_idle)(void);
 extern void (*pm_power_off)(void);
 extern void (*pm_power_off_prepare)(void);
 
@@ -510,12 +509,14 @@ struct dev_pm_info {
 	bool			is_prepared:1;	/* Owned by the PM core */
 	bool			is_suspended:1;	/* Ditto */
 	bool			ignore_children:1;
+	bool			early_init:1;	/* Owned by the PM core */
 	spinlock_t		lock;
 #ifdef CONFIG_PM_SLEEP
 	struct list_head	entry;
 	struct completion	completion;
 	struct wakeup_source	*wakeup;
 	bool			wakeup_path:1;
+	bool			syscore:1;
 #else
 	unsigned int		should_wakeup:1;
 #endif
@@ -536,6 +537,7 @@ struct dev_pm_info {
 	unsigned int		irq_safe:1;
 	unsigned int		use_autosuspend:1;
 	unsigned int		timer_autosuspends:1;
+	unsigned int		memalloc_noio:1;
 	enum rpm_request	request;
 	enum rpm_status		runtime_status;
 	int			runtime_error;
@@ -544,10 +546,9 @@ struct dev_pm_info {
 	unsigned long		active_jiffies;
 	unsigned long		suspended_jiffies;
 	unsigned long		accounting_timestamp;
-	struct dev_pm_qos_request *pq_req;
 #endif
 	struct pm_subsys_data	*subsys_data;  /* Owned by the subsystem. */
-	struct pm_qos_constraints *constraints;
+	struct dev_pm_qos	*qos;
 };
 
 extern void update_pm_runtime_accounting(struct device *dev);
@@ -638,6 +639,7 @@ extern void __suspend_report_result(const char *function, void *fn, int ret);
 	} while (0)
 
 extern int device_pm_wait_for_dev(struct device *sub, struct device *dev);
+extern void dpm_for_each_dev(void *data, void (*fn)(struct device *, void *));
 
 extern int pm_generic_prepare(struct device *dev);
 extern int pm_generic_suspend_late(struct device *dev);
@@ -675,6 +677,10 @@ static inline int dpm_suspend_start(pm_message_t state)
 static inline int device_pm_wait_for_dev(struct device *a, struct device *b)
 {
 	return 0;
+}
+
+static inline void dpm_for_each_dev(void *data, void (*fn)(struct device *, void *))
+{
 }
 
 #define pm_generic_prepare	NULL

@@ -24,23 +24,23 @@
 #include <linux/io.h>
 #include <linux/gpio.h>
 #include <linux/mmc/host.h>
+#include <linux/platform_data/spi-omap2-mcspi.h>
+#include <linux/platform_data/omap-twl4030.h>
+#include <linux/usb/phy.h>
 
-#include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
-#include <plat/mcspi.h>
-#include <plat/board.h>
-#include <plat/usb.h>
 #include "common.h"
-#include <plat/dma.h>
-#include <plat/gpmc.h>
+#include <linux/omap-dma.h>
 #include <video/omapdss.h>
 #include <video/omap-panel-tfp410.h>
 
-#include <plat/gpmc-smc91x.h>
+#include "gpmc.h"
+#include "gpmc-smc91x.h"
 
+#include "soc.h"
 #include "board-flash.h"
 #include "mux.h"
 #include "sdram-qimonda-hyb18m512160af-6.h"
@@ -159,6 +159,7 @@ static struct omap_dss_device sdp3430_lcd_device = {
 
 static struct tfp410_platform_data dvi_panel = {
 	.power_down_gpio	= -1,
+	.i2c_bus_num		= -1,
 };
 
 static struct omap_dss_device sdp3430_dvi_device = {
@@ -191,9 +192,6 @@ static struct omap_dss_board_info sdp3430_dss_data = {
 	.default_device	= &sdp3430_lcd_device,
 };
 
-static struct omap_board_config_kernel sdp3430_config[] __initdata = {
-};
-
 static struct omap2_hsmmc_info mmc[] = {
 	{
 		.mmc		= 1,
@@ -213,6 +211,19 @@ static struct omap2_hsmmc_info mmc[] = {
 	{}	/* Terminator */
 };
 
+static struct omap_tw4030_pdata omap_twl4030_audio_data = {
+	.voice_connected = true,
+	.custom_routing	= true,
+
+	.has_hs		= OMAP_TWL4030_LEFT | OMAP_TWL4030_RIGHT,
+	.has_hf		= OMAP_TWL4030_LEFT | OMAP_TWL4030_RIGHT,
+
+	.has_mainmic	= true,
+	.has_submic	= true,
+	.has_hsmic	= true,
+	.has_linein	= OMAP_TWL4030_LEFT | OMAP_TWL4030_RIGHT,
+};
+
 static int sdp3430_twl_gpio_setup(struct device *dev,
 		unsigned gpio, unsigned ngpio)
 {
@@ -229,13 +240,13 @@ static int sdp3430_twl_gpio_setup(struct device *dev,
 	/* gpio + 15 is "sub_lcd_nRST" (output) */
 	gpio_request_one(gpio + 15, GPIOF_OUT_INIT_LOW, "sub_lcd_nRST");
 
+	omap_twl4030_audio_data.jack_detect = gpio + 2;
+	omap_twl4030_audio_init("SDP3430", &omap_twl4030_audio_data);
+
 	return 0;
 }
 
 static struct twl4030_gpio_platform_data sdp3430_gpio_data = {
-	.gpio_base	= OMAP_MAX_GPIO_LINES,
-	.irq_base	= TWL4030_GPIO_IRQ_BASE,
-	.irq_end	= TWL4030_GPIO_IRQ_END,
 	.pulldowns	= BIT(2) | BIT(6) | BIT(8) | BIT(13)
 				| BIT(16) | BIT(17),
 	.setup		= sdp3430_twl_gpio_setup,
@@ -389,6 +400,9 @@ static int __init omap3430_i2c_init(void)
 	sdp3430_twldata.vpll2->constraints.apply_uV = true;
 	sdp3430_twldata.vpll2->constraints.name = "VDVI";
 
+	sdp3430_twldata.audio->codec->hs_extmute = 1;
+	sdp3430_twldata.audio->codec->hs_extmute_gpio = -EINVAL;
+
 	omap3_pmic_init("twl4030", &sdp3430_twldata);
 
 	/* i2c2 on camera connector (for sensor control) and optional isp1301 */
@@ -431,7 +445,7 @@ static void enable_board_wakeup_source(void)
 		OMAP_WAKEUP_EN | OMAP_PIN_INPUT_PULLUP);
 }
 
-static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
+static struct usbhs_omap_platform_data usbhs_bdata __initdata = {
 
 	.port_mode[0] = OMAP_EHCI_PORT_MODE_PHY,
 	.port_mode[1] = OMAP_EHCI_PORT_MODE_PHY,
@@ -576,8 +590,6 @@ static void __init omap_3430sdp_init(void)
 	int gpio_pendown;
 
 	omap3_mux_init(board_mux, OMAP_PACKAGE_CBB);
-	omap_board_config = sdp3430_config;
-	omap_board_config_size = ARRAY_SIZE(sdp3430_config);
 	omap_hsmmc_init(mmc);
 	omap3430_i2c_init();
 	omap_display_init(&sdp3430_dss_data);
@@ -588,6 +600,7 @@ static void __init omap_3430sdp_init(void)
 	omap_ads7846_init(1, gpio_pendown, 310, NULL);
 	omap_serial_init();
 	omap_sdrc_init(hyb18m512160af6_sdrc_params, NULL);
+	usb_bind_phy("musb-hdrc.0.auto", 0, "twl4030_usb");
 	usb_musb_init(NULL);
 	board_smc91x_init();
 	board_flash_init(sdp_flash_partitions, chip_sel_3430, 0);
@@ -606,6 +619,6 @@ MACHINE_START(OMAP_3430SDP, "OMAP3430 3430SDP board")
 	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= omap_3430sdp_init,
 	.init_late	= omap3430_init_late,
-	.timer		= &omap3_timer,
-	.restart	= omap_prcm_restart,
+	.init_time	= omap3_sync32k_timer_init,
+	.restart	= omap3xxx_restart,
 MACHINE_END

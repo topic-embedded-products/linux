@@ -70,7 +70,7 @@ static void smd_tty_notify(void *priv, unsigned event)
 		if (avail == 0)
 			break;
 
-		avail = tty_prepare_flip_string(tty, &ptr, avail);
+		avail = tty_prepare_flip_string(&info->port, &ptr, avail);
 
 		if (smd_read(info->ch, ptr, avail) != avail) {
 			/* shouldn't be possible since we're in interrupt
@@ -80,7 +80,7 @@ static void smd_tty_notify(void *priv, unsigned event)
 			pr_err("OOPS - smd_tty_buffer mismatch?!");
 		}
 
-		tty_flip_buffer_push(tty);
+		tty_flip_buffer_push(&info->port);
 	}
 
 	/* XXX only when writable and necessary */
@@ -223,9 +223,11 @@ static int __init smd_tty_init(void)
 		return ret;
 
 	for (i = 0; i < smd_tty_channels_len; i++) {
-		tty_port_init(&smd_tty[smd_tty_channels[i].id].port);
-		smd_tty[smd_tty_channels[i].id].port.ops = &smd_tty_port_ops;
-		tty_register_device(smd_tty_driver, smd_tty_channels[i].id, 0);
+		struct tty_port *port = &smd_tty[smd_tty_channels[i].id].port;
+		tty_port_init(port);
+		port->ops = &smd_tty_port_ops;
+		tty_port_register_device(port, smd_tty_driver,
+				smd_tty_channels[i].id, NULL);
 	}
 
 	return 0;

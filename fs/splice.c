@@ -31,6 +31,7 @@
 #include <linux/security.h>
 #include <linux/gfp.h>
 #include <linux/socket.h>
+#include "internal.h"
 
 /*
  * Attempt to steal a page from a pipe buffer. This should perhaps go into
@@ -569,7 +570,7 @@ static ssize_t kernel_readv(struct file *file, const struct iovec *vec,
 	return res;
 }
 
-static ssize_t kernel_write(struct file *file, const char *buf, size_t count,
+ssize_t kernel_write(struct file *file, const char *buf, size_t count,
 			    loff_t pos)
 {
 	mm_segment_t old_fs;
@@ -578,11 +579,12 @@ static ssize_t kernel_write(struct file *file, const char *buf, size_t count,
 	old_fs = get_fs();
 	set_fs(get_ds());
 	/* The cast to a user pointer is valid due to the set_fs() */
-	res = vfs_write(file, (const char __user *)buf, count, &pos);
+	res = vfs_write(file, (__force const char __user *)buf, count, &pos);
 	set_fs(old_fs);
 
 	return res;
 }
+EXPORT_SYMBOL(kernel_write);
 
 ssize_t default_file_splice_read(struct file *in, loff_t *ppos,
 				 struct pipe_inode_info *pipe, size_t len,
@@ -696,8 +698,10 @@ static int pipe_to_sendpage(struct pipe_inode_info *pipe,
 		return -EINVAL;
 
 	more = (sd->flags & SPLICE_F_MORE) ? MSG_MORE : 0;
-	if (sd->len < sd->total_len)
+
+	if (sd->len < sd->total_len && pipe->nrbufs > 1)
 		more |= MSG_SENDPAGE_NOTLAST;
+
 	return file->f_op->sendpage(file, buf->page, buf->offset,
 				    sd->len, &pos, more);
 }
@@ -1024,17 +1028,14 @@ generic_file_splice_write(struct pipe_inode_info *pipe, struct file *out,
 		ret = sd.num_spliced;
 
 	if (ret > 0) {
-		unsigned long nr_pages;
 		int err;
-
-		nr_pages = (ret + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
 
 		err = generic_write_sync(out, *ppos, ret);
 		if (err)
 			ret = err;
 		else
 			*ppos += ret;
-		balance_dirty_pages_ratelimited_nr(mapping, nr_pages);
+		balance_dirty_pages_ratelimited(mapping);
 	}
 	sb_end_write(inode->i_sb);
 
@@ -1048,9 +1049,10 @@ static int write_pipe_buf(struct pipe_inode_info *pipe, struct pipe_buffer *buf,
 {
 	int ret;
 	void *data;
+	loff_t tmp = sd->pos;
 
 	data = buf->ops->map(pipe, buf, 0);
-	ret = kernel_write(sd->u.file, data + buf->offset, sd->len, sd->pos);
+	ret = __kernel_write(sd->u.file, data + buf->offset, sd->len, &tmp);
 	buf->ops->unmap(pipe, buf, data);
 
 	return ret;
@@ -1171,7 +1173,7 @@ ssize_t splice_direct_to_actor(struct file *in, struct splice_desc *sd,
 	 * randomly drop data for eg socket -> socket splicing. Use the
 	 * piped splicing for that!
 	 */
-	i_mode = in->f_path.dentry->d_inode->i_mode;
+	i_mode = file_inode(in)->i_mode;
 	if (unlikely(!S_ISREG(i_mode) && !S_ISBLK(i_mode)))
 		return -EINVAL;
 
@@ -1666,9 +1668,8 @@ static long vmsplice_to_pipe(struct file *file, const struct iovec __user *iov,
 SYSCALL_DEFINE4(vmsplice, int, fd, const struct iovec __user *, iov,
 		unsigned long, nr_segs, unsigned int, flags)
 {
-	struct file *file;
+	struct fd f;
 	long error;
-	int fput;
 
 	if (unlikely(nr_segs > UIO_MAXIOV))
 		return -EINVAL;
@@ -1676,14 +1677,14 @@ SYSCALL_DEFINE4(vmsplice, int, fd, const struct iovec __user *, iov,
 		return 0;
 
 	error = -EBADF;
-	file = fget_light(fd, &fput);
-	if (file) {
-		if (file->f_mode & FMODE_WRITE)
-			error = vmsplice_to_pipe(file, iov, nr_segs, flags);
-		else if (file->f_mode & FMODE_READ)
-			error = vmsplice_to_user(file, iov, nr_segs, flags);
+	f = fdget(fd);
+	if (f.file) {
+		if (f.file->f_mode & FMODE_WRITE)
+			error = vmsplice_to_pipe(f.file, iov, nr_segs, flags);
+		else if (f.file->f_mode & FMODE_READ)
+			error = vmsplice_to_user(f.file, iov, nr_segs, flags);
 
-		fput_light(file, fput);
+		fdput(f);
 	}
 
 	return error;
@@ -1693,30 +1694,27 @@ SYSCALL_DEFINE6(splice, int, fd_in, loff_t __user *, off_in,
 		int, fd_out, loff_t __user *, off_out,
 		size_t, len, unsigned int, flags)
 {
+	struct fd in, out;
 	long error;
-	struct file *in, *out;
-	int fput_in, fput_out;
 
 	if (unlikely(!len))
 		return 0;
 
 	error = -EBADF;
-	in = fget_light(fd_in, &fput_in);
-	if (in) {
-		if (in->f_mode & FMODE_READ) {
-			out = fget_light(fd_out, &fput_out);
-			if (out) {
-				if (out->f_mode & FMODE_WRITE)
-					error = do_splice(in, off_in,
-							  out, off_out,
+	in = fdget(fd_in);
+	if (in.file) {
+		if (in.file->f_mode & FMODE_READ) {
+			out = fdget(fd_out);
+			if (out.file) {
+				if (out.file->f_mode & FMODE_WRITE)
+					error = do_splice(in.file, off_in,
+							  out.file, off_out,
 							  len, flags);
-				fput_light(out, fput_out);
+				fdput(out);
 			}
 		}
-
-		fput_light(in, fput_in);
+		fdput(in);
 	}
-
 	return error;
 }
 
@@ -2027,26 +2025,25 @@ static long do_tee(struct file *in, struct file *out, size_t len,
 
 SYSCALL_DEFINE4(tee, int, fdin, int, fdout, size_t, len, unsigned int, flags)
 {
-	struct file *in;
-	int error, fput_in;
+	struct fd in;
+	int error;
 
 	if (unlikely(!len))
 		return 0;
 
 	error = -EBADF;
-	in = fget_light(fdin, &fput_in);
-	if (in) {
-		if (in->f_mode & FMODE_READ) {
-			int fput_out;
-			struct file *out = fget_light(fdout, &fput_out);
-
-			if (out) {
-				if (out->f_mode & FMODE_WRITE)
-					error = do_tee(in, out, len, flags);
-				fput_light(out, fput_out);
+	in = fdget(fdin);
+	if (in.file) {
+		if (in.file->f_mode & FMODE_READ) {
+			struct fd out = fdget(fdout);
+			if (out.file) {
+				if (out.file->f_mode & FMODE_WRITE)
+					error = do_tee(in.file, out.file,
+							len, flags);
+				fdput(out);
 			}
 		}
- 		fput_light(in, fput_in);
+ 		fdput(in);
  	}
 
 	return error;

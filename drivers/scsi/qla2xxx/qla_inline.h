@@ -1,6 +1,6 @@
 /*
  * QLogic Fibre Channel HBA Driver
- * Copyright (c)  2003-2011 QLogic Corporation
+ * Copyright (c)  2003-2013 QLogic Corporation
  *
  * See LICENSE.qla2xxx for copyright and licensing details.
  */
@@ -57,6 +57,20 @@ host_to_fcp_swap(uint8_t *fcp, uint32_t bsize)
        return fcp;
 }
 
+static inline void
+qla2x00_set_reserved_loop_ids(struct qla_hw_data *ha)
+{
+	int i;
+
+	if (IS_FWI2_CAPABLE(ha))
+		return;
+
+	for (i = 0; i < SNS_FIRST_LOOP_ID; i++)
+		set_bit(i, ha->loop_id_map);
+	set_bit(MANAGEMENT_SERVER, ha->loop_id_map);
+	set_bit(BROADCAST, ha->loop_id_map);
+}
+
 static inline int
 qla2x00_is_reserved_id(scsi_qla_host_t *vha, uint16_t loop_id)
 {
@@ -66,6 +80,18 @@ qla2x00_is_reserved_id(scsi_qla_host_t *vha, uint16_t loop_id)
 
 	return ((loop_id > ha->max_loop_id && loop_id < SNS_FIRST_LOOP_ID) ||
 	    loop_id == MANAGEMENT_SERVER || loop_id == BROADCAST);
+}
+
+static inline void
+qla2x00_clear_loop_id(fc_port_t *fcport) {
+	struct qla_hw_data *ha = fcport->vha->hw;
+
+	if (fcport->loop_id == FC_NO_LOOP_ID ||
+	    qla2x00_is_reserved_id(fcport->vha, fcport->loop_id))
+		return;
+
+	clear_bit(fcport->loop_id, ha->loop_id_map);
+	fcport->loop_id = FC_NO_LOOP_ID;
 }
 
 static inline void
@@ -172,6 +198,13 @@ done:
 }
 
 static inline void
+qla2x00_rel_sp(scsi_qla_host_t *vha, srb_t *sp)
+{
+	mempool_free(sp, vha->hw->srb_mempool);
+	QLA_VHA_MARK_NOT_BUSY(vha);
+}
+
+static inline void
 qla2x00_init_timer(srb_t *sp, unsigned long tmo)
 {
 	init_timer(&sp->u.iocb_cmd.timer);
@@ -186,4 +219,23 @@ static inline int
 qla2x00_gid_list_size(struct qla_hw_data *ha)
 {
 	return sizeof(struct gid_list_info) * ha->max_fibre_devices;
+}
+
+static inline void
+qla2x00_do_host_ramp_up(scsi_qla_host_t *vha)
+{
+	if (vha->hw->cfg_lun_q_depth >= ql2xmaxqdepth)
+		return;
+
+	/* Wait at least HOST_QUEUE_RAMPDOWN_INTERVAL before ramping up */
+	if (time_before(jiffies, (vha->hw->host_last_rampdown_time +
+	    HOST_QUEUE_RAMPDOWN_INTERVAL)))
+		return;
+
+	/* Wait at least HOST_QUEUE_RAMPUP_INTERVAL between each ramp up */
+	if (time_before(jiffies, (vha->hw->host_last_rampup_time +
+	    HOST_QUEUE_RAMPUP_INTERVAL)))
+		return;
+
+	set_bit(HOST_RAMP_UP_QUEUE_DEPTH, &vha->dpc_flags);
 }

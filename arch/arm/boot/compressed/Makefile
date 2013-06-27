@@ -30,6 +30,12 @@ FONTC	= $(srctree)/drivers/video/console/font_acorn_8x8.c
 OBJS		+= string.o
 CFLAGS_string.o	:= -Os
 
+ifeq ($(CONFIG_ARM_VIRT_EXT),y)
+OBJS		+= hyp-stub.o
+endif
+
+GCOV_PROFILE		:= n
+
 #
 # Architecture dependencies
 #
@@ -41,17 +47,8 @@ ifeq ($(CONFIG_ARCH_SHARK),y)
 OBJS		+= head-shark.o ofw-shark.o
 endif
 
-ifeq ($(CONFIG_ARCH_P720T),y)
-# Borrow this code from SA1100
-OBJS		+= head-sa1100.o
-endif
-
 ifeq ($(CONFIG_ARCH_SA1100),y)
 OBJS		+= head-sa1100.o
-endif
-
-ifeq ($(CONFIG_ARCH_VT8500),y)
-OBJS		+= head-vt8500.o
 endif
 
 ifeq ($(CONFIG_CPU_XSCALE),y)
@@ -125,8 +122,8 @@ ORIG_CFLAGS := $(KBUILD_CFLAGS)
 KBUILD_CFLAGS = $(subst -pg, , $(ORIG_CFLAGS))
 endif
 
-ccflags-y := -fpic -fno-builtin -I$(obj)
-asflags-y := -Wa,-march=all
+ccflags-y := -fpic -mno-single-pic-base -fno-builtin -I$(obj)
+asflags-y := -Wa,-march=all -DZIMAGE
 
 # Supply kernel BSS size to the decompressor via a linker symbol.
 KBSS_SZ = $(shell $(CROSS_COMPILE)size $(obj)/../../../../vmlinux | \
@@ -198,3 +195,6 @@ $(obj)/font.c: $(FONTC)
 
 $(obj)/vmlinux.lds: $(obj)/vmlinux.lds.in arch/arm/boot/Makefile $(KCONFIG_CONFIG)
 	@sed "$(SEDFLAGS)" < $< > $@
+
+$(obj)/hyp-stub.S: $(srctree)/arch/$(SRCARCH)/kernel/hyp-stub.S
+	$(call cmd,shipped)

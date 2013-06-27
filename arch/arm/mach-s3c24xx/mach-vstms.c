@@ -36,11 +36,10 @@
 #include <mach/regs-gpio.h>
 #include <mach/regs-lcd.h>
 
-#include <mach/idle.h>
 #include <mach/fb.h>
 
-#include <plat/iic.h>
-#include <plat/nand.h>
+#include <linux/platform_data/i2c-s3c2410.h>
+#include <linux/platform_data/mtd-nand-s3c2410.h>
 
 #include <plat/s3c2410.h>
 #include <plat/s3c2412.h>
@@ -161,6 +160,6 @@ MACHINE_START(VSTMS, "VSTMS")
 	.init_irq	= s3c24xx_init_irq,
 	.init_machine	= vstms_init,
 	.map_io		= vstms_map_io,
-	.timer		= &s3c24xx_timer,
+	.init_time	= s3c24xx_timer_init,
 	.restart	= s3c2412_restart,
 MACHINE_END

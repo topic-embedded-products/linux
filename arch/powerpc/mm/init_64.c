@@ -62,7 +62,6 @@
 #include <asm/cputable.h>
 #include <asm/sections.h>
 #include <asm/iommu.h>
-#include <asm/abs_addr.h>
 #include <asm/vdso.h>
 
 #include "mmu_decl.h"
@@ -298,5 +297,10 @@ int __meminit vmemmap_populate(struct page *start_page,
 
 	return 0;
 }
+
+void vmemmap_free(struct page *memmap, unsigned long nr_pages)
+{
+}
+
 #endif /* CONFIG_SPARSEMEM_VMEMMAP */
 

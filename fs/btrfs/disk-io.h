@@ -25,6 +25,13 @@
 #define BTRFS_SUPER_MIRROR_MAX	 3
 #define BTRFS_SUPER_MIRROR_SHIFT 12
 
+enum {
+	BTRFS_WQ_ENDIO_DATA = 0,
+	BTRFS_WQ_ENDIO_METADATA = 1,
+	BTRFS_WQ_ENDIO_FREE_SPACE = 2,
+	BTRFS_WQ_ENDIO_RAID56 = 3,
+};
+
 static inline u64 btrfs_sb_offset(int mirror)
 {
 	u64 start = 16 * 1024;
@@ -62,8 +69,8 @@ struct btrfs_root *btrfs_read_fs_root_no_radix(struct btrfs_root *tree_root,
 struct btrfs_root *btrfs_read_fs_root_no_name(struct btrfs_fs_info *fs_info,
 					      struct btrfs_key *location);
 int btrfs_cleanup_fs_roots(struct btrfs_fs_info *fs_info);
-void btrfs_btree_balance_dirty(struct btrfs_root *root, unsigned long nr);
-void __btrfs_btree_balance_dirty(struct btrfs_root *root, unsigned long nr);
+void btrfs_btree_balance_dirty(struct btrfs_root *root);
+void btrfs_btree_balance_dirty_nodelay(struct btrfs_root *root);
 void btrfs_free_fs_root(struct btrfs_fs_info *fs_info, struct btrfs_root *root);
 void btrfs_mark_buffer_dirty(struct extent_buffer *buf);
 int btrfs_buffer_uptodate(struct extent_buffer *buf, u64 parent_transid,
@@ -95,6 +102,8 @@ struct btrfs_root *btrfs_create_tree(struct btrfs_trans_handle *trans,
 				     u64 objectid);
 int btree_lock_page_hook(struct page *page, void *data,
 				void (*flush_fn)(void *));
+int btrfs_calc_num_tolerated_disk_barrier_failures(
+	struct btrfs_fs_info *fs_info);
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 void btrfs_init_lockdep(void);

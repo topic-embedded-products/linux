@@ -263,6 +263,10 @@ static const struct snmp_mib snmp4_net_list[] = {
 	SNMP_MIB_ITEM("TCPChallengeACK", LINUX_MIB_TCPCHALLENGEACK),
 	SNMP_MIB_ITEM("TCPSYNChallenge", LINUX_MIB_TCPSYNCHALLENGE),
 	SNMP_MIB_ITEM("TCPFastOpenActive", LINUX_MIB_TCPFASTOPENACTIVE),
+	SNMP_MIB_ITEM("TCPFastOpenPassive", LINUX_MIB_TCPFASTOPENPASSIVE),
+	SNMP_MIB_ITEM("TCPFastOpenPassiveFail", LINUX_MIB_TCPFASTOPENPASSIVEFAIL),
+	SNMP_MIB_ITEM("TCPFastOpenListenOverflow", LINUX_MIB_TCPFASTOPENLISTENOVERFLOW),
+	SNMP_MIB_ITEM("TCPFastOpenCookieReqd", LINUX_MIB_TCPFASTOPENCOOKIEREQD),
 	SNMP_MIB_SENTINEL
 };
 
@@ -467,28 +471,29 @@ static const struct file_operations netstat_seq_fops = {
 
 static __net_init int ip_proc_init_net(struct net *net)
 {
-	if (!proc_net_fops_create(net, "sockstat", S_IRUGO, &sockstat_seq_fops))
+	if (!proc_create("sockstat", S_IRUGO, net->proc_net,
+			 &sockstat_seq_fops))
 		goto out_sockstat;
-	if (!proc_net_fops_create(net, "netstat", S_IRUGO, &netstat_seq_fops))
+	if (!proc_create("netstat", S_IRUGO, net->proc_net, &netstat_seq_fops))
 		goto out_netstat;
-	if (!proc_net_fops_create(net, "snmp", S_IRUGO, &snmp_seq_fops))
+	if (!proc_create("snmp", S_IRUGO, net->proc_net, &snmp_seq_fops))
 		goto out_snmp;
 
 	return 0;
 
 out_snmp:
-	proc_net_remove(net, "netstat");
+	remove_proc_entry("netstat", net->proc_net);
 out_netstat:
-	proc_net_remove(net, "sockstat");
+	remove_proc_entry("sockstat", net->proc_net);
 out_sockstat:
 	return -ENOMEM;
 }
 
 static __net_exit void ip_proc_exit_net(struct net *net)
 {
-	proc_net_remove(net, "snmp");
-	proc_net_remove(net, "netstat");
-	proc_net_remove(net, "sockstat");
+	remove_proc_entry("snmp", net->proc_net);
+	remove_proc_entry("netstat", net->proc_net);
+	remove_proc_entry("sockstat", net->proc_net);
 }
 
 static __net_initdata struct pernet_operations ip_proc_ops = {

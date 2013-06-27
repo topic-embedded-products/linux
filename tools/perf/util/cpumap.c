@@ -1,4 +1,5 @@
 #include "util.h"
+#include "sysfs.h"
 #include "../perf.h"
 #include "cpumap.h"
 #include <assert.h>
@@ -38,24 +39,19 @@ static struct cpu_map *cpu_map__trim_new(int nr_cpus, int *tmp_cpus)
 	return cpus;
 }
 
-static struct cpu_map *cpu_map__read_all_cpu_map(void)
+struct cpu_map *cpu_map__read(FILE *file)
 {
 	struct cpu_map *cpus = NULL;
-	FILE *onlnf;
 	int nr_cpus = 0;
 	int *tmp_cpus = NULL, *tmp;
 	int max_entries = 0;
 	int n, cpu, prev;
 	char sep;
 
-	onlnf = fopen("/sys/devices/system/cpu/online", "r");
-	if (!onlnf)
-		return cpu_map__default_new();
-
 	sep = 0;
 	prev = -1;
 	for (;;) {
-		n = fscanf(onlnf, "%u%c", &cpu, &sep);
+		n = fscanf(file, "%u%c", &cpu, &sep);
 		if (n <= 0)
 			break;
 		if (prev >= 0) {
@@ -95,6 +91,19 @@ static struct cpu_map *cpu_map__read_all_cpu_map(void)
 		cpus = cpu_map__default_new();
 out_free_tmp:
 	free(tmp_cpus);
+	return cpus;
+}
+
+static struct cpu_map *cpu_map__read_all_cpu_map(void)
+{
+	struct cpu_map *cpus = NULL;
+	FILE *onlnf;
+
+	onlnf = fopen("/sys/devices/system/cpu/online", "r");
+	if (!onlnf)
+		return cpu_map__default_new();
+
+	cpus = cpu_map__read(onlnf);
 	fclose(onlnf);
 	return cpus;
 }
@@ -192,4 +201,57 @@ struct cpu_map *cpu_map__dummy_new(void)
 void cpu_map__delete(struct cpu_map *map)
 {
 	free(map);
+}
+
+int cpu_map__get_socket(struct cpu_map *map, int idx)
+{
+	FILE *fp;
+	const char *mnt;
+	char path[PATH_MAX];
+	int cpu, ret;
+
+	if (idx > map->nr)
+		return -1;
+
+	cpu = map->map[idx];
+
+	mnt = sysfs_find_mountpoint();
+	if (!mnt)
+		return -1;
+
+	sprintf(path,
+		"%s/devices/system/cpu/cpu%d/topology/physical_package_id",
+		mnt, cpu);
+
+	fp = fopen(path, "r");
+	if (!fp)
+		return -1;
+	ret = fscanf(fp, "%d", &cpu);
+	fclose(fp);
+	return ret == 1 ? cpu : -1;
+}
+
+int cpu_map__build_socket_map(struct cpu_map *cpus, struct cpu_map **sockp)
+{
+	struct cpu_map *sock;
+	int nr = cpus->nr;
+	int cpu, s1, s2;
+
+	sock = calloc(1, sizeof(*sock) + nr * sizeof(int));
+	if (!sock)
+		return -1;
+
+	for (cpu = 0; cpu < nr; cpu++) {
+		s1 = cpu_map__get_socket(cpus, cpu);
+		for (s2 = 0; s2 < sock->nr; s2++) {
+			if (s1 == sock->map[s2])
+				break;
+		}
+		if (s2 == sock->nr) {
+			sock->map[sock->nr] = s1;
+			sock->nr++;
+		}
+	}
+	*sockp = sock;
+	return 0;
 }

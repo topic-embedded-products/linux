@@ -24,8 +24,6 @@
 #include <linux/kfifo.h>
 #include <linux/serial.h>
 
-static int debug;
-
 #ifdef CONFIG_USB_SERIAL_GENERIC
 
 static __u16 vendor  = 0x05f9;
@@ -60,11 +58,10 @@ static struct usb_serial_driver * const serial_drivers[] = {
 
 #endif
 
-int usb_serial_generic_register(int _debug)
+int usb_serial_generic_register(void)
 {
 	int retval = 0;
 
-	debug = _debug;
 #ifdef CONFIG_USB_SERIAL_GENERIC
 	generic_device_ids[0].idVendor = vendor;
 	generic_device_ids[0].idProduct = product;
@@ -171,8 +168,7 @@ retry:
 						urb->transfer_buffer,
 						port->bulk_out_size);
 	urb->transfer_buffer_length = count;
-	usb_serial_debug_data(debug, &port->dev, __func__, count,
-						urb->transfer_buffer);
+	usb_serial_debug_data(&port->dev, __func__, count, urb->transfer_buffer);
 	spin_lock_irqsave(&port->lock, flags);
 	port->tx_bytes += count;
 	spin_unlock_irqrestore(&port->lock, flags);
@@ -266,6 +262,7 @@ int usb_serial_generic_chars_in_buffer(struct tty_struct *tty)
 	dev_dbg(&port->dev, "%s - returns %d\n", __func__, chars);
 	return chars;
 }
+EXPORT_SYMBOL_GPL(usb_serial_generic_chars_in_buffer);
 
 static int usb_serial_generic_submit_read_urb(struct usb_serial_port *port,
 						int index, gfp_t mem_flags)
@@ -316,30 +313,24 @@ EXPORT_SYMBOL_GPL(usb_serial_generic_submit_read_urbs);
 void usb_serial_generic_process_read_urb(struct urb *urb)
 {
 	struct usb_serial_port *port = urb->context;
-	struct tty_struct *tty;
 	char *ch = (char *)urb->transfer_buffer;
 	int i;
 
 	if (!urb->actual_length)
 		return;
 
-	tty = tty_port_tty_get(&port->port);
-	if (!tty)
-		return;
-
 	/* The per character mucking around with sysrq path it too slow for
 	   stuff like 3G modems, so shortcircuit it in the 99.9999999% of cases
 	   where the USB serial is not a console anyway */
 	if (!port->port.console || !port->sysrq)
-		tty_insert_flip_string(tty, ch, urb->actual_length);
+		tty_insert_flip_string(&port->port, ch, urb->actual_length);
 	else {
 		for (i = 0; i < urb->actual_length; i++, ch++) {
 			if (!usb_serial_handle_sysrq_char(port, *ch))
-				tty_insert_flip_char(tty, *ch, TTY_NORMAL);
+				tty_insert_flip_char(&port->port, *ch, TTY_NORMAL);
 		}
 	}
-	tty_flip_buffer_push(tty);
-	tty_kref_put(tty);
+	tty_flip_buffer_push(&port->port);
 }
 EXPORT_SYMBOL_GPL(usb_serial_generic_process_read_urb);
 
@@ -365,8 +356,7 @@ void usb_serial_generic_read_bulk_callback(struct urb *urb)
 		return;
 	}
 
-	usb_serial_debug_data(debug, &port->dev, __func__,
-						urb->actual_length, data);
+	usb_serial_debug_data(&port->dev, __func__, urb->actual_length, data);
 	port->serial->type->process_read_urb(urb);
 
 	/* Throttle the device if requested by tty */

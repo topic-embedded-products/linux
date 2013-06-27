@@ -23,43 +23,43 @@
 #include <linux/clkdev.h>
 #include <mach/common.h>
 
-#define FRQCRA		0xe6150000
-#define FRQCRB		0xe6150004
-#define FRQCRD		0xe61500e4
-#define VCLKCR1		0xe6150008
-#define VCLKCR2		0xe615000C
-#define VCLKCR3		0xe615001C
-#define ZBCKCR		0xe6150010
-#define FLCKCR		0xe6150014
-#define SD0CKCR		0xe6150074
-#define SD1CKCR		0xe6150078
-#define SD2CKCR		0xe615007C
-#define FSIACKCR	0xe6150018
-#define FSIBCKCR	0xe6150090
-#define SUBCKCR		0xe6150080
-#define SPUACKCR	0xe6150084
-#define SPUVCKCR	0xe6150094
-#define MSUCKCR		0xe6150088
-#define HSICKCR		0xe615008C
-#define MFCK1CR		0xe6150098
-#define MFCK2CR		0xe615009C
-#define DSITCKCR	0xe6150060
-#define DSI0PCKCR	0xe6150064
-#define DSI1PCKCR	0xe6150068
+#define FRQCRA		IOMEM(0xe6150000)
+#define FRQCRB		IOMEM(0xe6150004)
+#define FRQCRD		IOMEM(0xe61500e4)
+#define VCLKCR1		IOMEM(0xe6150008)
+#define VCLKCR2		IOMEM(0xe615000C)
+#define VCLKCR3		IOMEM(0xe615001C)
+#define ZBCKCR		IOMEM(0xe6150010)
+#define FLCKCR		IOMEM(0xe6150014)
+#define SD0CKCR		IOMEM(0xe6150074)
+#define SD1CKCR		IOMEM(0xe6150078)
+#define SD2CKCR		IOMEM(0xe615007C)
+#define FSIACKCR	IOMEM(0xe6150018)
+#define FSIBCKCR	IOMEM(0xe6150090)
+#define SUBCKCR		IOMEM(0xe6150080)
+#define SPUACKCR	IOMEM(0xe6150084)
+#define SPUVCKCR	IOMEM(0xe6150094)
+#define MSUCKCR		IOMEM(0xe6150088)
+#define HSICKCR		IOMEM(0xe615008C)
+#define MFCK1CR		IOMEM(0xe6150098)
+#define MFCK2CR		IOMEM(0xe615009C)
+#define DSITCKCR	IOMEM(0xe6150060)
+#define DSI0PCKCR	IOMEM(0xe6150064)
+#define DSI1PCKCR	IOMEM(0xe6150068)
 #define DSI0PHYCR	0xe615006C
 #define DSI1PHYCR	0xe6150070
-#define PLLECR		0xe61500d0
-#define PLL0CR		0xe61500d8
-#define PLL1CR		0xe6150028
-#define PLL2CR		0xe615002c
-#define PLL3CR		0xe61500dc
-#define SMSTPCR0	0xe6150130
-#define SMSTPCR1	0xe6150134
-#define SMSTPCR2	0xe6150138
-#define SMSTPCR3	0xe615013c
-#define SMSTPCR4	0xe6150140
-#define SMSTPCR5	0xe6150144
-#define CKSCR		0xe61500c0
+#define PLLECR		IOMEM(0xe61500d0)
+#define PLL0CR		IOMEM(0xe61500d8)
+#define PLL1CR		IOMEM(0xe6150028)
+#define PLL2CR		IOMEM(0xe615002c)
+#define PLL3CR		IOMEM(0xe61500dc)
+#define SMSTPCR0	IOMEM(0xe6150130)
+#define SMSTPCR1	IOMEM(0xe6150134)
+#define SMSTPCR2	IOMEM(0xe6150138)
+#define SMSTPCR3	IOMEM(0xe615013c)
+#define SMSTPCR4	IOMEM(0xe6150140)
+#define SMSTPCR5	IOMEM(0xe6150144)
+#define CKSCR		IOMEM(0xe61500c0)
 
 /* Fixed 32 KHz root clock from EXTALR pin */
 static struct clk r_clk = {
@@ -264,17 +264,17 @@ enum { DIV4_I, DIV4_ZG, DIV4_M3, DIV4_B, DIV4_M1, DIV4_M2,
 	SH_CLK_DIV4(&pll1_clk, _reg, _bit, _mask, _flags)
 
 static struct clk div4_clks[DIV4_NR] = {
-	[DIV4_I] = DIV4(FRQCRA, 20, 0xfff, CLK_ENABLE_ON_INIT),
-	[DIV4_ZG] = DIV4(FRQCRA, 16, 0xbff, CLK_ENABLE_ON_INIT),
-	[DIV4_M3] = DIV4(FRQCRA, 12, 0xfff, CLK_ENABLE_ON_INIT),
-	[DIV4_B] = DIV4(FRQCRA, 8, 0xfff, CLK_ENABLE_ON_INIT),
-	[DIV4_M1] = DIV4(FRQCRA, 4, 0xfff, 0),
-	[DIV4_M2] = DIV4(FRQCRA, 0, 0xfff, 0),
-	[DIV4_Z] = DIV4(FRQCRB, 24, 0xbff, 0),
-	[DIV4_ZTR] = DIV4(FRQCRB, 20, 0xfff, 0),
-	[DIV4_ZT] = DIV4(FRQCRB, 16, 0xfff, 0),
-	[DIV4_ZX] = DIV4(FRQCRB, 12, 0xfff, 0),
-	[DIV4_HP] = DIV4(FRQCRB, 4, 0xfff, 0),
+	[DIV4_I] = DIV4(FRQCRA, 20, 0xdff, CLK_ENABLE_ON_INIT),
+	[DIV4_ZG] = DIV4(FRQCRA, 16, 0xd7f, CLK_ENABLE_ON_INIT),
+	[DIV4_M3] = DIV4(FRQCRA, 12, 0x1dff, CLK_ENABLE_ON_INIT),
+	[DIV4_B] = DIV4(FRQCRA, 8, 0xdff, CLK_ENABLE_ON_INIT),
+	[DIV4_M1] = DIV4(FRQCRA, 4, 0x1dff, 0),
+	[DIV4_M2] = DIV4(FRQCRA, 0, 0x1dff, 0),
+	[DIV4_Z] = DIV4(FRQCRB, 24, 0x97f, 0),
+	[DIV4_ZTR] = DIV4(FRQCRB, 20, 0xdff, 0),
+	[DIV4_ZT] = DIV4(FRQCRB, 16, 0xdff, 0),
+	[DIV4_ZX] = DIV4(FRQCRB, 12, 0xdff, 0),
+	[DIV4_HP] = DIV4(FRQCRB, 4, 0xdff, 0),
 };
 
 enum { DIV6_VCK1, DIV6_VCK2, DIV6_VCK3, DIV6_ZB1,
@@ -525,6 +525,13 @@ static struct clk mstp_clks[MSTP_NR] = {
 	[MSTP403] = MSTP(&r_clk, SMSTPCR4, 3, 0), /* KEYSC */
 };
 
+/* The lookups structure below includes duplicate entries for some clocks
+ * with alternate names.
+ * - The traditional name used when a device is initialised with platform data
+ * - The name used when a device is initialised using device tree
+ * The longer-term aim is to remove these duplicates, and indeed the
+ * lookups table entirely, by describing clocks using device tree.
+ */
 static struct clk_lookup lookups[] = {
 	/* main clocks */
 	CLKDEV_CON_ID("r_clk", &r_clk),
@@ -545,6 +552,7 @@ static struct clk_lookup lookups[] = {
 
 	/* MSTP32 clocks */
 	CLKDEV_DEV_ID("i2c-sh_mobile.2", &mstp_clks[MSTP001]), /* I2C2 */
+	CLKDEV_DEV_ID("e6824000.i2c", &mstp_clks[MSTP001]), /* I2C2 */
 	CLKDEV_DEV_ID("sh_mobile_ceu.1", &mstp_clks[MSTP129]), /* CEU1 */
 	CLKDEV_DEV_ID("sh-mobile-csi2.1", &mstp_clks[MSTP128]), /* CSI2-RX1 */
 	CLKDEV_DEV_ID("sh_mobile_ceu.0", &mstp_clks[MSTP127]), /* CEU0 */
@@ -553,6 +561,7 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_DEV_ID("sh_tmu.1", &mstp_clks[MSTP125]), /* TMU01 */
 	CLKDEV_DEV_ID("sh-mipi-dsi.0", &mstp_clks[MSTP118]), /* DSITX */
 	CLKDEV_DEV_ID("i2c-sh_mobile.0", &mstp_clks[MSTP116]), /* I2C0 */
+	CLKDEV_DEV_ID("e6820000.i2c", &mstp_clks[MSTP116]), /* I2C0 */
 	CLKDEV_DEV_ID("sh_mobile_lcdc_fb.0", &mstp_clks[MSTP100]), /* LCDC0 */
 	CLKDEV_DEV_ID("sh-sci.7", &mstp_clks[MSTP219]), /* SCIFA7 */
 	CLKDEV_DEV_ID("sh-dma-engine.0", &mstp_clks[MSTP218]), /* SY-DMAC */
@@ -569,17 +578,21 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_DEV_ID("sh_fsi2", &mstp_clks[MSTP328]), /* FSI */
 	CLKDEV_DEV_ID("sh_irda.0", &mstp_clks[MSTP325]), /* IrDA */
 	CLKDEV_DEV_ID("i2c-sh_mobile.1", &mstp_clks[MSTP323]), /* I2C1 */
+	CLKDEV_DEV_ID("e6822000.i2c", &mstp_clks[MSTP323]), /* I2C1 */
 	CLKDEV_DEV_ID("renesas_usbhs", &mstp_clks[MSTP322]), /* USB */
 	CLKDEV_DEV_ID("sh_mobile_sdhi.0", &mstp_clks[MSTP314]), /* SDHI0 */
 	CLKDEV_DEV_ID("sh_mobile_sdhi.1", &mstp_clks[MSTP313]), /* SDHI1 */
 	CLKDEV_DEV_ID("sh_mmcif.0", &mstp_clks[MSTP312]), /* MMCIF0 */
+	CLKDEV_DEV_ID("e6bd0000.mmcif", &mstp_clks[MSTP312]), /* MMCIF0 */
 	CLKDEV_DEV_ID("sh_mobile_sdhi.2", &mstp_clks[MSTP311]), /* SDHI2 */
 	CLKDEV_DEV_ID("leds-renesas-tpu.12", &mstp_clks[MSTP303]), /* TPU1 */
 	CLKDEV_DEV_ID("leds-renesas-tpu.21", &mstp_clks[MSTP302]), /* TPU2 */
 	CLKDEV_DEV_ID("leds-renesas-tpu.30", &mstp_clks[MSTP301]), /* TPU3 */
 	CLKDEV_DEV_ID("leds-renesas-tpu.41", &mstp_clks[MSTP300]), /* TPU4 */
 	CLKDEV_DEV_ID("i2c-sh_mobile.3", &mstp_clks[MSTP411]), /* I2C3 */
+	CLKDEV_DEV_ID("e6826000.i2c", &mstp_clks[MSTP411]), /* I2C3 */
 	CLKDEV_DEV_ID("i2c-sh_mobile.4", &mstp_clks[MSTP410]), /* I2C4 */
+	CLKDEV_DEV_ID("e6828000.i2c", &mstp_clks[MSTP410]), /* I2C4 */
 	CLKDEV_DEV_ID("sh_keysc.0", &mstp_clks[MSTP403]), /* KEYSC */
 };
 

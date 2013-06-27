@@ -18,7 +18,6 @@
 #include <linux/spinlock.h>
 
 #include "virt-dma.h"
-#include <plat/dma.h>
 
 struct omap_dmadev {
 	struct dma_device ddev;
@@ -34,6 +33,7 @@ struct omap_chan {
 	struct dma_slave_config	cfg;
 	unsigned dma_sig;
 	bool cyclic;
+	bool paused;
 
 	int dma_ch;
 	struct omap_desc *desc;
@@ -276,12 +276,20 @@ static void omap_dma_issue_pending(struct dma_chan *chan)
 
 	spin_lock_irqsave(&c->vc.lock, flags);
 	if (vchan_issue_pending(&c->vc) && !c->desc) {
-		struct omap_dmadev *d = to_omap_dma_dev(chan->device);
-		spin_lock(&d->lock);
-		if (list_empty(&c->node))
-			list_add_tail(&c->node, &d->pending);
-		spin_unlock(&d->lock);
-		tasklet_schedule(&d->task);
+		/*
+		 * c->cyclic is used only by audio and in this case the DMA need
+		 * to be started without delay.
+		 */
+		if (!c->cyclic) {
+			struct omap_dmadev *d = to_omap_dma_dev(chan->device);
+			spin_lock(&d->lock);
+			if (list_empty(&c->node))
+				list_add_tail(&c->node, &d->pending);
+			spin_unlock(&d->lock);
+			tasklet_schedule(&d->task);
+		} else {
+			omap_dma_start_desc(c);
+		}
 	}
 	spin_unlock_irqrestore(&c->vc.lock, flags);
 }
@@ -365,7 +373,8 @@ static struct dma_async_tx_descriptor *omap_dma_prep_slave_sg(
 
 static struct dma_async_tx_descriptor *omap_dma_prep_dma_cyclic(
 	struct dma_chan *chan, dma_addr_t buf_addr, size_t buf_len,
-	size_t period_len, enum dma_transfer_direction dir, void *context)
+	size_t period_len, enum dma_transfer_direction dir, unsigned long flags,
+	void *context)
 {
 	struct omap_chan *c = to_omap_dma_chan(chan);
 	enum dma_slave_buswidth dev_width;
@@ -413,7 +422,10 @@ static struct dma_async_tx_descriptor *omap_dma_prep_dma_cyclic(
 	d->dev_addr = dev_addr;
 	d->fi = burst;
 	d->es = es;
-	d->sync_mode = OMAP_DMA_SYNC_PACKET;
+	if (burst)
+		d->sync_mode = OMAP_DMA_SYNC_PACKET;
+	else
+		d->sync_mode = OMAP_DMA_SYNC_ELEMENT;
 	d->sync_type = sync_type;
 	d->periph_port = OMAP_DMA_PORT_MPUI;
 	d->sg[0].addr = buf_addr;
@@ -424,16 +436,19 @@ static struct dma_async_tx_descriptor *omap_dma_prep_dma_cyclic(
 	if (!c->cyclic) {
 		c->cyclic = true;
 		omap_dma_link_lch(c->dma_ch, c->dma_ch);
-		omap_enable_dma_irq(c->dma_ch, OMAP_DMA_FRAME_IRQ);
+
+		if (flags & DMA_PREP_INTERRUPT)
+			omap_enable_dma_irq(c->dma_ch, OMAP_DMA_FRAME_IRQ);
+
 		omap_disable_dma_irq(c->dma_ch, OMAP_DMA_BLOCK_IRQ);
 	}
 
-	if (!cpu_class_is_omap1()) {
+	if (dma_omap2plus()) {
 		omap_set_dma_src_burst_mode(c->dma_ch, OMAP_DMA_DATA_BURST_16);
 		omap_set_dma_dest_burst_mode(c->dma_ch, OMAP_DMA_DATA_BURST_16);
 	}
 
-	return vchan_tx_prep(&c->vc, &d->vd, DMA_CTRL_ACK | DMA_PREP_INTERRUPT);
+	return vchan_tx_prep(&c->vc, &d->vd, flags);
 }
 
 static int omap_dma_slave_config(struct omap_chan *c, struct dma_slave_config *cfg)
@@ -467,11 +482,14 @@ static int omap_dma_terminate_all(struct omap_chan *c)
 	 */
 	if (c->desc) {
 		c->desc = NULL;
-		omap_stop_dma(c->dma_ch);
+		/* Avoid stopping the dma twice */
+		if (!c->paused)
+			omap_stop_dma(c->dma_ch);
 	}
 
 	if (c->cyclic) {
 		c->cyclic = false;
+		c->paused = false;
 		omap_dma_unlink_lch(c->dma_ch, c->dma_ch);
 	}
 
@@ -484,14 +502,30 @@ static int omap_dma_terminate_all(struct omap_chan *c)
 
 static int omap_dma_pause(struct omap_chan *c)
 {
-	/* FIXME: not supported by platform private API */
-	return -EINVAL;
+	/* Pause/Resume only allowed with cyclic mode */
+	if (!c->cyclic)
+		return -EINVAL;
+
+	if (!c->paused) {
+		omap_stop_dma(c->dma_ch);
+		c->paused = true;
+	}
+
+	return 0;
 }
 
 static int omap_dma_resume(struct omap_chan *c)
 {
-	/* FIXME: not supported by platform private API */
-	return -EINVAL;
+	/* Pause/Resume only allowed with cyclic mode */
+	if (!c->cyclic)
+		return -EINVAL;
+
+	if (c->paused) {
+		omap_start_dma(c->dma_ch);
+		c->paused = false;
+	}
+
+	return 0;
 }
 
 static int omap_dma_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
@@ -568,6 +602,7 @@ static int omap_dma_probe(struct platform_device *pdev)
 
 	dma_cap_set(DMA_SLAVE, od->ddev.cap_mask);
 	dma_cap_set(DMA_CYCLIC, od->ddev.cap_mask);
+	dma_cap_set(DMA_PAUSE_RESUME, od->ddev.cap_mask);
 	od->ddev.device_alloc_chan_resources = omap_dma_alloc_chan_resources;
 	od->ddev.device_free_chan_resources = omap_dma_free_chan_resources;
 	od->ddev.device_tx_status = omap_dma_tx_status;
@@ -635,32 +670,14 @@ bool omap_dma_filter_fn(struct dma_chan *chan, void *param)
 }
 EXPORT_SYMBOL_GPL(omap_dma_filter_fn);
 
-static struct platform_device *pdev;
-
-static const struct platform_device_info omap_dma_dev_info = {
-	.name = "omap-dma-engine",
-	.id = -1,
-	.dma_mask = DMA_BIT_MASK(32),
-};
-
 static int omap_dma_init(void)
 {
-	int rc = platform_driver_register(&omap_dma_driver);
-
-	if (rc == 0) {
-		pdev = platform_device_register_full(&omap_dma_dev_info);
-		if (IS_ERR(pdev)) {
-			platform_driver_unregister(&omap_dma_driver);
-			rc = PTR_ERR(pdev);
-		}
-	}
-	return rc;
+	return platform_driver_register(&omap_dma_driver);
 }
 subsys_initcall(omap_dma_init);
 
 static void __exit omap_dma_exit(void)
 {
-	platform_device_unregister(pdev);
 	platform_driver_unregister(&omap_dma_driver);
 }
 module_exit(omap_dma_exit);

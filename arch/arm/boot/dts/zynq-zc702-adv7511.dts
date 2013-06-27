@@ -10,13 +10,9 @@
 		ranges;
 
 		i2c0: i2c@0 {
-			compatible = "xlnx,ps7-i2c-1.00.a";
-			reg = <0xe0004000 0x1000>;
-			interrupts = <0 25 4>;
-			interrupt-parent = <&gic>;
-			bus-id = <0>;
-			input-clk = <111111111>;
-			i2c-clk = <100000>;
+			compatible = "i2c-gpio";
+			gpios = <&gpio 51 0 &gpio 50 0>;
+			i2c-gpio,delay-us = <2>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 
@@ -38,7 +34,7 @@
 					};
 				};
 
-				i2c_adv7511: i2c@1 {
+				i2c@1 {
 					#size-cells = <0>;
 					#address-cells = <1>;
 					reg = <1>;
@@ -127,14 +123,9 @@
 				compatible = "xlnx,axi-dma-mm2s-channel";
 				interrupts = < 0 58 0x4 >;
 				xlnx,datawidth = <0x20>;
+				xlnx,sg-length-width = <20>;
 				xlnx,include-dre = <0x0>;
 			};
-		};
-
-		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
-			compatible = "adi,axi-spdif-tx-1.00.a";
-			reg = < 0x75c00000 0x1000 >;
-			clock-frequency = <12288000>;
 		};
 
 		axi_vdma_0: axivdma@43000000 {
@@ -157,7 +148,7 @@
 		fpga_clock: fpga_clock {
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
-			clock-frequency  = <200000000>;
+			clock-frequency = <200000000>;
 		};
 
 		hdmi_clock: axi-clkgen@66000000 {
@@ -171,23 +162,29 @@
 			compatible = "adi,axi-hdmi-1.00.a";
 			reg = <0x6c000000 0x10000>;
 			encoder-slave = <&adv7511>;
-			dma-request = <&axi_vdma_0 0>;
+			dmas = <&axi_vdma_0 0>;
+			dma-names = "video";
 			clocks = <&hdmi_clock>;
 		};
 
-		xilinx_pcm_audio: xilinx_pcm_audio {
-			compatible = "xilinx-pcm-audio";
-			#size-cells = <0>;
-			#address-cells = <1>;
-			stream@0 {
-				reg = <0>;
-				dma-request = <&axi_dma_0 0>;
-			};
+		audio_clock: audio_clock {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <12288000>;
+		};
+
+		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
+			compatible = "adi,axi-spdif-tx-1.00.a";
+			reg = < 0x75c00000 0x1000 >;
+			dmas = <&axi_dma_0 0>;
+			dma-names = "tx";
+			clocks = <&fpga_clock &audio_clock>;
+			clock-names = "axi", "spdif";
 		};
 
 		adv7511_hdmi_snd: adv7511_hdmi_snd {
 			compatible = "adv7511-hdmi-snd";
-			audio-codec-adapter = <&i2c_adv7511>;
+			audio-codec = <&adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
 			pcm = <&xilinx_pcm_audio>;
 		};

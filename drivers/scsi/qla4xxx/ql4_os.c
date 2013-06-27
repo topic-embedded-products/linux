@@ -1,6 +1,6 @@
 /*
  * QLogic iSCSI HBA Driver
- * Copyright (c)  2003-2010 QLogic Corporation
+ * Copyright (c)  2003-2012 QLogic Corporation
  *
  * See LICENSE.qla4xxx for copyright and licensing details.
  */
@@ -18,6 +18,7 @@
 #include "ql4_glbl.h"
 #include "ql4_dbg.h"
 #include "ql4_inline.h"
+#include "ql4_83xx.h"
 
 /*
  * Driver version
@@ -160,7 +161,7 @@ static int qla4xxx_eh_host_reset(struct scsi_cmnd *cmd);
 static int qla4xxx_slave_alloc(struct scsi_device *device);
 static int qla4xxx_slave_configure(struct scsi_device *device);
 static void qla4xxx_slave_destroy(struct scsi_device *sdev);
-static umode_t ql4_attr_is_visible(int param_type, int param);
+static umode_t qla4_attr_is_visible(int param_type, int param);
 static int qla4xxx_host_reset(struct Scsi_Host *shost, int reset_type);
 static int qla4xxx_change_queue_depth(struct scsi_device *sdev, int qdepth,
 				      int reason);
@@ -203,7 +204,7 @@ static struct iscsi_transport qla4xxx_iscsi_transport = {
 				  CAP_DATA_PATH_OFFLOAD | CAP_HDRDGST |
 				  CAP_DATADGST | CAP_LOGIN_OFFLOAD |
 				  CAP_MULTI_R2T,
-	.attr_is_visible	= ql4_attr_is_visible,
+	.attr_is_visible	= qla4_attr_is_visible,
 	.create_session         = qla4xxx_session_create,
 	.destroy_session        = qla4xxx_session_destroy,
 	.start_conn             = qla4xxx_conn_start,
@@ -315,7 +316,7 @@ exit_send_ping:
 	return rval;
 }
 
-static umode_t ql4_attr_is_visible(int param_type, int param)
+static umode_t qla4_attr_is_visible(int param_type, int param)
 {
 	switch (param_type) {
 	case ISCSI_HOST_PARAM:
@@ -803,7 +804,7 @@ static void qla4xxx_conn_get_stats(struct iscsi_cls_conn *cls_conn,
 				     iscsi_stats_dma);
 	if (ret != QLA_SUCCESS) {
 		ql4_printk(KERN_ERR, ha,
-			   "Unable to retreive iscsi stats\n");
+			   "Unable to retrieve iscsi stats\n");
 		goto free_stats;
 	}
 
@@ -1336,18 +1337,18 @@ static int qla4xxx_session_get_param(struct iscsi_cls_session *cls_sess,
 					      sess->password_in, BIDI_CHAP,
 					      &idx);
 		if (rval)
-			return -EINVAL;
-
-		len = sprintf(buf, "%hu\n", idx);
+			len = sprintf(buf, "\n");
+		else
+			len = sprintf(buf, "%hu\n", idx);
 		break;
 	case ISCSI_PARAM_CHAP_OUT_IDX:
 		rval = qla4xxx_get_chap_index(ha, sess->username,
 					      sess->password, LOCAL_CHAP,
 					      &idx);
 		if (rval)
-			return -EINVAL;
-
-		len = sprintf(buf, "%hu\n", idx);
+			len = sprintf(buf, "\n");
+		else
+			len = sprintf(buf, "%hu\n", idx);
 		break;
 	default:
 		return iscsi_session_get_param(cls_sess, param, buf);
@@ -1366,7 +1367,7 @@ static int qla4xxx_conn_get_param(struct iscsi_cls_conn *cls_conn,
 
 	conn = cls_conn->dd_data;
 	qla_conn = conn->dd_data;
-	dst_addr = &qla_conn->qla_ep->dst_addr;
+	dst_addr = (struct sockaddr *)&qla_conn->qla_ep->dst_addr;
 
 	switch (param) {
 	case ISCSI_PARAM_CONN_PORT:
@@ -2241,6 +2242,7 @@ static int qla4xxx_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *cmd)
 	    test_bit(DPC_HA_NEED_QUIESCENT, &ha->dpc_flags) ||
 	    !test_bit(AF_ONLINE, &ha->flags) ||
 	    !test_bit(AF_LINK_UP, &ha->flags) ||
+	    test_bit(AF_LOOPBACK, &ha->flags) ||
 	    test_bit(DPC_RESET_HA_FW_CONTEXT, &ha->dpc_flags))
 		goto qc_host_busy;
 
@@ -2315,8 +2317,17 @@ static void qla4xxx_mem_free(struct scsi_qla_host *ha)
 		if (ha->nx_pcibase)
 			iounmap(
 			    (struct device_reg_82xx __iomem *)ha->nx_pcibase);
-	} else if (ha->reg)
+	} else if (is_qla8032(ha)) {
+		if (ha->nx_pcibase)
+			iounmap(
+			    (struct device_reg_83xx __iomem *)ha->nx_pcibase);
+	} else if (ha->reg) {
 		iounmap(ha->reg);
+	}
+
+	if (ha->reset_tmplt.buff)
+		vfree(ha->reset_tmplt.buff);
+
 	pci_release_regions(ha->pdev);
 }
 
@@ -2420,7 +2431,7 @@ static int qla4_8xxx_check_temp(struct scsi_qla_host *ha)
 	uint32_t temp, temp_state, temp_val;
 	int status = QLA_SUCCESS;
 
-	temp = qla4_8xxx_rd_32(ha, CRB_TEMP_STATE);
+	temp = qla4_8xxx_rd_direct(ha, QLA8XXX_CRB_TEMP_STATE);
 
 	temp_state = qla82xx_get_temp_state(temp);
 	temp_val = qla82xx_get_temp_val(temp);
@@ -2456,7 +2467,8 @@ static int qla4_8xxx_check_fw_alive(struct scsi_qla_host *ha)
 	uint32_t fw_heartbeat_counter;
 	int status = QLA_SUCCESS;
 
-	fw_heartbeat_counter = qla4_8xxx_rd_32(ha, QLA82XX_PEG_ALIVE_COUNTER);
+	fw_heartbeat_counter = qla4_8xxx_rd_direct(ha,
+						   QLA8XXX_PEG_ALIVE_COUNTER);
 	/* If PEG_ALIVE_COUNTER is 0xffffffff, AER/EEH is in progress, ignore */
 	if (fw_heartbeat_counter == 0xffffffff) {
 		DEBUG2(printk(KERN_WARNING "scsi%ld: %s: Device in frozen "
@@ -2470,28 +2482,7 @@ static int qla4_8xxx_check_fw_alive(struct scsi_qla_host *ha)
 		/* FW not alive after 2 seconds */
 		if (ha->seconds_since_last_heartbeat == 2) {
 			ha->seconds_since_last_heartbeat = 0;
-
-			ql4_printk(KERN_INFO, ha,
-				   "scsi(%ld): %s, Dumping hw/fw registers:\n "
-				   " PEG_HALT_STATUS1: 0x%x, PEG_HALT_STATUS2:"
-				   " 0x%x,\n PEG_NET_0_PC: 0x%x, PEG_NET_1_PC:"
-				   " 0x%x,\n PEG_NET_2_PC: 0x%x, PEG_NET_3_PC:"
-				   " 0x%x,\n PEG_NET_4_PC: 0x%x\n",
-				   ha->host_no, __func__,
-				   qla4_8xxx_rd_32(ha,
-						   QLA82XX_PEG_HALT_STATUS1),
-				   qla4_8xxx_rd_32(ha,
-						   QLA82XX_PEG_HALT_STATUS2),
-				   qla4_8xxx_rd_32(ha, QLA82XX_CRB_PEG_NET_0 +
-						   0x3c),
-				   qla4_8xxx_rd_32(ha, QLA82XX_CRB_PEG_NET_1 +
-						   0x3c),
-				   qla4_8xxx_rd_32(ha, QLA82XX_CRB_PEG_NET_2 +
-						   0x3c),
-				   qla4_8xxx_rd_32(ha, QLA82XX_CRB_PEG_NET_3 +
-						   0x3c),
-				   qla4_8xxx_rd_32(ha, QLA82XX_CRB_PEG_NET_4 +
-						   0x3c));
+			qla4_8xxx_dump_peg_reg(ha);
 			status = QLA_ERROR;
 		}
 	} else
@@ -2499,6 +2490,48 @@ static int qla4_8xxx_check_fw_alive(struct scsi_qla_host *ha)
 
 	ha->fw_heartbeat_counter = fw_heartbeat_counter;
 	return status;
+}
+
+static void qla4_8xxx_process_fw_error(struct scsi_qla_host *ha)
+{
+	uint32_t halt_status;
+	int halt_status_unrecoverable = 0;
+
+	halt_status = qla4_8xxx_rd_direct(ha, QLA8XXX_PEG_HALT_STATUS1);
+
+	if (is_qla8022(ha)) {
+		ql4_printk(KERN_INFO, ha, "%s: disabling pause transmit on port 0 & 1.\n",
+			   __func__);
+		qla4_82xx_wr_32(ha, QLA82XX_CRB_NIU + 0x98,
+				CRB_NIU_XG_PAUSE_CTL_P0 |
+				CRB_NIU_XG_PAUSE_CTL_P1);
+
+		if (QLA82XX_FWERROR_CODE(halt_status) == 0x67)
+			ql4_printk(KERN_ERR, ha, "%s: Firmware aborted with error code 0x00006700. Device is being reset\n",
+				   __func__);
+		if (halt_status & HALT_STATUS_UNRECOVERABLE)
+			halt_status_unrecoverable = 1;
+	} else if (is_qla8032(ha)) {
+		if (halt_status & QLA83XX_HALT_STATUS_FW_RESET)
+			ql4_printk(KERN_ERR, ha, "%s: Firmware error detected device is being reset\n",
+				   __func__);
+		else if (halt_status & QLA83XX_HALT_STATUS_UNRECOVERABLE)
+			halt_status_unrecoverable = 1;
+	}
+
+	/*
+	 * Since we cannot change dev_state in interrupt context,
+	 * set appropriate DPC flag then wakeup DPC
+	 */
+	if (halt_status_unrecoverable) {
+		set_bit(DPC_HA_UNRECOVERABLE, &ha->dpc_flags);
+	} else {
+		ql4_printk(KERN_INFO, ha, "%s: detect abort needed!\n",
+			   __func__);
+		set_bit(DPC_RESET_HA, &ha->dpc_flags);
+	}
+	qla4xxx_mailbox_premature_completion(ha);
+	qla4xxx_wake_dpc(ha);
 }
 
 /**
@@ -2509,31 +2542,33 @@ static int qla4_8xxx_check_fw_alive(struct scsi_qla_host *ha)
  **/
 void qla4_8xxx_watchdog(struct scsi_qla_host *ha)
 {
-	uint32_t dev_state, halt_status;
+	uint32_t dev_state;
 
 	/* don't poll if reset is going on */
 	if (!(test_bit(DPC_RESET_ACTIVE, &ha->dpc_flags) ||
 	    test_bit(DPC_RESET_HA, &ha->dpc_flags) ||
 	    test_bit(DPC_RETRY_RESET_HA, &ha->dpc_flags))) {
-		dev_state = qla4_8xxx_rd_32(ha, QLA82XX_CRB_DEV_STATE);
+		dev_state = qla4_8xxx_rd_direct(ha, QLA8XXX_CRB_DEV_STATE);
 
 		if (qla4_8xxx_check_temp(ha)) {
-			ql4_printk(KERN_INFO, ha, "disabling pause"
-				   " transmit on port 0 & 1.\n");
-			qla4_8xxx_wr_32(ha, QLA82XX_CRB_NIU + 0x98,
-					CRB_NIU_XG_PAUSE_CTL_P0 |
-					CRB_NIU_XG_PAUSE_CTL_P1);
+			if (is_qla8022(ha)) {
+				ql4_printk(KERN_INFO, ha, "disabling pause transmit on port 0 & 1.\n");
+				qla4_82xx_wr_32(ha, QLA82XX_CRB_NIU + 0x98,
+						CRB_NIU_XG_PAUSE_CTL_P0 |
+						CRB_NIU_XG_PAUSE_CTL_P1);
+			}
 			set_bit(DPC_HA_UNRECOVERABLE, &ha->dpc_flags);
 			qla4xxx_wake_dpc(ha);
-		} else if (dev_state == QLA82XX_DEV_NEED_RESET &&
-		    !test_bit(DPC_RESET_HA, &ha->dpc_flags)) {
-			if (!ql4xdontresethba) {
+		} else if (dev_state == QLA8XXX_DEV_NEED_RESET &&
+			   !test_bit(DPC_RESET_HA, &ha->dpc_flags)) {
+			if (is_qla8032(ha) ||
+			    (is_qla8022(ha) && !ql4xdontresethba)) {
 				ql4_printk(KERN_INFO, ha, "%s: HW State: "
 				    "NEED RESET!\n", __func__);
 				set_bit(DPC_RESET_HA, &ha->dpc_flags);
 				qla4xxx_wake_dpc(ha);
 			}
-		} else if (dev_state == QLA82XX_DEV_NEED_QUIESCENT &&
+		} else if (dev_state == QLA8XXX_DEV_NEED_QUIESCENT &&
 		    !test_bit(DPC_HA_NEED_QUIESCENT, &ha->dpc_flags)) {
 			ql4_printk(KERN_INFO, ha, "%s: HW State: NEED QUIES!\n",
 			    __func__);
@@ -2541,36 +2576,8 @@ void qla4_8xxx_watchdog(struct scsi_qla_host *ha)
 			qla4xxx_wake_dpc(ha);
 		} else  {
 			/* Check firmware health */
-			if (qla4_8xxx_check_fw_alive(ha)) {
-				ql4_printk(KERN_INFO, ha, "disabling pause"
-					   " transmit on port 0 & 1.\n");
-				qla4_8xxx_wr_32(ha, QLA82XX_CRB_NIU + 0x98,
-						CRB_NIU_XG_PAUSE_CTL_P0 |
-						CRB_NIU_XG_PAUSE_CTL_P1);
-				halt_status = qla4_8xxx_rd_32(ha,
-						QLA82XX_PEG_HALT_STATUS1);
-
-				if (QLA82XX_FWERROR_CODE(halt_status) == 0x67)
-					ql4_printk(KERN_ERR, ha, "%s:"
-						   " Firmware aborted with"
-						   " error code 0x00006700."
-						   " Device is being reset\n",
-						   __func__);
-
-				/* Since we cannot change dev_state in interrupt
-				 * context, set appropriate DPC flag then wakeup
-				 * DPC */
-				if (halt_status & HALT_STATUS_UNRECOVERABLE)
-					set_bit(DPC_HA_UNRECOVERABLE,
-						&ha->dpc_flags);
-				else {
-					ql4_printk(KERN_INFO, ha, "%s: detect "
-						   "abort needed!\n", __func__);
-					set_bit(DPC_RESET_HA, &ha->dpc_flags);
-				}
-				qla4xxx_mailbox_premature_completion(ha);
-				qla4xxx_wake_dpc(ha);
-			}
+			if (qla4_8xxx_check_fw_alive(ha))
+				qla4_8xxx_process_fw_error(ha);
 		}
 	}
 }
@@ -2652,11 +2659,10 @@ static void qla4xxx_timer(struct scsi_qla_host *ha)
 	if (!pci_channel_offline(ha->pdev))
 		pci_read_config_word(ha->pdev, PCI_VENDOR_ID, &w);
 
-	if (is_qla8022(ha)) {
+	if (is_qla80XX(ha))
 		qla4_8xxx_watchdog(ha);
-	}
 
-	if (!is_qla8022(ha)) {
+	if (is_qla40XX(ha)) {
 		/* Check for heartbeat interval. */
 		if (ha->firmware_options & FWOPT_HEARTBEAT_ENABLE &&
 		    ha->heartbeat_interval != 0) {
@@ -2941,6 +2947,14 @@ static int qla4xxx_recover_adapter(struct scsi_qla_host *ha)
 
 	set_bit(DPC_RESET_ACTIVE, &ha->dpc_flags);
 
+	if (is_qla8032(ha) &&
+	    !test_bit(DPC_RESET_HA_FW_CONTEXT, &ha->dpc_flags)) {
+		ql4_printk(KERN_INFO, ha, "%s: disabling pause transmit on port 0 & 1.\n",
+			   __func__);
+		/* disable pause frame for ISP83xx */
+		qla4_83xx_disable_pause(ha);
+	}
+
 	iscsi_host_for_each_session(ha->host, qla4xxx_fail_session);
 
 	if (test_bit(DPC_RESET_HA, &ha->dpc_flags))
@@ -2953,9 +2967,9 @@ static int qla4xxx_recover_adapter(struct scsi_qla_host *ha)
 		goto recover_ha_init_adapter;
 	}
 
-	/* For the ISP-82xx adapter, issue a stop_firmware if invoked
+	/* For the ISP-8xxx adapter, issue a stop_firmware if invoked
 	 * from eh_host_reset or ioctl module */
-	if (is_qla8022(ha) && !reset_chip &&
+	if (is_qla80XX(ha) && !reset_chip &&
 	    test_bit(DPC_RESET_HA_FW_CONTEXT, &ha->dpc_flags)) {
 
 		DEBUG2(ql4_printk(KERN_INFO, ha,
@@ -2965,6 +2979,7 @@ static int qla4xxx_recover_adapter(struct scsi_qla_host *ha)
 		if (status == QLA_SUCCESS) {
 			if (!test_bit(AF_FW_RECOVERY, &ha->flags))
 				qla4xxx_cmd_wait(ha);
+
 			ha->isp_ops->disable_intrs(ha);
 			qla4xxx_process_aen(ha, FLUSH_DDB_CHANGED_AENS);
 			qla4xxx_abort_active_cmds(ha, DID_RESET << 16);
@@ -2978,13 +2993,13 @@ static int qla4xxx_recover_adapter(struct scsi_qla_host *ha)
 	}
 
 	/* Issue full chip reset if recovering from a catastrophic error,
-	 * or if stop_firmware fails for ISP-82xx.
+	 * or if stop_firmware fails for ISP-8xxx.
 	 * This is the default case for ISP-4xxx */
-	if (!is_qla8022(ha) || reset_chip) {
-		if (!is_qla8022(ha))
+	if (is_qla40XX(ha) || reset_chip) {
+		if (is_qla40XX(ha))
 			goto chip_reset;
 
-		/* Check if 82XX firmware is alive or not
+		/* Check if 8XXX firmware is alive or not
 		 * We may have arrived here from NEED_RESET
 		 * detection only */
 		if (test_bit(AF_FW_RECOVERY, &ha->flags))
@@ -3000,10 +3015,10 @@ static int qla4xxx_recover_adapter(struct scsi_qla_host *ha)
 			set_current_state(TASK_UNINTERRUPTIBLE);
 			schedule_timeout(HZ);
 		}
-
+chip_reset:
 		if (!test_bit(AF_FW_RECOVERY, &ha->flags))
 			qla4xxx_cmd_wait(ha);
-chip_reset:
+
 		qla4xxx_process_aen(ha, FLUSH_DDB_CHANGED_AENS);
 		qla4xxx_abort_active_cmds(ha, DID_RESET << 16);
 		DEBUG2(ql4_printk(KERN_INFO, ha,
@@ -3021,7 +3036,7 @@ recover_ha_init_adapter:
 		/* For ISP-4xxx, force function 1 to always initialize
 		 * before function 3 to prevent both funcions from
 		 * stepping on top of the other */
-		if (!is_qla8022(ha) && (ha->mac_index == 3))
+		if (is_qla40XX(ha) && (ha->mac_index == 3))
 			ssleep(6);
 
 		/* NOTE: AF_ONLINE flag set upon successful completion of
@@ -3039,11 +3054,12 @@ recover_ha_init_adapter:
 		 * Since we don't want to block the DPC for too long
 		 * with multiple resets in the same thread,
 		 * utilize DPC to retry */
-		if (is_qla8022(ha)) {
-			qla4_8xxx_idc_lock(ha);
-			dev_state = qla4_8xxx_rd_32(ha, QLA82XX_CRB_DEV_STATE);
-			qla4_8xxx_idc_unlock(ha);
-			if (dev_state == QLA82XX_DEV_FAILED) {
+		if (is_qla80XX(ha)) {
+			ha->isp_ops->idc_lock(ha);
+			dev_state = qla4_8xxx_rd_direct(ha,
+							QLA8XXX_CRB_DEV_STATE);
+			ha->isp_ops->idc_unlock(ha);
+			if (dev_state == QLA8XXX_DEV_FAILED) {
 				ql4_printk(KERN_INFO, ha, "%s: don't retry "
 					   "recover adapter. H/W is in Failed "
 					   "state\n", __func__);
@@ -3168,6 +3184,7 @@ int qla4xxx_unblock_ddb(struct iscsi_cls_session *cls_session)
 	struct iscsi_session *sess;
 	struct ddb_entry *ddb_entry;
 	struct scsi_qla_host *ha;
+	int status = QLA_SUCCESS;
 
 	sess = cls_session->dd_data;
 	ddb_entry = sess->dd_data;
@@ -3175,11 +3192,20 @@ int qla4xxx_unblock_ddb(struct iscsi_cls_session *cls_session)
 	ql4_printk(KERN_INFO, ha, "scsi%ld: %s: ddb[%d]"
 		   " unblock user space session\n", ha->host_no, __func__,
 		   ddb_entry->fw_ddb_index);
-	iscsi_conn_start(ddb_entry->conn);
-	iscsi_conn_login_event(ddb_entry->conn,
-			       ISCSI_CONN_STATE_LOGGED_IN);
 
-	return QLA_SUCCESS;
+	if (!iscsi_is_session_online(cls_session)) {
+		iscsi_conn_start(ddb_entry->conn);
+		iscsi_conn_login_event(ddb_entry->conn,
+				       ISCSI_CONN_STATE_LOGGED_IN);
+	} else {
+		ql4_printk(KERN_INFO, ha,
+			   "scsi%ld: %s: ddb[%d] session [%d] already logged in\n",
+			   ha->host_no, __func__, ddb_entry->fw_ddb_index,
+			   cls_session->sid);
+		status = QLA_ERROR;
+	}
+
+	return status;
 }
 
 static void qla4xxx_relogin_all_devices(struct scsi_qla_host *ha)
@@ -3373,15 +3399,26 @@ static void qla4xxx_do_dpc(struct work_struct *work)
 	/* post events to application */
 	qla4xxx_do_work(ha);
 
-	if (is_qla8022(ha)) {
+	if (is_qla80XX(ha)) {
 		if (test_bit(DPC_HA_UNRECOVERABLE, &ha->dpc_flags)) {
-			qla4_8xxx_idc_lock(ha);
-			qla4_8xxx_wr_32(ha, QLA82XX_CRB_DEV_STATE,
-			    QLA82XX_DEV_FAILED);
-			qla4_8xxx_idc_unlock(ha);
+			if (is_qla8032(ha)) {
+				ql4_printk(KERN_INFO, ha, "%s: disabling pause transmit on port 0 & 1.\n",
+					   __func__);
+				/* disable pause frame for ISP83xx */
+				qla4_83xx_disable_pause(ha);
+			}
+
+			ha->isp_ops->idc_lock(ha);
+			qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DEV_STATE,
+					    QLA8XXX_DEV_FAILED);
+			ha->isp_ops->idc_unlock(ha);
 			ql4_printk(KERN_INFO, ha, "HW State: FAILED\n");
 			qla4_8xxx_device_state_handler(ha);
 		}
+
+		if (test_and_clear_bit(DPC_POST_IDC_ACK, &ha->dpc_flags))
+			qla4_83xx_post_idc_ack(ha);
+
 		if (test_and_clear_bit(DPC_HA_NEED_QUIESCENT, &ha->dpc_flags)) {
 			qla4_8xxx_need_qsnt_handler(ha);
 		}
@@ -3391,7 +3428,8 @@ static void qla4xxx_do_dpc(struct work_struct *work)
 	    (test_bit(DPC_RESET_HA, &ha->dpc_flags) ||
 	    test_bit(DPC_RESET_HA_INTR, &ha->dpc_flags) ||
 	    test_bit(DPC_RESET_HA_FW_CONTEXT, &ha->dpc_flags))) {
-		if (ql4xdontresethba) {
+		if ((is_qla8022(ha) && ql4xdontresethba) ||
+		    (is_qla8032(ha) && qla4_83xx_idc_dontreset(ha))) {
 			DEBUG2(printk("scsi%ld: %s: Don't Reset HBA\n",
 			    ha->host_no, __func__));
 			clear_bit(DPC_RESET_HA, &ha->dpc_flags);
@@ -3443,7 +3481,8 @@ dpc_post_reset_ha:
 	}
 
 	/* ---- link change? --- */
-	if (test_and_clear_bit(DPC_LINK_CHANGED, &ha->dpc_flags)) {
+	if (!test_bit(AF_LOOPBACK, &ha->flags) &&
+	    test_and_clear_bit(DPC_LINK_CHANGED, &ha->dpc_flags)) {
 		if (!test_bit(AF_LINK_UP, &ha->flags)) {
 			/* ---- link down? --- */
 			qla4xxx_mark_all_devices_missing(ha);
@@ -3472,9 +3511,19 @@ static void qla4xxx_free_adapter(struct scsi_qla_host *ha)
 {
 	qla4xxx_abort_active_cmds(ha, DID_NO_CONNECT << 16);
 
-	if (test_bit(AF_INTERRUPTS_ON, &ha->flags)) {
-		/* Turn-off interrupts on the card. */
-		ha->isp_ops->disable_intrs(ha);
+	/* Turn-off interrupts on the card. */
+	ha->isp_ops->disable_intrs(ha);
+
+	if (is_qla40XX(ha)) {
+		writel(set_rmask(CSR_SCSI_PROCESSOR_INTR),
+		       &ha->reg->ctrl_status);
+		readl(&ha->reg->ctrl_status);
+	} else if (is_qla8022(ha)) {
+		writel(0, &ha->qla4_82xx_reg->host_int);
+		readl(&ha->qla4_82xx_reg->host_int);
+	} else if (is_qla8032(ha)) {
+		writel(0, &ha->qla4_83xx_reg->risc_intr);
+		readl(&ha->qla4_83xx_reg->risc_intr);
 	}
 
 	/* Remove timer thread, if present */
@@ -3492,15 +3541,14 @@ static void qla4xxx_free_adapter(struct scsi_qla_host *ha)
 	/* Put firmware in known state */
 	ha->isp_ops->reset_firmware(ha);
 
-	if (is_qla8022(ha)) {
-		qla4_8xxx_idc_lock(ha);
+	if (is_qla80XX(ha)) {
+		ha->isp_ops->idc_lock(ha);
 		qla4_8xxx_clear_drv_active(ha);
-		qla4_8xxx_idc_unlock(ha);
+		ha->isp_ops->idc_unlock(ha);
 	}
 
 	/* Detach interrupts */
-	if (test_and_clear_bit(AF_IRQ_ATTACHED, &ha->flags))
-		qla4xxx_free_irqs(ha);
+	qla4xxx_free_irqs(ha);
 
 	/* free extra memory */
 	qla4xxx_mem_free(ha);
@@ -3542,15 +3590,19 @@ int qla4_8xxx_iospace_config(struct scsi_qla_host *ha)
 	/* Mapping of IO base pointer, door bell read and write pointer */
 
 	/* mapping of IO base pointer */
-	ha->qla4_8xxx_reg =
-	    (struct device_reg_82xx  __iomem *)((uint8_t *)ha->nx_pcibase +
-	    0xbc000 + (ha->pdev->devfn << 11));
+	if (is_qla8022(ha)) {
+		ha->qla4_82xx_reg = (struct device_reg_82xx  __iomem *)
+				    ((uint8_t *)ha->nx_pcibase + 0xbc000 +
+				     (ha->pdev->devfn << 11));
+		ha->nx_db_wr_ptr = (ha->pdev->devfn == 4 ? QLA82XX_CAM_RAM_DB1 :
+				    QLA82XX_CAM_RAM_DB2);
+	} else if (is_qla8032(ha)) {
+		ha->qla4_83xx_reg = (struct device_reg_83xx __iomem *)
+				    ((uint8_t *)ha->nx_pcibase);
+	}
 
 	db_base = pci_resource_start(pdev, 4);  /* doorbell is on bar 4 */
 	db_len = pci_resource_len(pdev, 4);
-
-	ha->nx_db_wr_ptr = (ha->pdev->devfn == 4 ? QLA82XX_CAM_RAM_DB1 :
-	    QLA82XX_CAM_RAM_DB2);
 
 	return 0;
 iospace_error_exit:
@@ -3639,23 +3691,64 @@ static struct isp_operations qla4xxx_isp_ops = {
 	.rd_shdw_req_q_out      = qla4xxx_rd_shdw_req_q_out,
 	.rd_shdw_rsp_q_in       = qla4xxx_rd_shdw_rsp_q_in,
 	.get_sys_info           = qla4xxx_get_sys_info,
+	.queue_mailbox_command	= qla4xxx_queue_mbox_cmd,
+	.process_mailbox_interrupt = qla4xxx_process_mbox_intr,
 };
 
-static struct isp_operations qla4_8xxx_isp_ops = {
+static struct isp_operations qla4_82xx_isp_ops = {
 	.iospace_config         = qla4_8xxx_iospace_config,
 	.pci_config             = qla4_8xxx_pci_config,
-	.disable_intrs          = qla4_8xxx_disable_intrs,
-	.enable_intrs           = qla4_8xxx_enable_intrs,
+	.disable_intrs          = qla4_82xx_disable_intrs,
+	.enable_intrs           = qla4_82xx_enable_intrs,
 	.start_firmware         = qla4_8xxx_load_risc,
-	.intr_handler           = qla4_8xxx_intr_handler,
-	.interrupt_service_routine = qla4_8xxx_interrupt_service_routine,
-	.reset_chip             = qla4_8xxx_isp_reset,
+	.restart_firmware	= qla4_82xx_try_start_fw,
+	.intr_handler           = qla4_82xx_intr_handler,
+	.interrupt_service_routine = qla4_82xx_interrupt_service_routine,
+	.need_reset		= qla4_8xxx_need_reset,
+	.reset_chip             = qla4_82xx_isp_reset,
 	.reset_firmware         = qla4_8xxx_stop_firmware,
-	.queue_iocb             = qla4_8xxx_queue_iocb,
-	.complete_iocb          = qla4_8xxx_complete_iocb,
-	.rd_shdw_req_q_out      = qla4_8xxx_rd_shdw_req_q_out,
-	.rd_shdw_rsp_q_in       = qla4_8xxx_rd_shdw_rsp_q_in,
+	.queue_iocb             = qla4_82xx_queue_iocb,
+	.complete_iocb          = qla4_82xx_complete_iocb,
+	.rd_shdw_req_q_out      = qla4_82xx_rd_shdw_req_q_out,
+	.rd_shdw_rsp_q_in       = qla4_82xx_rd_shdw_rsp_q_in,
 	.get_sys_info           = qla4_8xxx_get_sys_info,
+	.rd_reg_direct		= qla4_82xx_rd_32,
+	.wr_reg_direct		= qla4_82xx_wr_32,
+	.rd_reg_indirect	= qla4_82xx_md_rd_32,
+	.wr_reg_indirect	= qla4_82xx_md_wr_32,
+	.idc_lock		= qla4_82xx_idc_lock,
+	.idc_unlock		= qla4_82xx_idc_unlock,
+	.rom_lock_recovery	= qla4_82xx_rom_lock_recovery,
+	.queue_mailbox_command	= qla4_82xx_queue_mbox_cmd,
+	.process_mailbox_interrupt = qla4_82xx_process_mbox_intr,
+};
+
+static struct isp_operations qla4_83xx_isp_ops = {
+	.iospace_config		= qla4_8xxx_iospace_config,
+	.pci_config		= qla4_8xxx_pci_config,
+	.disable_intrs		= qla4_83xx_disable_intrs,
+	.enable_intrs		= qla4_83xx_enable_intrs,
+	.start_firmware		= qla4_8xxx_load_risc,
+	.restart_firmware	= qla4_83xx_start_firmware,
+	.intr_handler		= qla4_83xx_intr_handler,
+	.interrupt_service_routine = qla4_83xx_interrupt_service_routine,
+	.need_reset		= qla4_8xxx_need_reset,
+	.reset_chip		= qla4_83xx_isp_reset,
+	.reset_firmware		= qla4_8xxx_stop_firmware,
+	.queue_iocb		= qla4_83xx_queue_iocb,
+	.complete_iocb		= qla4_83xx_complete_iocb,
+	.rd_shdw_req_q_out	= qla4_83xx_rd_shdw_req_q_out,
+	.rd_shdw_rsp_q_in	= qla4_83xx_rd_shdw_rsp_q_in,
+	.get_sys_info		= qla4_8xxx_get_sys_info,
+	.rd_reg_direct		= qla4_83xx_rd_reg,
+	.wr_reg_direct		= qla4_83xx_wr_reg,
+	.rd_reg_indirect	= qla4_83xx_rd_reg_indirect,
+	.wr_reg_indirect	= qla4_83xx_wr_reg_indirect,
+	.idc_lock		= qla4_83xx_drv_lock,
+	.idc_unlock		= qla4_83xx_drv_unlock,
+	.rom_lock_recovery	= qla4_83xx_rom_lock_recovery,
+	.queue_mailbox_command	= qla4_83xx_queue_mbox_cmd,
+	.process_mailbox_interrupt = qla4_83xx_process_mbox_intr,
 };
 
 uint16_t qla4xxx_rd_shdw_req_q_out(struct scsi_qla_host *ha)
@@ -3663,9 +3756,14 @@ uint16_t qla4xxx_rd_shdw_req_q_out(struct scsi_qla_host *ha)
 	return (uint16_t)le32_to_cpu(ha->shadow_regs->req_q_out);
 }
 
-uint16_t qla4_8xxx_rd_shdw_req_q_out(struct scsi_qla_host *ha)
+uint16_t qla4_82xx_rd_shdw_req_q_out(struct scsi_qla_host *ha)
 {
-	return (uint16_t)le32_to_cpu(readl(&ha->qla4_8xxx_reg->req_q_out));
+	return (uint16_t)le32_to_cpu(readl(&ha->qla4_82xx_reg->req_q_out));
+}
+
+uint16_t qla4_83xx_rd_shdw_req_q_out(struct scsi_qla_host *ha)
+{
+	return (uint16_t)le32_to_cpu(readl(&ha->qla4_83xx_reg->req_q_out));
 }
 
 uint16_t qla4xxx_rd_shdw_rsp_q_in(struct scsi_qla_host *ha)
@@ -3673,9 +3771,14 @@ uint16_t qla4xxx_rd_shdw_rsp_q_in(struct scsi_qla_host *ha)
 	return (uint16_t)le32_to_cpu(ha->shadow_regs->rsp_q_in);
 }
 
-uint16_t qla4_8xxx_rd_shdw_rsp_q_in(struct scsi_qla_host *ha)
+uint16_t qla4_82xx_rd_shdw_rsp_q_in(struct scsi_qla_host *ha)
 {
-	return (uint16_t)le32_to_cpu(readl(&ha->qla4_8xxx_reg->rsp_q_in));
+	return (uint16_t)le32_to_cpu(readl(&ha->qla4_82xx_reg->rsp_q_in));
+}
+
+uint16_t qla4_83xx_rd_shdw_rsp_q_in(struct scsi_qla_host *ha)
+{
+	return (uint16_t)le32_to_cpu(readl(&ha->qla4_83xx_reg->rsp_q_in));
 }
 
 static ssize_t qla4xxx_show_boot_eth_info(void *data, int type, char *buf)
@@ -4338,7 +4441,7 @@ static int qla4xxx_compare_tuple_ddb(struct scsi_qla_host *ha,
 		return QLA_ERROR;
 
 	/* For multi sessions, driver generates the ISID, so do not compare
-	 * ISID in reset path since it would be a comparision between the
+	 * ISID in reset path since it would be a comparison between the
 	 * driver generated ISID and firmware generated ISID. This could
 	 * lead to adding duplicated DDBs in the list as driver generated
 	 * ISID would not match firmware generated ISID.
@@ -4584,7 +4687,8 @@ static struct iscsi_endpoint *qla4xxx_get_ep_fwdb(struct scsi_qla_host *ha,
 	struct iscsi_endpoint *ep;
 	struct sockaddr_in *addr;
 	struct sockaddr_in6 *addr6;
-	struct sockaddr *dst_addr;
+	struct sockaddr *t_addr;
+	struct sockaddr_storage *dst_addr;
 	char *ip;
 
 	/* TODO: need to destroy on unload iscsi_endpoint*/
@@ -4593,21 +4697,23 @@ static struct iscsi_endpoint *qla4xxx_get_ep_fwdb(struct scsi_qla_host *ha,
 		return NULL;
 
 	if (fw_ddb_entry->options & DDB_OPT_IPV6_DEVICE) {
-		dst_addr->sa_family = AF_INET6;
+		t_addr = (struct sockaddr *)dst_addr;
+		t_addr->sa_family = AF_INET6;
 		addr6 = (struct sockaddr_in6 *)dst_addr;
 		ip = (char *)&addr6->sin6_addr;
 		memcpy(ip, fw_ddb_entry->ip_addr, IPv6_ADDR_LEN);
 		addr6->sin6_port = htons(le16_to_cpu(fw_ddb_entry->port));
 
 	} else {
-		dst_addr->sa_family = AF_INET;
+		t_addr = (struct sockaddr *)dst_addr;
+		t_addr->sa_family = AF_INET;
 		addr = (struct sockaddr_in *)dst_addr;
 		ip = (char *)&addr->sin_addr;
 		memcpy(ip, fw_ddb_entry->ip_addr, IP_ADDR_LEN);
 		addr->sin_port = htons(le16_to_cpu(fw_ddb_entry->port));
 	}
 
-	ep = qla4xxx_ep_connect(ha->host, dst_addr, 0);
+	ep = qla4xxx_ep_connect(ha->host, (struct sockaddr *)dst_addr, 0);
 	vfree(dst_addr);
 	return ep;
 }
@@ -4622,7 +4728,8 @@ static int qla4xxx_verify_boot_idx(struct scsi_qla_host *ha, uint16_t idx)
 }
 
 static void qla4xxx_setup_flash_ddb_entry(struct scsi_qla_host *ha,
-					  struct ddb_entry *ddb_entry)
+					  struct ddb_entry *ddb_entry,
+					  uint16_t idx)
 {
 	uint16_t def_timeout;
 
@@ -4642,6 +4749,10 @@ static void qla4xxx_setup_flash_ddb_entry(struct scsi_qla_host *ha,
 		def_timeout : LOGIN_TOV;
 	ddb_entry->default_time2wait =
 		le16_to_cpu(ddb_entry->fw_ddb_entry.iscsi_def_time2wait);
+
+	if (ql4xdisablesysfsboot &&
+	    (idx == ha->pri_ddb_idx || idx == ha->sec_ddb_idx))
+		set_bit(DF_BOOT_TGT, &ddb_entry->flags);
 }
 
 static void qla4xxx_wait_for_ip_configuration(struct scsi_qla_host *ha)
@@ -4778,7 +4889,7 @@ static void qla4xxx_remove_failed_ddb(struct scsi_qla_host *ha,
 
 static int qla4xxx_sess_conn_setup(struct scsi_qla_host *ha,
 				   struct dev_db_entry *fw_ddb_entry,
-				   int is_reset)
+				   int is_reset, uint16_t idx)
 {
 	struct iscsi_cls_session *cls_sess;
 	struct iscsi_session *sess;
@@ -4816,7 +4927,7 @@ static int qla4xxx_sess_conn_setup(struct scsi_qla_host *ha,
 	memcpy(&ddb_entry->fw_ddb_entry, fw_ddb_entry,
 	       sizeof(struct dev_db_entry));
 
-	qla4xxx_setup_flash_ddb_entry(ha, ddb_entry);
+	qla4xxx_setup_flash_ddb_entry(ha, ddb_entry, idx);
 
 	cls_conn = iscsi_conn_setup(cls_sess, sizeof(struct qla_conn), conn_id);
 
@@ -4933,7 +5044,7 @@ static void qla4xxx_build_nt_list(struct scsi_qla_host *ha,
 				goto continue_next_nt;
 		}
 
-		ret = qla4xxx_sess_conn_setup(ha, fw_ddb_entry, is_reset);
+		ret = qla4xxx_sess_conn_setup(ha, fw_ddb_entry, is_reset, idx);
 		if (ret == QLA_ERROR)
 			goto exit_nt_list;
 
@@ -5013,6 +5124,78 @@ void qla4xxx_build_ddb_list(struct scsi_qla_host *ha, int is_reset)
 }
 
 /**
+ * qla4xxx_wait_login_resp_boot_tgt -  Wait for iSCSI boot target login
+ * response.
+ * @ha: pointer to adapter structure
+ *
+ * When the boot entry is normal iSCSI target then DF_BOOT_TGT flag will be
+ * set in DDB and we will wait for login response of boot targets during
+ * probe.
+ **/
+static void qla4xxx_wait_login_resp_boot_tgt(struct scsi_qla_host *ha)
+{
+	struct ddb_entry *ddb_entry;
+	struct dev_db_entry *fw_ddb_entry = NULL;
+	dma_addr_t fw_ddb_entry_dma;
+	unsigned long wtime;
+	uint32_t ddb_state;
+	int max_ddbs, idx, ret;
+
+	max_ddbs =  is_qla40XX(ha) ? MAX_DEV_DB_ENTRIES_40XX :
+				     MAX_DEV_DB_ENTRIES;
+
+	fw_ddb_entry = dma_alloc_coherent(&ha->pdev->dev, sizeof(*fw_ddb_entry),
+					  &fw_ddb_entry_dma, GFP_KERNEL);
+	if (!fw_ddb_entry) {
+		ql4_printk(KERN_ERR, ha,
+			   "%s: Unable to allocate dma buffer\n", __func__);
+		goto exit_login_resp;
+	}
+
+	wtime = jiffies + (HZ * BOOT_LOGIN_RESP_TOV);
+
+	for (idx = 0; idx < max_ddbs; idx++) {
+		ddb_entry = qla4xxx_lookup_ddb_by_fw_index(ha, idx);
+		if (ddb_entry == NULL)
+			continue;
+
+		if (test_bit(DF_BOOT_TGT, &ddb_entry->flags)) {
+			DEBUG2(ql4_printk(KERN_INFO, ha,
+					  "%s: DDB index [%d]\n", __func__,
+					  ddb_entry->fw_ddb_index));
+			do {
+				ret = qla4xxx_get_fwddb_entry(ha,
+						ddb_entry->fw_ddb_index,
+						fw_ddb_entry, fw_ddb_entry_dma,
+						NULL, NULL, &ddb_state, NULL,
+						NULL, NULL);
+				if (ret == QLA_ERROR)
+					goto exit_login_resp;
+
+				if ((ddb_state == DDB_DS_SESSION_ACTIVE) ||
+				    (ddb_state == DDB_DS_SESSION_FAILED))
+					break;
+
+				schedule_timeout_uninterruptible(HZ);
+
+			} while ((time_after(wtime, jiffies)));
+
+			if (!time_after(wtime, jiffies)) {
+				DEBUG2(ql4_printk(KERN_INFO, ha,
+						  "%s: Login response wait timer expired\n",
+						  __func__));
+				 goto exit_login_resp;
+			}
+		}
+	}
+
+exit_login_resp:
+	if (fw_ddb_entry)
+		dma_free_coherent(&ha->pdev->dev, sizeof(*fw_ddb_entry),
+				  fw_ddb_entry, fw_ddb_entry_dma);
+}
+
+/**
  * qla4xxx_probe_adapter - callback function to probe HBA
  * @pdev: pointer to pci_dev structure
  * @pci_device_id: pointer to pci_device entry
@@ -5021,8 +5204,8 @@ void qla4xxx_build_ddb_list(struct scsi_qla_host *ha, int is_reset)
  * It returns zero if successful. It also initializes all data necessary for
  * the driver.
  **/
-static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
-					   const struct pci_device_id *ent)
+static int qla4xxx_probe_adapter(struct pci_dev *pdev,
+				 const struct pci_device_id *ent)
 {
 	int ret = -ENODEV, status;
 	struct Scsi_Host *host;
@@ -5050,30 +5233,36 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 	ha->pdev = pdev;
 	ha->host = host;
 	ha->host_no = host->host_no;
+	ha->func_num = PCI_FUNC(ha->pdev->devfn);
 
 	pci_enable_pcie_error_reporting(pdev);
 
 	/* Setup Runtime configurable options */
 	if (is_qla8022(ha)) {
-		ha->isp_ops = &qla4_8xxx_isp_ops;
-		rwlock_init(&ha->hw_lock);
+		ha->isp_ops = &qla4_82xx_isp_ops;
+		ha->reg_tbl = (uint32_t *) qla4_82xx_reg_tbl;
 		ha->qdr_sn_window = -1;
 		ha->ddr_mn_window = -1;
 		ha->curr_window = 255;
-		ha->func_num = PCI_FUNC(ha->pdev->devfn);
 		nx_legacy_intr = &legacy_intr[ha->func_num];
 		ha->nx_legacy_intr.int_vec_bit = nx_legacy_intr->int_vec_bit;
 		ha->nx_legacy_intr.tgt_status_reg =
 			nx_legacy_intr->tgt_status_reg;
 		ha->nx_legacy_intr.tgt_mask_reg = nx_legacy_intr->tgt_mask_reg;
 		ha->nx_legacy_intr.pci_int_reg = nx_legacy_intr->pci_int_reg;
+	} else if (is_qla8032(ha)) {
+		ha->isp_ops = &qla4_83xx_isp_ops;
+		ha->reg_tbl = (uint32_t *)qla4_83xx_reg_tbl;
 	} else {
 		ha->isp_ops = &qla4xxx_isp_ops;
 	}
 
-	/* Set EEH reset type to fundamental if required by hba */
-	if (is_qla8022(ha))
+	if (is_qla80XX(ha)) {
+		rwlock_init(&ha->hw_lock);
+		ha->pf_bit = ha->func_num << 16;
+		/* Set EEH reset type to fundamental if required by hba */
 		pdev->needs_freset = 1;
+	}
 
 	/* Configure PCI I/O space. */
 	ret = ha->isp_ops->iospace_config(ha);
@@ -5094,6 +5283,7 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 	init_completion(&ha->disable_acb_comp);
 
 	spin_lock_init(&ha->hardware_lock);
+	spin_lock_init(&ha->work_lock);
 
 	/* Initialize work list */
 	INIT_LIST_HEAD(&ha->work_list);
@@ -5128,8 +5318,20 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 	if (ret)
 		goto probe_failed;
 
-	if (is_qla8022(ha))
-		(void) qla4_8xxx_get_flash_info(ha);
+	if (is_qla80XX(ha))
+		qla4_8xxx_get_flash_info(ha);
+
+	if (is_qla8032(ha)) {
+		qla4_83xx_read_reset_template(ha);
+		/*
+		 * NOTE: If ql4dontresethba==1, set IDC_CTRL DONTRESET_BIT0.
+		 * If DONRESET_BIT0 is set, drivers should not set dev_state
+		 * to NEED_RESET. But if NEED_RESET is set, drivers should
+		 * should honor the reset.
+		 */
+		if (ql4xdontresethba == 1)
+			qla4_83xx_set_idc_dontreset(ha);
+	}
 
 	/*
 	 * Initialize the Host adapter request/response queues and
@@ -5137,14 +5339,20 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 	 * NOTE: interrupts enabled upon successful completion
 	 */
 	status = qla4xxx_initialize_adapter(ha, INIT_ADAPTER);
+
+	/* Dont retry adapter initialization if IRQ allocation failed */
+	if (!test_bit(AF_IRQ_ATTACHED, &ha->flags))
+		goto skip_retry_init;
+
 	while ((!test_bit(AF_ONLINE, &ha->flags)) &&
 	    init_retry_count++ < MAX_INIT_RETRIES) {
 
-		if (is_qla8022(ha)) {
-			qla4_8xxx_idc_lock(ha);
-			dev_state = qla4_8xxx_rd_32(ha, QLA82XX_CRB_DEV_STATE);
-			qla4_8xxx_idc_unlock(ha);
-			if (dev_state == QLA82XX_DEV_FAILED) {
+		if (is_qla80XX(ha)) {
+			ha->isp_ops->idc_lock(ha);
+			dev_state = qla4_8xxx_rd_direct(ha,
+							QLA8XXX_CRB_DEV_STATE);
+			ha->isp_ops->idc_unlock(ha);
+			if (dev_state == QLA8XXX_DEV_FAILED) {
 				ql4_printk(KERN_WARNING, ha, "%s: don't retry "
 				    "initialize adapter. H/W is in failed state\n",
 				    __func__);
@@ -5160,16 +5368,18 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 		status = qla4xxx_initialize_adapter(ha, INIT_ADAPTER);
 	}
 
+skip_retry_init:
 	if (!test_bit(AF_ONLINE, &ha->flags)) {
 		ql4_printk(KERN_WARNING, ha, "Failed to initialize adapter\n");
 
-		if (is_qla8022(ha) && ql4xdontresethba) {
+		if ((is_qla8022(ha) && ql4xdontresethba) ||
+		    (is_qla8032(ha) && qla4_83xx_idc_dontreset(ha))) {
 			/* Put the device in failed state. */
 			DEBUG2(printk(KERN_ERR "HW STATE: FAILED\n"));
-			qla4_8xxx_idc_lock(ha);
-			qla4_8xxx_wr_32(ha, QLA82XX_CRB_DEV_STATE,
-			    QLA82XX_DEV_FAILED);
-			qla4_8xxx_idc_unlock(ha);
+			ha->isp_ops->idc_lock(ha);
+			qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DEV_STATE,
+					    QLA8XXX_DEV_FAILED);
+			ha->isp_ops->idc_unlock(ha);
 		}
 		ret = -ENODEV;
 		goto remove_host;
@@ -5195,12 +5405,13 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 		goto remove_host;
 	}
 
-	/* For ISP-82XX, request_irqs is called in qla4_8xxx_load_risc
+	/*
+	 * For ISP-8XXX, request_irqs is called in qla4_8xxx_load_risc
 	 * (which is called indirectly by qla4xxx_initialize_adapter),
 	 * so that irqs will be registered after crbinit but before
 	 * mbx_intr_enable.
 	 */
-	if (!is_qla8022(ha)) {
+	if (is_qla40XX(ha)) {
 		ret = qla4xxx_request_irqs(ha);
 		if (ret) {
 			ql4_printk(KERN_WARNING, ha, "Failed to reserve "
@@ -5226,6 +5437,10 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 	       ha->host_no, ha->firmware_version[0], ha->firmware_version[1],
 	       ha->patch_number, ha->build_number);
 
+	/* Set the driver version */
+	if (is_qla80XX(ha))
+		qla4_8xxx_set_param(ha, SET_DRVR_VERSION);
+
 	if (qla4xxx_setup_boot_info(ha))
 		ql4_printk(KERN_ERR, ha,
 			   "%s: No iSCSI boot target configured\n", __func__);
@@ -5233,6 +5448,7 @@ static int __devinit qla4xxx_probe_adapter(struct pci_dev *pdev,
 		/* Perform the build ddb list and login to each */
 	qla4xxx_build_ddb_list(ha, INIT_ADAPTER);
 	iscsi_host_for_each_session(ha->host, qla4xxx_login_flash_ddb);
+	qla4xxx_wait_login_resp_boot_tgt(ha);
 
 	qla4xxx_create_chap_list(ha);
 
@@ -5326,16 +5542,23 @@ static void qla4xxx_destroy_fw_ddb_session(struct scsi_qla_host *ha)
 	}
 }
 /**
- * qla4xxx_remove_adapter - calback function to remove adapter.
+ * qla4xxx_remove_adapter - callback function to remove adapter.
  * @pci_dev: PCI device pointer
  **/
-static void __devexit qla4xxx_remove_adapter(struct pci_dev *pdev)
+static void qla4xxx_remove_adapter(struct pci_dev *pdev)
 {
 	struct scsi_qla_host *ha;
 
+	/*
+	 * If the PCI device is disabled then it means probe_adapter had
+	 * failed and resources already cleaned up on probe_adapter exit.
+	 */
+	if (!pci_is_enabled(pdev))
+		return;
+
 	ha = pci_get_drvdata(pdev);
 
-	if (!is_qla8022(ha))
+	if (is_qla40XX(ha))
 		qla4xxx_prevent_other_port_reinit(ha);
 
 	/* destroy iface from sysfs */
@@ -5755,7 +5978,16 @@ static int qla4xxx_eh_host_reset(struct scsi_cmnd *cmd)
 
 	ha = to_qla_host(cmd->device->host);
 
-	if (ql4xdontresethba) {
+	if (is_qla8032(ha) && ql4xdontresethba)
+		qla4_83xx_set_idc_dontreset(ha);
+
+	/*
+	 * For ISP8324, if IDC_CTRL DONTRESET_BIT0 is set by other
+	 * protocol drivers, we should not set device_state to
+	 * NEED_RESET
+	 */
+	if (ql4xdontresethba ||
+	    (is_qla8032(ha) && qla4_83xx_idc_dontreset(ha))) {
 		DEBUG2(printk("scsi%ld: %s: Don't Reset HBA\n",
 		     ha->host_no, __func__));
 
@@ -5779,7 +6011,7 @@ static int qla4xxx_eh_host_reset(struct scsi_cmnd *cmd)
 	}
 
 	if (!test_bit(DPC_RESET_HA, &ha->dpc_flags)) {
-		if (is_qla8022(ha))
+		if (is_qla80XX(ha))
 			set_bit(DPC_RESET_HA_FW_CONTEXT, &ha->dpc_flags);
 		else
 			set_bit(DPC_RESET_HA, &ha->dpc_flags);
@@ -5857,14 +6089,6 @@ static int qla4xxx_host_reset(struct Scsi_Host *shost, int reset_type)
 		goto exit_host_reset;
 	}
 
-	rval = qla4xxx_wait_for_hba_online(ha);
-	if (rval != QLA_SUCCESS) {
-		DEBUG2(ql4_printk(KERN_INFO, ha, "%s: Unable to reset host "
-				  "adapter\n", __func__));
-		rval = -EIO;
-		goto exit_host_reset;
-	}
-
 	if (test_bit(DPC_RESET_HA, &ha->dpc_flags))
 		goto recover_adapter;
 
@@ -5874,7 +6098,7 @@ static int qla4xxx_host_reset(struct Scsi_Host *shost, int reset_type)
 		break;
 	case SCSI_FIRMWARE_RESET:
 		if (!test_bit(DPC_RESET_HA, &ha->dpc_flags)) {
-			if (is_qla8022(ha))
+			if (is_qla80XX(ha))
 				/* set firmware context reset */
 				set_bit(DPC_RESET_HA_FW_CONTEXT,
 					&ha->dpc_flags);
@@ -5964,7 +6188,6 @@ qla4xxx_pci_mmio_enabled(struct pci_dev *pdev)
 static uint32_t qla4_8xxx_error_recovery(struct scsi_qla_host *ha)
 {
 	uint32_t rval = QLA_ERROR;
-	uint32_t ret = 0;
 	int fn;
 	struct pci_dev *other_pdev = NULL;
 
@@ -6013,69 +6236,62 @@ static uint32_t qla4_8xxx_error_recovery(struct scsi_qla_host *ha)
 		    "0x%x is the owner\n", ha->host_no, __func__,
 		    ha->pdev->devfn);
 
-		qla4_8xxx_idc_lock(ha);
-		qla4_8xxx_wr_32(ha, QLA82XX_CRB_DEV_STATE,
-		    QLA82XX_DEV_COLD);
+		ha->isp_ops->idc_lock(ha);
+		qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DEV_STATE,
+				    QLA8XXX_DEV_COLD);
+		ha->isp_ops->idc_unlock(ha);
 
-		qla4_8xxx_wr_32(ha, QLA82XX_CRB_DRV_IDC_VERSION,
-		    QLA82XX_IDC_VERSION);
+		rval = qla4_8xxx_update_idc_reg(ha);
+		if (rval == QLA_ERROR) {
+			ql4_printk(KERN_INFO, ha, "scsi%ld: %s: HW State: FAILED\n",
+				   ha->host_no, __func__);
+			ha->isp_ops->idc_lock(ha);
+			qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DEV_STATE,
+					    QLA8XXX_DEV_FAILED);
+			ha->isp_ops->idc_unlock(ha);
+			goto exit_error_recovery;
+		}
 
-		qla4_8xxx_idc_unlock(ha);
 		clear_bit(AF_FW_RECOVERY, &ha->flags);
 		rval = qla4xxx_initialize_adapter(ha, RESET_ADAPTER);
-		qla4_8xxx_idc_lock(ha);
 
 		if (rval != QLA_SUCCESS) {
 			ql4_printk(KERN_INFO, ha, "scsi%ld: %s: HW State: "
 			    "FAILED\n", ha->host_no, __func__);
+			ha->isp_ops->idc_lock(ha);
 			qla4_8xxx_clear_drv_active(ha);
-			qla4_8xxx_wr_32(ha, QLA82XX_CRB_DEV_STATE,
-			    QLA82XX_DEV_FAILED);
+			qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DEV_STATE,
+					    QLA8XXX_DEV_FAILED);
+			ha->isp_ops->idc_unlock(ha);
 		} else {
 			ql4_printk(KERN_INFO, ha, "scsi%ld: %s: HW State: "
 			    "READY\n", ha->host_no, __func__);
-			qla4_8xxx_wr_32(ha, QLA82XX_CRB_DEV_STATE,
-			    QLA82XX_DEV_READY);
+			ha->isp_ops->idc_lock(ha);
+			qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DEV_STATE,
+					    QLA8XXX_DEV_READY);
 			/* Clear driver state register */
-			qla4_8xxx_wr_32(ha, QLA82XX_CRB_DRV_STATE, 0);
+			qla4_8xxx_wr_direct(ha, QLA8XXX_CRB_DRV_STATE, 0);
 			qla4_8xxx_set_drv_active(ha);
-			ret = qla4xxx_request_irqs(ha);
-			if (ret) {
-				ql4_printk(KERN_WARNING, ha, "Failed to "
-				    "reserve interrupt %d already in use.\n",
-				    ha->pdev->irq);
-				rval = QLA_ERROR;
-			} else {
-				ha->isp_ops->enable_intrs(ha);
-				rval = QLA_SUCCESS;
-			}
+			ha->isp_ops->idc_unlock(ha);
+			ha->isp_ops->enable_intrs(ha);
 		}
-		qla4_8xxx_idc_unlock(ha);
 	} else {
 		ql4_printk(KERN_INFO, ha, "scsi%ld: %s: devfn 0x%x is not "
 		    "the reset owner\n", ha->host_no, __func__,
 		    ha->pdev->devfn);
-		if ((qla4_8xxx_rd_32(ha, QLA82XX_CRB_DEV_STATE) ==
-		    QLA82XX_DEV_READY)) {
+		if ((qla4_8xxx_rd_direct(ha, QLA8XXX_CRB_DEV_STATE) ==
+		     QLA8XXX_DEV_READY)) {
 			clear_bit(AF_FW_RECOVERY, &ha->flags);
 			rval = qla4xxx_initialize_adapter(ha, RESET_ADAPTER);
-			if (rval == QLA_SUCCESS) {
-				ret = qla4xxx_request_irqs(ha);
-				if (ret) {
-					ql4_printk(KERN_WARNING, ha, "Failed to"
-					    " reserve interrupt %d already in"
-					    " use.\n", ha->pdev->irq);
-					rval = QLA_ERROR;
-				} else {
-					ha->isp_ops->enable_intrs(ha);
-					rval = QLA_SUCCESS;
-				}
-			}
-			qla4_8xxx_idc_lock(ha);
+			if (rval == QLA_SUCCESS)
+				ha->isp_ops->enable_intrs(ha);
+
+			ha->isp_ops->idc_lock(ha);
 			qla4_8xxx_set_drv_active(ha);
-			qla4_8xxx_idc_unlock(ha);
+			ha->isp_ops->idc_unlock(ha);
 		}
 	}
+exit_error_recovery:
 	clear_bit(DPC_RESET_ACTIVE, &ha->dpc_flags);
 	return rval;
 }
@@ -6114,7 +6330,7 @@ qla4xxx_pci_slot_reset(struct pci_dev *pdev)
 
 	ha->isp_ops->disable_intrs(ha);
 
-	if (is_qla8022(ha)) {
+	if (is_qla80XX(ha)) {
 		if (qla4_8xxx_error_recovery(ha) == QLA_SUCCESS) {
 			ret = PCI_ERS_RESULT_RECOVERED;
 			goto exit_slot_reset;
@@ -6148,7 +6364,7 @@ qla4xxx_pci_resume(struct pci_dev *pdev)
 	clear_bit(AF_EEH_BUSY, &ha->flags);
 }
 
-static struct pci_error_handlers qla4xxx_err_handler = {
+static const struct pci_error_handlers qla4xxx_err_handler = {
 	.error_detected = qla4xxx_pci_error_detected,
 	.mmio_enabled = qla4xxx_pci_mmio_enabled,
 	.slot_reset = qla4xxx_pci_slot_reset,
@@ -6179,6 +6395,12 @@ static struct pci_device_id qla4xxx_pci_tbl[] = {
 		.device         = PCI_DEVICE_ID_QLOGIC_ISP8022,
 		.subvendor      = PCI_ANY_ID,
 		.subdevice      = PCI_ANY_ID,
+	},
+	{
+		.vendor		= PCI_VENDOR_ID_QLOGIC,
+		.device		= PCI_DEVICE_ID_QLOGIC_ISP8324,
+		.subvendor	= PCI_ANY_ID,
+		.subdevice	= PCI_ANY_ID,
 	},
 	{0, 0},
 };

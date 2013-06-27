@@ -5,7 +5,7 @@
  * under the terms of the GNU General Public License version 2 as published by
  * the Free Software Foundation.
  *
- * Copyright (c) 2009 Jonathan Cameron <jic23@cam.ac.uk>
+ * Copyright (c) 2009 Jonathan Cameron <jic23@kernel.org>
  *
  * See industrialio/accels/sca3000.h for comments.
  */
@@ -90,7 +90,6 @@ int sca3000_read_data_short(struct sca3000_state *st,
 			    uint8_t reg_address_high,
 			    int len)
 {
-	struct spi_message msg;
 	struct spi_transfer xfer[2] = {
 		{
 			.len = 1,
@@ -101,11 +100,8 @@ int sca3000_read_data_short(struct sca3000_state *st,
 		}
 	};
 	st->tx[0] = SCA3000_READ_REG(reg_address_high);
-	spi_message_init(&msg);
-	spi_message_add_tail(&xfer[0], &msg);
-	spi_message_add_tail(&xfer[1], &msg);
 
-	return spi_sync(st->us, &msg);
+	return spi_sync_transfer(st->us, xfer, ARRAY_SIZE(xfer));
 }
 
 /**
@@ -133,7 +129,6 @@ static int sca3000_reg_lock_on(struct sca3000_state *st)
  **/
 static int __sca3000_unlock_reg_lock(struct sca3000_state *st)
 {
-	struct spi_message msg;
 	struct spi_transfer xfer[3] = {
 		{
 			.len = 2,
@@ -154,12 +149,8 @@ static int __sca3000_unlock_reg_lock(struct sca3000_state *st)
 	st->tx[3] = 0x50;
 	st->tx[4] = SCA3000_WRITE_REG(SCA3000_REG_ADDR_UNLOCK);
 	st->tx[5] = 0xA0;
-	spi_message_init(&msg);
-	spi_message_add_tail(&xfer[0], &msg);
-	spi_message_add_tail(&xfer[1], &msg);
-	spi_message_add_tail(&xfer[2], &msg);
 
-	return spi_sync(st->us, &msg);
+	return spi_sync_transfer(st->us, xfer, ARRAY_SIZE(xfer));
 }
 
 /**
@@ -450,7 +441,7 @@ static IIO_DEVICE_ATTR(revision, S_IRUGO, sca3000_show_rev, NULL, 0);
 		.event_mask = SCA3000_EVENT_MASK,		\
 	 }
 
-static struct iio_chan_spec sca3000_channels[] = {
+static const struct iio_chan_spec sca3000_channels[] = {
 	SCA3000_CHAN(0, IIO_MOD_X),
 	SCA3000_CHAN(1, IIO_MOD_Y),
 	SCA3000_CHAN(2, IIO_MOD_Z),
@@ -1147,7 +1138,7 @@ static const struct iio_info sca3000_info_with_temp = {
 	.driver_module = THIS_MODULE,
 };
 
-static int __devinit sca3000_probe(struct spi_device *spi)
+static int sca3000_probe(struct spi_device *spi)
 {
 	int ret;
 	struct sca3000_state *st;
@@ -1245,11 +1236,9 @@ static int sca3000_remove(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev = spi_get_drvdata(spi);
 	struct sca3000_state *st = iio_priv(indio_dev);
-	int ret;
+
 	/* Must ensure no interrupts can be generated after this!*/
-	ret = sca3000_stop_all_interrupts(st);
-	if (ret)
-		return ret;
+	sca3000_stop_all_interrupts(st);
 	if (spi->irq)
 		free_irq(spi->irq, indio_dev);
 	iio_device_unregister(indio_dev);
@@ -1275,11 +1264,11 @@ static struct spi_driver sca3000_driver = {
 		.owner = THIS_MODULE,
 	},
 	.probe = sca3000_probe,
-	.remove = __devexit_p(sca3000_remove),
+	.remove = sca3000_remove,
 	.id_table = sca3000_id,
 };
 module_spi_driver(sca3000_driver);
 
-MODULE_AUTHOR("Jonathan Cameron <jic23@cam.ac.uk>");
+MODULE_AUTHOR("Jonathan Cameron <jic23@kernel.org>");
 MODULE_DESCRIPTION("VTI SCA3000 Series Accelerometers SPI driver");
 MODULE_LICENSE("GPL v2");

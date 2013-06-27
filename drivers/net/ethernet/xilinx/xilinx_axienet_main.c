@@ -48,7 +48,7 @@
 #define AXIENET_REGS_N		32
 
 /* Match table for of_platform binding */
-static struct of_device_id axienet_of_match[] __devinitdata = {
+static struct of_device_id axienet_of_match[] = {
 	{ .compatible = "xlnx,axi-ethernet-1.00.a", },
 	{ .compatible = "xlnx,axi-ethernet-1.01.a", },
 	{ .compatible = "xlnx,axi-ethernet-2.01.a", },
@@ -198,16 +198,14 @@ static int axienet_dma_bd_init(struct net_device *ndev)
 	lp->tx_bd_tail = 0;
 	lp->rx_bd_ci = 0;
 
-	/*
-	 * Allocate the Tx and Rx buffer descriptors.
-	 */
+	/* Allocate the Tx and Rx buffer descriptors */
 	lp->tx_bd_v = dma_alloc_coherent(ndev->dev.parent,
 					 sizeof(*lp->tx_bd_v) * TX_BD_NUM,
 					 &lp->tx_bd_p,
 					 GFP_KERNEL);
 	if (!lp->tx_bd_v) {
-		dev_err(&ndev->dev, "unable to allocate DMA Tx buffer "
-			"descriptors");
+		dev_err(&ndev->dev,
+			"unable to allocate DMA Tx buffer descriptors");
 		goto out;
 	}
 
@@ -216,8 +214,8 @@ static int axienet_dma_bd_init(struct net_device *ndev)
 					 &lp->rx_bd_p,
 					 GFP_KERNEL);
 	if (!lp->rx_bd_v) {
-		dev_err(&ndev->dev, "unable to allocate DMA Rx buffer "
-			"descriptors");
+		dev_err(&ndev->dev,
+			"unable to allocate DMA Rx buffer descriptors");
 		goto out;
 	}
 
@@ -275,7 +273,8 @@ static int axienet_dma_bd_init(struct net_device *ndev)
 	axienet_dma_out32(lp, XAXIDMA_TX_CR_OFFSET, cr);
 
 	/* Populate the tail pointer and bring the Rx Axi DMA engine out of
-	 * halted state. This will make the Rx side ready for reception.*/
+	 * halted state. This will make the Rx side ready for reception.
+	 */
 	axienet_dma_out32(lp, XAXIDMA_RX_CDESC_OFFSET, lp->rx_bd_p);
 	cr = axienet_dma_in32(lp, XAXIDMA_RX_CR_OFFSET);
 	axienet_dma_out32(lp, XAXIDMA_RX_CR_OFFSET,
@@ -285,7 +284,8 @@ static int axienet_dma_bd_init(struct net_device *ndev)
 
 	/* Write to the RS (Run-stop) bit in the Tx channel control register.
 	 * Tx channel is now ready to run. But only after we write to the
-	 * tail pointer register that the Tx channel will start transmitting */
+	 * tail pointer register that the Tx channel will start transmitting.
+	 */
 	axienet_dma_out32(lp, XAXIDMA_TX_CDESC_OFFSET, lp->tx_bd_p);
 	cr = axienet_dma_in32(lp, XAXIDMA_TX_CR_OFFSET);
 	axienet_dma_out32(lp, XAXIDMA_TX_CR_OFFSET,
@@ -366,7 +366,8 @@ static void axienet_set_multicast_list(struct net_device *ndev)
 	    netdev_mc_count(ndev) > XAE_MULTICAST_CAM_TABLE_NUM) {
 		/* We must make the kernel realize we had to move into
 		 * promiscuous mode. If it was a promiscuous mode request
-		 * the flag is already set. If not we set it. */
+		 * the flag is already set. If not we set it.
+		 */
 		ndev->flags |= IFF_PROMISC;
 		reg = axienet_ior(lp, XAE_FMI_OFFSET);
 		reg |= XAE_FMI_PM_MASK;
@@ -450,14 +451,15 @@ static void __axienet_device_reset(struct axienet_local *lp,
 	/* Reset Axi DMA. This would reset Axi Ethernet core as well. The reset
 	 * process of Axi DMA takes a while to complete as all pending
 	 * commands/transfers will be flushed or completed during this
-	 * reset process. */
+	 * reset process.
+	 */
 	axienet_dma_out32(lp, offset, XAXIDMA_CR_RESET_MASK);
 	timeout = DELAY_OF_ONE_MILLISEC;
 	while (axienet_dma_in32(lp, offset) & XAXIDMA_CR_RESET_MASK) {
 		udelay(1);
 		if (--timeout == 0) {
-			dev_err(dev, "axienet_device_reset DMA "
-				"reset timeout!\n");
+			dev_err(dev,
+				"axienet_device_reset DMA reset timeout!\n");
 			break;
 		}
 	}
@@ -487,15 +489,17 @@ static void axienet_device_reset(struct net_device *ndev)
 	lp->options &= (~XAE_OPTION_JUMBO);
 
 	if ((ndev->mtu > XAE_MTU) &&
-	    (ndev->mtu <= XAE_JUMBO_MTU) &&
-	    (lp->jumbo_support)) {
-		lp->max_frm_size = ndev->mtu + XAE_HDR_VLAN_SIZE +
-				   XAE_TRL_SIZE;
-		lp->options |= XAE_OPTION_JUMBO;
+		(ndev->mtu <= XAE_JUMBO_MTU)) {
+		lp->max_frm_size = ndev->mtu + VLAN_ETH_HLEN +
+					XAE_TRL_SIZE;
+
+		if (lp->max_frm_size <= lp->rxmem)
+			lp->options |= XAE_OPTION_JUMBO;
 	}
 
 	if (axienet_dma_bd_init(ndev)) {
-		dev_err(&ndev->dev, "axienet_device_reset descriptor "
+		dev_err(&ndev->dev,
+			"axienet_device_reset descriptor "
 			"allocation failed\n");
 	}
 
@@ -510,7 +514,8 @@ static void axienet_device_reset(struct net_device *ndev)
 	axienet_iow(lp, XAE_FCC_OFFSET, XAE_FCC_FCRX_MASK);
 
 	/* Sync default options with HW but leave receiver and
-	 * transmitter disabled.*/
+	 * transmitter disabled.
+	 */
 	axienet_setoptions(ndev, lp->options &
 			   ~(XAE_OPTION_TXEN | XAE_OPTION_RXEN));
 	axienet_set_mac_address(ndev, NULL);
@@ -562,7 +567,8 @@ static void axienet_adjust_link(struct net_device *ndev)
 				emmc_reg |= XAE_EMMC_LINKSPD_10;
 				break;
 			default:
-				dev_err(&ndev->dev, "Speed other than 10, 100 "
+				dev_err(&ndev->dev,
+					"Speed other than 10, 100 "
 					"or 1Gbps is not supported\n");
 				break;
 			}
@@ -571,8 +577,8 @@ static void axienet_adjust_link(struct net_device *ndev)
 			lp->last_link = link_state;
 			phy_print_status(phy);
 		} else {
-			dev_err(&ndev->dev, "Error setting Axi Ethernet "
-				"mac speed\n");
+			dev_err(&ndev->dev,
+				"Error setting Axi Ethernet mac speed\n");
 		}
 	}
 }
@@ -716,6 +722,8 @@ static int axienet_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	cur_p->app4 = (unsigned long)skb;
 
 	tail_p = lp->tx_bd_p + sizeof(*lp->tx_bd_v) * lp->tx_bd_tail;
+	wmb();
+
 	/* Start the transfer */
 	axienet_dma_out32(lp, XAXIDMA_TX_TDESC_OFFSET, tail_p);
 	++lp->tx_bd_tail;
@@ -744,6 +752,7 @@ static void axienet_recv(struct net_device *ndev)
 	struct sk_buff *skb, *new_skb;
 	struct axidma_bd *cur_p;
 
+	rmb();
 	cur_p = &lp->rx_bd_v[lp->rx_bd_ci];
 
 	while ((cur_p->status & XAXIDMA_BD_STS_COMPLETE_MASK)) {
@@ -902,6 +911,8 @@ out:
 	return IRQ_HANDLED;
 }
 
+static void axienet_dma_err_handler(unsigned long data);
+
 /**
  * axienet_open - Driver open routine.
  * @ndev:	Pointer to net_device structure
@@ -929,7 +940,8 @@ static int axienet_open(struct net_device *ndev)
 	/* Disable the MDIO interface till Axi Ethernet Reset is completed.
 	 * When we do an Axi Ethernet reset, it resets the complete core
 	 * including the MDIO. If MDIO is not disabled when the reset
-	 * process is started, MDIO will be broken afterwards. */
+	 * process is started, MDIO will be broken afterwards.
+	 */
 	axienet_iow(lp, XAE_MDIO_MC_OFFSET,
 		    (mdio_mcreg & (~XAE_MDIO_MC_MDIOEN_MASK)));
 	axienet_device_reset(ndev);
@@ -940,15 +952,25 @@ static int axienet_open(struct net_device *ndev)
 		return ret;
 
 	if (lp->phy_node) {
-		lp->phy_dev = of_phy_connect(lp->ndev, lp->phy_node,
+		if (lp->phy_type == XAE_PHY_TYPE_GMII) {
+			lp->phy_dev = of_phy_connect(lp->ndev, lp->phy_node,
 					     axienet_adjust_link, 0,
 					     PHY_INTERFACE_MODE_GMII);
-		if (!lp->phy_dev) {
-			dev_err(lp->dev, "of_phy_connect() failed\n");
-			return -ENODEV;
+		} else if (lp->phy_type == XAE_PHY_TYPE_RGMII_2_0) {
+			lp->phy_dev = of_phy_connect(lp->ndev, lp->phy_node,
+					     axienet_adjust_link, 0,
+					     PHY_INTERFACE_MODE_RGMII_ID);
 		}
-		phy_start(lp->phy_dev);
+
+		if (!lp->phy_dev)
+			dev_err(lp->dev, "of_phy_connect() failed\n");
+		else
+			phy_start(lp->phy_dev);
 	}
+
+	/* Enable tasklets for Axi DMA error handling */
+	tasklet_init(&lp->dma_err_tasklet, axienet_dma_err_handler,
+		     (unsigned long) lp);
 
 	/* Enable interrupts for Axi DMA Tx */
 	ret = request_irq(lp->tx_irq, axienet_tx_irq, 0, ndev->name, ndev);
@@ -958,8 +980,7 @@ static int axienet_open(struct net_device *ndev)
 	ret = request_irq(lp->rx_irq, axienet_rx_irq, 0, ndev->name, ndev);
 	if (ret)
 		goto err_rx_irq;
-	/* Enable tasklets for Axi DMA error handling */
-	tasklet_enable(&lp->dma_err_tasklet);
+
 	return 0;
 
 err_rx_irq:
@@ -968,6 +989,7 @@ err_tx_irq:
 	if (lp->phy_dev)
 		phy_disconnect(lp->phy_dev);
 	lp->phy_dev = NULL;
+	tasklet_kill(&lp->dma_err_tasklet);
 	dev_err(lp->dev, "request_irq() failed\n");
 	return ret;
 }
@@ -998,7 +1020,7 @@ static int axienet_stop(struct net_device *ndev)
 	axienet_setoptions(ndev, lp->options &
 			   ~(XAE_OPTION_TXEN | XAE_OPTION_RXEN));
 
-	tasklet_disable(&lp->dma_err_tasklet);
+	tasklet_kill(&lp->dma_err_tasklet);
 
 	free_irq(lp->tx_irq, ndev);
 	free_irq(lp->rx_irq, ndev);
@@ -1028,15 +1050,15 @@ static int axienet_change_mtu(struct net_device *ndev, int new_mtu)
 
 	if (netif_running(ndev))
 		return -EBUSY;
-	if (lp->jumbo_support) {
-		if ((new_mtu > XAE_JUMBO_MTU) || (new_mtu < 64))
-			return -EINVAL;
-		ndev->mtu = new_mtu;
-	} else {
-		if ((new_mtu > XAE_MTU) || (new_mtu < 64))
-			return -EINVAL;
-		ndev->mtu = new_mtu;
-	}
+
+	if ((new_mtu + VLAN_ETH_HLEN +
+		XAE_TRL_SIZE) > lp->rxmem)
+		return -EINVAL;
+
+	if ((new_mtu > XAE_JUMBO_MTU) || (new_mtu < 64))
+		return -EINVAL;
+
+	ndev->mtu = new_mtu;
 
 	return 0;
 }
@@ -1141,9 +1163,8 @@ static int axienet_ethtools_set_settings(struct net_device *ndev,
 static void axienet_ethtools_get_drvinfo(struct net_device *ndev,
 					 struct ethtool_drvinfo *ed)
 {
-	memset(ed, 0, sizeof(struct ethtool_drvinfo));
-	strcpy(ed->driver, DRIVER_NAME);
-	strcpy(ed->version, DRIVER_VERSION);
+	strlcpy(ed->driver, DRIVER_NAME, sizeof(ed->driver));
+	strlcpy(ed->version, DRIVER_VERSION, sizeof(ed->version));
 	ed->regdump_len = sizeof(u32) * AXIENET_REGS_N;
 }
 
@@ -1254,8 +1275,9 @@ axienet_ethtools_set_pauseparam(struct net_device *ndev,
 	struct axienet_local *lp = netdev_priv(ndev);
 
 	if (netif_running(ndev)) {
-		printk(KERN_ERR	"%s: Please stop netif before applying "
-		       "configruation\n", ndev->name);
+		dev_err(&ndev->dev,
+			"%s: Please stop netif before applying configuration\n",
+			ndev->name);
 		return -EFAULT;
 	}
 
@@ -1311,8 +1333,9 @@ static int axienet_ethtools_set_coalesce(struct net_device *ndev,
 	struct axienet_local *lp = netdev_priv(ndev);
 
 	if (netif_running(ndev)) {
-		printk(KERN_ERR	"%s: Please stop netif before applying "
-		       "configruation\n", ndev->name);
+		dev_err(&ndev->dev,
+			"%s: Please stop netif before applying configuration\n",
+			ndev->name);
 		return -EFAULT;
 	}
 
@@ -1381,7 +1404,8 @@ static void axienet_dma_err_handler(unsigned long data)
 	/* Disable the MDIO interface till Axi Ethernet Reset is completed.
 	 * When we do an Axi Ethernet reset, it resets the complete core
 	 * including the MDIO. So if MDIO is not disabled when the reset
-	 * process is started, MDIO will be broken afterwards. */
+	 * process is started, MDIO will be broken afterwards.
+	 */
 	axienet_iow(lp, XAE_MDIO_MC_OFFSET, (mdio_mcreg &
 		    ~XAE_MDIO_MC_MDIOEN_MASK));
 
@@ -1452,7 +1476,8 @@ static void axienet_dma_err_handler(unsigned long data)
 	axienet_dma_out32(lp, XAXIDMA_TX_CR_OFFSET, cr);
 
 	/* Populate the tail pointer and bring the Rx Axi DMA engine out of
-	 * halted state. This will make the Rx side ready for reception.*/
+	 * halted state. This will make the Rx side ready for reception.
+	 */
 	axienet_dma_out32(lp, XAXIDMA_RX_CDESC_OFFSET, lp->rx_bd_p);
 	cr = axienet_dma_in32(lp, XAXIDMA_RX_CR_OFFSET);
 	axienet_dma_out32(lp, XAXIDMA_RX_CR_OFFSET,
@@ -1462,7 +1487,8 @@ static void axienet_dma_err_handler(unsigned long data)
 
 	/* Write to the RS (Run-stop) bit in the Tx channel control register.
 	 * Tx channel is now ready to run. But only after we write to the
-	 * tail pointer register that the Tx channel will start transmitting */
+	 * tail pointer register that the Tx channel will start transmitting
+	 */
 	axienet_dma_out32(lp, XAXIDMA_TX_CDESC_OFFSET, lp->tx_bd_p);
 	cr = axienet_dma_in32(lp, XAXIDMA_TX_CR_OFFSET);
 	axienet_dma_out32(lp, XAXIDMA_TX_CR_OFFSET,
@@ -1478,7 +1504,8 @@ static void axienet_dma_err_handler(unsigned long data)
 	axienet_iow(lp, XAE_FCC_OFFSET, XAE_FCC_FCRX_MASK);
 
 	/* Sync default options with HW but leave receiver and
-	 * transmitter disabled.*/
+	 * transmitter disabled.
+	 */
 	axienet_setoptions(ndev, lp->options &
 			   ~(XAE_OPTION_TXEN | XAE_OPTION_RXEN));
 	axienet_set_mac_address(ndev, NULL);
@@ -1499,7 +1526,7 @@ static void axienet_dma_err_handler(unsigned long data)
  * device. Parses through device tree and populates fields of
  * axienet_local. It registers the Ethernet device.
  */
-static int __devinit axienet_of_probe(struct platform_device *op)
+static int axienet_of_probe(struct platform_device *op)
 {
 	__be32 *p;
 	int size, ret = 0;
@@ -1575,16 +1602,14 @@ static int __devinit axienet_of_probe(struct platform_device *op)
 		}
 	}
 	/* For supporting jumbo frames, the Axi Ethernet hardware must have
-	 * a larger Rx/Tx Memory. Typically, the size must be more than or
-	 * equal to 16384 bytes, so that we can enable jumbo option and start
-	 * supporting jumbo frames. Here we check for memory allocated for
-	 * Rx/Tx in the hardware from the device-tree and accordingly set
-	 * flags. */
+	 * a larger Rx/Tx Memory. Typically, the size must be large so that
+	 * we can enable jumbo option and start supporting jumbo frames.
+	 * Here we check for memory allocated for Rx/Tx in the hardware from
+	 * the device-tree and accordingly set flags.
+	 */
 	p = (__be32 *) of_get_property(op->dev.of_node, "xlnx,rxmem", NULL);
-	if (p) {
-		if ((be32_to_cpup(p)) >= 0x4000)
-			lp->jumbo_support = 1;
-	}
+	if (p)
+		lp->rxmem = be32_to_cpup(p);
 	p = (__be32 *) of_get_property(op->dev.of_node, "xlnx,temac-type",
 				       NULL);
 	if (p)
@@ -1628,7 +1653,8 @@ static int __devinit axienet_of_probe(struct platform_device *op)
 	lp->coalesce_count_tx = XAXIDMA_DFT_TX_THRESHOLD;
 
 	lp->phy_node = of_parse_phandle(op->dev.of_node, "phy-handle", 0);
-	ret = axienet_mdio_setup(lp, op->dev.of_node);
+	if (lp->phy_node)
+		ret = axienet_mdio_setup(lp, op->dev.of_node);
 	if (ret)
 		dev_warn(&op->dev, "error registering MDIO bus\n");
 
@@ -1637,10 +1663,6 @@ static int __devinit axienet_of_probe(struct platform_device *op)
 		dev_err(lp->dev, "register_netdev() error (%i)\n", ret);
 		goto err_iounmap_2;
 	}
-
-	tasklet_init(&lp->dma_err_tasklet, axienet_dma_err_handler,
-		     (unsigned long) lp);
-	tasklet_disable(&lp->dma_err_tasklet);
 
 	return 0;
 
@@ -1655,7 +1677,7 @@ nodev:
 	return ret;
 }
 
-static int __devexit axienet_of_remove(struct platform_device *op)
+static int axienet_of_remove(struct platform_device *op)
 {
 	struct net_device *ndev = dev_get_drvdata(&op->dev);
 	struct axienet_local *lp = netdev_priv(ndev);
@@ -1679,7 +1701,7 @@ static int __devexit axienet_of_remove(struct platform_device *op)
 
 static struct platform_driver axienet_of_driver = {
 	.probe = axienet_of_probe,
-	.remove = __devexit_p(axienet_of_remove),
+	.remove = axienet_of_remove,
 	.driver = {
 		 .owner = THIS_MODULE,
 		 .name = "xilinx_axienet",

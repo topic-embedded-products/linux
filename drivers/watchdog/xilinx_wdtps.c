@@ -1,7 +1,7 @@
 /*
- * Xilinx PS WDT driver
+ * Xilinx Zynq WDT driver
  *
- * Copyright (c) 20010-2011 Xilinx Inc.
+ * Copyright (c) 2010-2013 Xilinx Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -61,7 +61,7 @@ struct xwdtps {
 	unsigned long		busy;		/* Device Status */
 	int			rst;		/* Reset flag */
 	struct clk		*clk;
-	u32 			prescalar;
+	u32			prescalar;
 	u32			ctrl_clksel;
 	spinlock_t		io_lock;
 };
@@ -171,7 +171,7 @@ static int xwdtps_start(struct watchdog_device *wdd)
 	/* 0x00920000 - Counter register key value. */
 	data = (count | 0x00920000 | (wdt->ctrl_clksel));
 	xwdtps_writereg(data, XWDTPS_CCR_OFFSET);
-	data = XWDTPS_ZMR_WDEN_MASK | XWDTPS_ZMR_RSTLEN_16 | \
+	data = XWDTPS_ZMR_WDEN_MASK | XWDTPS_ZMR_RSTLEN_16 |
 			XWDTPS_ZMR_ZKEY_VAL;
 
 	/* Reset on timeout if specified in device tree. */
@@ -273,7 +273,7 @@ static struct notifier_block xwdtps_notifier = {
  *
  * It does all the memory allocation and registration for the device.
  */
-static int __devinit xwdtps_probe(struct platform_device *pdev)
+static int xwdtps_probe(struct platform_device *pdev)
 {
 	struct resource *regs;
 	int res;
@@ -492,7 +492,7 @@ static int xwdtps_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(xwdtps_pm_ops, xwdtps_suspend, xwdtps_resume);
 
-static struct of_device_id xwdtps_of_match[] __devinitdata = {
+static struct of_device_id xwdtps_of_match[] = {
 	{ .compatible = "xlnx,ps7-wdt-1.00.a", },
 	{ /* end of table */}
 };
@@ -501,7 +501,7 @@ MODULE_DEVICE_TABLE(of, xwdtps_of_match);
 /* Driver Structure */
 static struct platform_driver xwdtps_driver = {
 	.probe		= xwdtps_probe,
-	.remove		= __exit_p(xwdtps_remove),
+	.remove		= xwdtps_remove,
 	.shutdown	= xwdtps_shutdown,
 	.driver		= {
 		.name	= "xwdtps",

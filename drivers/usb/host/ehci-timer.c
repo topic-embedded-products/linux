@@ -118,7 +118,8 @@ static void ehci_poll_ASS(struct ehci_hcd *ehci)
 			ehci_enable_event(ehci, EHCI_HRTIMER_POLL_ASS, true);
 			return;
 		}
-		ehci_warn(ehci, "Waited too long for the async schedule status, giving up\n");
+		ehci_dbg(ehci, "Waited too long for the async schedule status (%x/%x), giving up\n",
+				want, actual);
 	}
 	ehci->ASS_poll_count = 0;
 
@@ -163,7 +164,8 @@ static void ehci_poll_PSS(struct ehci_hcd *ehci)
 			ehci_enable_event(ehci, EHCI_HRTIMER_POLL_PSS, true);
 			return;
 		}
-		ehci_warn(ehci, "Waited too long for the periodic schedule status, giving up\n");
+		ehci_dbg(ehci, "Waited too long for the periodic schedule status (%x/%x), giving up\n",
+				want, actual);
 	}
 	ehci->PSS_poll_count = 0;
 
@@ -302,7 +304,7 @@ static void ehci_iaa_watchdog(struct ehci_hcd *ehci)
 	 * (a) SMP races against real IAA firing and retriggering, and
 	 * (b) clean HC shutdown, when IAA watchdog was pending.
 	 */
-	if (ehci->async_iaa) {
+	if (1) {
 		u32 cmd, status;
 
 		/* If we get here, IAA is *REALLY* late.  It's barely

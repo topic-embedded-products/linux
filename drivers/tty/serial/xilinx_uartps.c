@@ -184,14 +184,10 @@ struct xuartps {
 static irqreturn_t xuartps_isr(int irq, void *dev_id)
 {
 	struct uart_port *port = (struct uart_port *)dev_id;
-	struct tty_struct *tty;
 	unsigned long flags;
 	unsigned int isrstatus, numbytes;
 	unsigned int data;
 	char status = TTY_NORMAL;
-
-	/* Get the tty which could be NULL so don't assume it's valid */
-	tty = tty_port_tty_get(&port->state->port);
 
 	spin_lock_irqsave(&port->lock, flags);
 
@@ -266,14 +262,11 @@ static irqreturn_t xuartps_isr(int irq, void *dev_id)
 			} else if (isrstatus & XUARTPS_IXR_OVERRUN)
 				port->icount.overrun++;
 
-			if (tty)
-				uart_insert_char(port, isrstatus,
-						XUARTPS_IXR_OVERRUN, data,
-						status);
+			uart_insert_char(port, isrstatus, XUARTPS_IXR_OVERRUN,
+					data, status);
 		}
 		spin_unlock(&port->lock);
-		if (tty)
-			tty_flip_buffer_push(tty);
+		tty_flip_buffer_push(&port->state->port);
 		spin_lock(&port->lock);
 	}
 
@@ -316,7 +309,6 @@ static irqreturn_t xuartps_isr(int irq, void *dev_id)
 
 	/* be sure to release the lock and tty before leaving */
 	spin_unlock_irqrestore(&port->lock, flags);
-	tty_kref_put(tty);
 
 	return IRQ_HANDLED;
 }
@@ -397,6 +389,7 @@ static unsigned int xuartps_set_baud_rate(struct uart_port *port,
 	u32 cd, bdiv;
 	u32 mreg;
 	int div8;
+	struct xuartps *xuartps = port->private_data;
 
 	calc_baud = xuartps_calc_baud_divs(port->uartclk, baud, &bdiv, &cd,
 			&div8);
@@ -410,6 +403,7 @@ static unsigned int xuartps_set_baud_rate(struct uart_port *port,
 	xuartps_writel(mreg, XUARTPS_MR_OFFSET);
 	xuartps_writel(cd, XUARTPS_BAUDGEN_OFFSET);
 	xuartps_writel(bdiv, XUARTPS_BAUDDIV_OFFSET);
+	xuartps->baud = baud;
 
 	return calc_baud;
 }
@@ -1225,8 +1219,8 @@ static struct uart_driver xuartps_uart_driver = {
  * @pdev: Pointer to the platform device structure
  *
  * Returns 0 on success, negative error otherwise
- */
-static int __devinit xuartps_probe(struct platform_device *pdev)
+ **/
+static int xuartps_probe(struct platform_device *pdev)
 {
 	int rc;
 	struct uart_port *port;
@@ -1345,8 +1339,8 @@ err_out_free:
  * @pdev: Pointer to the platform device structure
  *
  * Returns 0 on success, negative error otherwise
- */
-static int __devexit xuartps_remove(struct platform_device *pdev)
+ **/
+static int xuartps_remove(struct platform_device *pdev)
 {
 	struct uart_port *port = dev_get_drvdata(&pdev->dev);
 	int rc = 0;
@@ -1464,15 +1458,16 @@ static SIMPLE_DEV_PM_OPS(xuartps_dev_pm_ops, xuartps_suspend, xuartps_resume);
 #endif /* ! CONFIG_PM_SLEEP */
 
 /* Match table for of_platform binding */
-static struct of_device_id xuartps_of_match[] __devinitdata = {
+static struct of_device_id xuartps_of_match[] = {
 	{ .compatible = "xlnx,ps7-uart-1.00.a", },
+	{ .compatible = "xlnx,xuartps", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, xuartps_of_match);
 
 static struct platform_driver xuartps_platform_driver = {
 	.probe   = xuartps_probe,		/* Probe method */
-	.remove  = __exit_p(xuartps_remove),	/* Detach method */
+	.remove  = xuartps_remove,		/* Detach method */
 	.driver  = {
 		.owner = THIS_MODULE,
 		.name = XUARTPS_NAME,		/* Driver name */

@@ -60,10 +60,7 @@
 #define MLX4_FS_MGM_LOG_ENTRY_SIZE	7
 #define MLX4_FS_NUM_MCG			(1 << 17)
 
-enum {
-	MLX4_FS_L2_HASH = 0,
-	MLX4_FS_L2_L3_L4_HASH,
-};
+#define INIT_HCA_TPT_MW_ENABLE          (1 << 7)
 
 #define MLX4_NUM_UP		8
 #define MLX4_NUM_TC		8
@@ -94,8 +91,10 @@ enum {
 };
 
 enum {
-	MLX4_MAX_MGM_ENTRY_SIZE = 0x1000,
-	MLX4_MAX_QP_PER_MGM	= 4 * (MLX4_MAX_MGM_ENTRY_SIZE / 16 - 2),
+	MLX4_DEFAULT_MGM_LOG_ENTRY_SIZE = 10,
+	MLX4_MIN_MGM_LOG_ENTRY_SIZE = 7,
+	MLX4_MAX_MGM_LOG_ENTRY_SIZE = 12,
+	MLX4_MAX_QP_PER_MGM = 4 * ((1 << MLX4_MAX_MGM_LOG_ENTRY_SIZE) / 16 - 2),
 	MLX4_MTT_ENTRY_PER_SEG	= 8,
 };
 
@@ -116,10 +115,10 @@ enum {
 	MLX4_NUM_CMPTS		= MLX4_CMPT_NUM_TYPE << MLX4_CMPT_SHIFT
 };
 
-enum mlx4_mr_state {
-	MLX4_MR_DISABLED = 0,
-	MLX4_MR_EN_HW,
-	MLX4_MR_EN_SW
+enum mlx4_mpt_state {
+	MLX4_MPT_DISABLED = 0,
+	MLX4_MPT_EN_HW,
+	MLX4_MPT_EN_SW
 };
 
 #define MLX4_COMM_TIME		10000
@@ -265,6 +264,22 @@ struct mlx4_icm_table {
 	struct mutex		mutex;
 	struct mlx4_icm	      **icm;
 };
+
+#define MLX4_MPT_FLAG_SW_OWNS	    (0xfUL << 28)
+#define MLX4_MPT_FLAG_FREE	    (0x3UL << 28)
+#define MLX4_MPT_FLAG_MIO	    (1 << 17)
+#define MLX4_MPT_FLAG_BIND_ENABLE   (1 << 15)
+#define MLX4_MPT_FLAG_PHYSICAL	    (1 <<  9)
+#define MLX4_MPT_FLAG_REGION	    (1 <<  8)
+
+#define MLX4_MPT_PD_FLAG_FAST_REG   (1 << 27)
+#define MLX4_MPT_PD_FLAG_RAE	    (1 << 28)
+#define MLX4_MPT_PD_FLAG_EN_INV	    (3 << 24)
+
+#define MLX4_MPT_QP_FLAG_BOUND_QP   (1 << 7)
+
+#define MLX4_MPT_STATUS_SW		0xF0
+#define MLX4_MPT_STATUS_HW		0x00
 
 /*
  * Must be packed because mtt_seg is 64 bits but only aligned to 32 bits.
@@ -452,6 +467,7 @@ struct mlx4_slave_state {
 	/*initialized via the kzalloc*/
 	u8 is_slave_going_down;
 	u32 cookie;
+	enum slave_port_state port_state[MLX4_MAX_PORTS + 1];
 };
 
 struct slave_list {
@@ -472,6 +488,7 @@ struct mlx4_slave_event_eq {
 	u32 eqn;
 	u32 cons;
 	u32 prod;
+	spinlock_t event_lock;
 	struct mlx4_eqe event_eqe[SLAVE_EVENT_EQ_SIZE];
 };
 
@@ -511,9 +528,9 @@ struct mlx4_cmd {
 	struct pci_pool	       *pool;
 	void __iomem	       *hcr;
 	struct mutex		hcr_mutex;
+	struct mutex		slave_cmd_mutex;
 	struct semaphore	poll_sem;
 	struct semaphore	event_sem;
-	struct semaphore	slave_sem;
 	int			max_cmds;
 	spinlock_t		context_lock;
 	int			free_head;
@@ -654,11 +671,6 @@ struct mlx4_set_port_rqp_calc_context {
 	__be32 mcast;
 };
 
-struct mlx4_mac_entry {
-	u64 mac;
-	u64 reg_id;
-};
-
 struct mlx4_port_info {
 	struct mlx4_dev	       *dev;
 	int			port;
@@ -668,7 +680,6 @@ struct mlx4_port_info {
 	char			dev_mtu_name[16];
 	struct device_attribute port_mtu_attr;
 	struct mlx4_mac_table	mac_table;
-	struct radix_tree_root	mac_tree;
 	struct mlx4_vlan_table	vlan_table;
 	int			base_qpn;
 };
@@ -692,9 +703,12 @@ struct mlx4_steer {
 
 struct mlx4_net_trans_rule_hw_ctrl {
 	__be32 ctrl;
-	__be32 vf_vep_port;
+	u8 rsvd1;
+	u8 funcid;
+	u8 vep;
+	u8 port;
 	__be32 qpn;
-	__be32 reserved;
+	__be32 rsvd2;
 };
 
 struct mlx4_net_trans_rule_hw_ib {
@@ -766,12 +780,19 @@ struct _rule_hw {
 	};
 };
 
+enum {
+	MLX4_PCI_DEV_IS_VF		= 1 << 0,
+	MLX4_PCI_DEV_FORCE_SENSE_PORT	= 1 << 1,
+};
+
 struct mlx4_priv {
 	struct mlx4_dev		dev;
 
 	struct list_head	dev_list;
 	struct list_head	ctx_list;
 	spinlock_t		ctx_lock;
+
+	int			pci_dev_data;
 
 	struct list_head        pgdir_list;
 	struct mutex            pgdir_mutex;
@@ -807,6 +828,9 @@ struct mlx4_priv {
 	struct io_mapping	*bf_mapping;
 	int			reserved_mtts;
 	int			fs_hash_mode;
+	u8 virt2phys_pkey[MLX4_MFUNC_MAX][MLX4_MAX_PORTS][MLX4_MAX_PORT_PKEYS];
+	__be64			slave_node_guids[MLX4_MFUNC_MAX];
+
 };
 
 static inline struct mlx4_priv *mlx4_priv(struct mlx4_dev *dev)
@@ -857,10 +881,10 @@ int __mlx4_cq_alloc_icm(struct mlx4_dev *dev, int *cqn);
 void __mlx4_cq_free_icm(struct mlx4_dev *dev, int cqn);
 int __mlx4_srq_alloc_icm(struct mlx4_dev *dev, int *srqn);
 void __mlx4_srq_free_icm(struct mlx4_dev *dev, int srqn);
-int __mlx4_mr_reserve(struct mlx4_dev *dev);
-void __mlx4_mr_release(struct mlx4_dev *dev, u32 index);
-int __mlx4_mr_alloc_icm(struct mlx4_dev *dev, u32 index);
-void __mlx4_mr_free_icm(struct mlx4_dev *dev, u32 index);
+int __mlx4_mpt_reserve(struct mlx4_dev *dev);
+void __mlx4_mpt_release(struct mlx4_dev *dev, u32 index);
+int __mlx4_mpt_alloc_icm(struct mlx4_dev *dev, u32 index);
+void __mlx4_mpt_free_icm(struct mlx4_dev *dev, u32 index);
 u32 __mlx4_alloc_mtt_range(struct mlx4_dev *dev, int order);
 void __mlx4_free_mtt_range(struct mlx4_dev *dev, u32 first_seg, int order);
 
@@ -904,7 +928,6 @@ int __mlx4_qp_reserve_range(struct mlx4_dev *dev, int cnt, int align,
 void __mlx4_qp_release_range(struct mlx4_dev *dev, int base_qpn, int cnt);
 int __mlx4_register_mac(struct mlx4_dev *dev, u8 port, u64 mac);
 void __mlx4_unregister_mac(struct mlx4_dev *dev, u8 port, u64 mac);
-int __mlx4_replace_mac(struct mlx4_dev *dev, u8 port, int qpn, u64 new_mac);
 int __mlx4_write_mtt(struct mlx4_dev *dev, struct mlx4_mtt *mtt,
 		     int start_index, int npages, u64 *page_list);
 int __mlx4_counter_alloc(struct mlx4_dev *dev, u32 *idx);
@@ -1011,16 +1034,61 @@ int mlx4_RST2INIT_QP_wrapper(struct mlx4_dev *dev, int slave,
 			     struct mlx4_cmd_mailbox *inbox,
 			     struct mlx4_cmd_mailbox *outbox,
 			     struct mlx4_cmd_info *cmd);
+int mlx4_INIT2INIT_QP_wrapper(struct mlx4_dev *dev, int slave,
+			      struct mlx4_vhcr *vhcr,
+			      struct mlx4_cmd_mailbox *inbox,
+			      struct mlx4_cmd_mailbox *outbox,
+			      struct mlx4_cmd_info *cmd);
 int mlx4_INIT2RTR_QP_wrapper(struct mlx4_dev *dev, int slave,
 			     struct mlx4_vhcr *vhcr,
 			     struct mlx4_cmd_mailbox *inbox,
 			     struct mlx4_cmd_mailbox *outbox,
 			     struct mlx4_cmd_info *cmd);
+int mlx4_RTR2RTS_QP_wrapper(struct mlx4_dev *dev, int slave,
+			    struct mlx4_vhcr *vhcr,
+			    struct mlx4_cmd_mailbox *inbox,
+			    struct mlx4_cmd_mailbox *outbox,
+			    struct mlx4_cmd_info *cmd);
+int mlx4_RTS2RTS_QP_wrapper(struct mlx4_dev *dev, int slave,
+			    struct mlx4_vhcr *vhcr,
+			    struct mlx4_cmd_mailbox *inbox,
+			    struct mlx4_cmd_mailbox *outbox,
+			    struct mlx4_cmd_info *cmd);
+int mlx4_SQERR2RTS_QP_wrapper(struct mlx4_dev *dev, int slave,
+			      struct mlx4_vhcr *vhcr,
+			      struct mlx4_cmd_mailbox *inbox,
+			      struct mlx4_cmd_mailbox *outbox,
+			      struct mlx4_cmd_info *cmd);
+int mlx4_2ERR_QP_wrapper(struct mlx4_dev *dev, int slave,
+			 struct mlx4_vhcr *vhcr,
+			 struct mlx4_cmd_mailbox *inbox,
+			 struct mlx4_cmd_mailbox *outbox,
+			 struct mlx4_cmd_info *cmd);
+int mlx4_RTS2SQD_QP_wrapper(struct mlx4_dev *dev, int slave,
+			    struct mlx4_vhcr *vhcr,
+			    struct mlx4_cmd_mailbox *inbox,
+			    struct mlx4_cmd_mailbox *outbox,
+			    struct mlx4_cmd_info *cmd);
+int mlx4_SQD2SQD_QP_wrapper(struct mlx4_dev *dev, int slave,
+			    struct mlx4_vhcr *vhcr,
+			    struct mlx4_cmd_mailbox *inbox,
+			    struct mlx4_cmd_mailbox *outbox,
+			    struct mlx4_cmd_info *cmd);
+int mlx4_SQD2RTS_QP_wrapper(struct mlx4_dev *dev, int slave,
+			    struct mlx4_vhcr *vhcr,
+			    struct mlx4_cmd_mailbox *inbox,
+			    struct mlx4_cmd_mailbox *outbox,
+			    struct mlx4_cmd_info *cmd);
 int mlx4_2RST_QP_wrapper(struct mlx4_dev *dev, int slave,
 			 struct mlx4_vhcr *vhcr,
 			 struct mlx4_cmd_mailbox *inbox,
 			 struct mlx4_cmd_mailbox *outbox,
 			 struct mlx4_cmd_info *cmd);
+int mlx4_QUERY_QP_wrapper(struct mlx4_dev *dev, int slave,
+			  struct mlx4_vhcr *vhcr,
+			  struct mlx4_cmd_mailbox *inbox,
+			  struct mlx4_cmd_mailbox *outbox,
+			  struct mlx4_cmd_info *cmd);
 
 int mlx4_GEN_EQE(struct mlx4_dev *dev, int slave, struct mlx4_eqe *eqe);
 
@@ -1167,7 +1235,7 @@ int mlx4_get_qp_per_mgm(struct mlx4_dev *dev);
 
 static inline void set_param_l(u64 *arg, u32 val)
 {
-	*((u32 *)arg) = val;
+	*arg = (*arg & 0xffffffff00000000ULL) | (u64) val;
 }
 
 static inline void set_param_h(u64 *arg, u32 val)

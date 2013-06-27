@@ -74,7 +74,6 @@ struct kvmppc_host_state {
 	ulong vmhandler;
 	ulong scratch0;
 	ulong scratch1;
-	ulong sprg3;
 	u8 in_guest;
 	u8 restore_hid5;
 	u8 napping;
@@ -93,6 +92,9 @@ struct kvmppc_host_state {
 	u64 host_spurr;
 	u64 host_dscr;
 	u64 dec_expires;
+#endif
+#ifdef CONFIG_PPC_BOOK3S_64
+	u64 cfar;
 #endif
 };
 

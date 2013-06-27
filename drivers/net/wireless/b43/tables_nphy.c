@@ -2757,6 +2757,49 @@ const struct nphy_rf_control_override_rev3 tbl_rf_control_override_rev3[] = {
 	{ 0x00C0,  6, 0xE7, 0xF9, 0xEC, 0xFB }  /* field == 0x4000 (fls 15) */
 };
 
+/* field, val_addr_core0, val_addr_core1, val_mask, val_shift */
+static const struct nphy_rf_control_override_rev7
+			tbl_rf_control_override_rev7_over0[] = {
+	{ 0x0004, 0x07A, 0x07D, 0x0002, 1 },
+	{ 0x0008, 0x07A, 0x07D, 0x0004, 2 },
+	{ 0x0010, 0x07A, 0x07D, 0x0010, 4 },
+	{ 0x0020, 0x07A, 0x07D, 0x0020, 5 },
+	{ 0x0040, 0x07A, 0x07D, 0x0040, 6 },
+	{ 0x0080, 0x0F8, 0x0FA, 0x0080, 7 },
+	{ 0x0400, 0x0F8, 0x0FA, 0x0070, 4 },
+	{ 0x0800, 0x07B, 0x07E, 0xFFFF, 0 },
+	{ 0x1000, 0x07C, 0x07F, 0xFFFF, 0 },
+	{ 0x6000, 0x348, 0x349, 0xFFFF, 0 },
+	{ 0x2000, 0x348, 0x349, 0x000F, 0 },
+};
+
+/* field, val_addr_core0, val_addr_core1, val_mask, val_shift */
+static const struct nphy_rf_control_override_rev7
+			tbl_rf_control_override_rev7_over1[] = {
+	{ 0x0002, 0x340, 0x341, 0x0002, 1 },
+	{ 0x0008, 0x340, 0x341, 0x0008, 3 },
+	{ 0x0020, 0x340, 0x341, 0x0020, 5 },
+	{ 0x0010, 0x340, 0x341, 0x0010, 4 },
+	{ 0x0004, 0x340, 0x341, 0x0004, 2 },
+	{ 0x0080, 0x340, 0x341, 0x0700, 8 },
+	{ 0x0800, 0x340, 0x341, 0x4000, 14 },
+	{ 0x0400, 0x340, 0x341, 0x2000, 13 },
+	{ 0x0200, 0x340, 0x341, 0x0800, 12 },
+	{ 0x0100, 0x340, 0x341, 0x0100, 11 },
+	{ 0x0040, 0x340, 0x341, 0x0040, 6 },
+	{ 0x0001, 0x340, 0x341, 0x0001, 0 },
+};
+
+/* field, val_addr_core0, val_addr_core1, val_mask, val_shift */
+static const struct nphy_rf_control_override_rev7
+			tbl_rf_control_override_rev7_over2[] = {
+	{ 0x0008, 0x344, 0x345, 0x0008, 3 },
+	{ 0x0002, 0x344, 0x345, 0x0002, 1 },
+	{ 0x0001, 0x344, 0x345, 0x0001, 0 },
+	{ 0x0004, 0x344, 0x345, 0x0004, 2 },
+	{ 0x0010, 0x344, 0x345, 0x0010, 4 },
+};
+
 struct nphy_gain_ctl_workaround_entry nphy_gain_ctl_wa_phy6_radio11_ghz2 = {
 	{ 10, 14, 19, 27 },
 	{ -5, 6, 10, 15 },
@@ -3183,8 +3226,6 @@ struct nphy_gain_ctl_workaround_entry *b43_nphy_get_gain_ctl_workaround_ent(
 {
 	struct nphy_gain_ctl_workaround_entry *e;
 	u8 phy_idx;
-	u8 tr_iso = ghz5 ? dev->dev->bus_sprom->fem.ghz5.tr_iso :
-			   dev->dev->bus_sprom->fem.ghz2.tr_iso;
 
 	if (!ghz5 && dev->phy.rev >= 6 && dev->phy.radio_rev == 11)
 		return &nphy_gain_ctl_wa_phy6_radio11_ghz2;
@@ -3206,6 +3247,10 @@ struct nphy_gain_ctl_workaround_entry *b43_nphy_get_gain_ctl_workaround_ent(
 		    !b43_channel_type_is_40mhz(dev->phy.channel_type))
 			e->cliplo_gain = 0x2d;
 	} else if (!ghz5 && dev->phy.rev >= 5) {
+		static const int gain_data[] = {0x0062, 0x0064, 0x006a, 0x106a,
+						0x106c, 0x1074, 0x107c, 0x207c};
+		u8 tr_iso = dev->dev->bus_sprom->fem.ghz2.tr_iso;
+
 		if (ext_lna) {
 			e->rfseq_init[0] &= ~0x4000;
 			e->rfseq_init[1] &= ~0x4000;
@@ -3213,26 +3258,10 @@ struct nphy_gain_ctl_workaround_entry *b43_nphy_get_gain_ctl_workaround_ent(
 			e->rfseq_init[3] &= ~0x4000;
 			e->init_gain &= ~0x4000;
 		}
-		switch (tr_iso) {
-		case 0:
-			e->cliplo_gain = 0x0062;
-		case 1:
-			e->cliplo_gain = 0x0064;
-		case 2:
-			e->cliplo_gain = 0x006a;
-		case 3:
-			e->cliplo_gain = 0x106a;
-		case 4:
-			e->cliplo_gain = 0x106c;
-		case 5:
-			e->cliplo_gain = 0x1074;
-		case 6:
-			e->cliplo_gain = 0x107c;
-		case 7:
-			e->cliplo_gain = 0x207c;
-		default:
-			e->cliplo_gain = 0x106a;
-		}
+		if (tr_iso > 7)
+			tr_iso = 3;
+		e->cliplo_gain = gain_data[tr_iso];
+
 	} else if (ghz5 && dev->phy.rev == 4 && ext_lna) {
 		e->rfseq_init[0] &= ~0x4000;
 		e->rfseq_init[1] &= ~0x4000;
@@ -3247,4 +3276,36 @@ struct nphy_gain_ctl_workaround_entry *b43_nphy_get_gain_ctl_workaround_ent(
 	}
 
 	return e;
+}
+
+const struct nphy_rf_control_override_rev7 *b43_nphy_get_rf_ctl_over_rev7(
+	struct b43_wldev *dev, u16 field, u8 override)
+{
+	const struct nphy_rf_control_override_rev7 *e;
+	u8 size, i;
+
+	switch (override) {
+	case 0:
+		e = tbl_rf_control_override_rev7_over0;
+		size = ARRAY_SIZE(tbl_rf_control_override_rev7_over0);
+		break;
+	case 1:
+		e = tbl_rf_control_override_rev7_over1;
+		size = ARRAY_SIZE(tbl_rf_control_override_rev7_over1);
+		break;
+	case 2:
+		e = tbl_rf_control_override_rev7_over2;
+		size = ARRAY_SIZE(tbl_rf_control_override_rev7_over2);
+		break;
+	default:
+		b43err(dev->wl, "Invalid override value %d\n", override);
+		return NULL;
+	}
+
+	for (i = 0; i < size; i++) {
+		if (e[i].field == field)
+			return &e[i];
+	}
+
+	return NULL;
 }

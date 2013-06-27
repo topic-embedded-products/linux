@@ -34,6 +34,7 @@
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 #include <linux/delay.h>
+#include <linux/module.h>
 #include "i2c-designware-core.h"
 
 /*
@@ -370,7 +371,7 @@ static void i2c_dw_xfer_init(struct dw_i2c_dev *dev)
  * messages into the tx buffer.  Even if the size of i2c_msg data is
  * longer than the size of the tx buffer, it handles everything.
  */
-void
+static void
 i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 {
 	struct i2c_msg *msgs = dev->msgs;
@@ -412,11 +413,23 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 		rx_limit = dev->rx_fifo_depth - dw_readl(dev, DW_IC_RXFLR);
 
 		while (buf_len > 0 && tx_limit > 0 && rx_limit > 0) {
+			u32 cmd = 0;
+
+			/*
+			 * If IC_EMPTYFIFO_HOLD_MASTER_EN is set we must
+			 * manually set the stop bit. However, it cannot be
+			 * detected from the registers so we set it always
+			 * when writing/reading the last byte.
+			 */
+			if (dev->msg_write_idx == dev->msgs_num - 1 &&
+			    buf_len == 1)
+				cmd |= BIT(9);
+
 			if (msgs[dev->msg_write_idx].flags & I2C_M_RD) {
-				dw_writel(dev, 0x100, DW_IC_DATA_CMD);
+				dw_writel(dev, cmd | 0x100, DW_IC_DATA_CMD);
 				rx_limit--;
 			} else
-				dw_writel(dev, *buf++, DW_IC_DATA_CMD);
+				dw_writel(dev, cmd | *buf++, DW_IC_DATA_CMD);
 			tx_limit--; buf_len--;
 		}
 
@@ -725,3 +738,6 @@ u32 i2c_dw_read_comp_param(struct dw_i2c_dev *dev)
 	return dw_readl(dev, DW_IC_COMP_PARAM_1);
 }
 EXPORT_SYMBOL_GPL(i2c_dw_read_comp_param);
+
+MODULE_DESCRIPTION("Synopsys DesignWare I2C bus adapter core");
+MODULE_LICENSE("GPL");

@@ -69,7 +69,6 @@ static int internal_dev_mac_addr(struct net_device *dev, void *p)
 
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
-	dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
 	return 0;
 }
@@ -98,7 +97,7 @@ static int internal_dev_stop(struct net_device *netdev)
 static void internal_dev_getinfo(struct net_device *netdev,
 				 struct ethtool_drvinfo *info)
 {
-	strcpy(info->driver, "openvswitch");
+	strlcpy(info->driver, "openvswitch", sizeof(info->driver));
 }
 
 static const struct ethtool_ops internal_dev_ethtool_ops = {
@@ -144,7 +143,7 @@ static void do_setup(struct net_device *netdev)
 	netdev->tx_queue_len = 0;
 
 	netdev->features = NETIF_F_LLTX | NETIF_F_SG | NETIF_F_FRAGLIST |
-				NETIF_F_HIGHDMA | NETIF_F_HW_CSUM | NETIF_F_TSO;
+			   NETIF_F_HIGHDMA | NETIF_F_HW_CSUM | NETIF_F_TSO;
 
 	netdev->vlan_features = netdev->features;
 	netdev->features |= NETIF_F_HW_VLAN_TX;
@@ -175,8 +174,13 @@ static struct vport *internal_dev_create(const struct vport_parms *parms)
 		goto error_free_vport;
 	}
 
+	dev_net_set(netdev_vport->dev, ovs_dp_get_net(vport->dp));
 	internal_dev = internal_dev_priv(netdev_vport->dev);
 	internal_dev->vport = vport;
+
+	/* Restrict bridge port to current netns. */
+	if (vport->port_no == OVSP_LOCAL)
+		netdev_vport->dev->features |= NETIF_F_NETNS_LOCAL;
 
 	err = register_netdevice(netdev_vport->dev);
 	if (err)

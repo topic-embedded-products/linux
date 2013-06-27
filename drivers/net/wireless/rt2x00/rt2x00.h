@@ -88,11 +88,9 @@
 #define ERROR_PROBE(__msg, __args...) \
 	DEBUG_PRINTK_PROBE(KERN_ERR, "Error", __msg, ##__args)
 #define WARNING(__dev, __msg, __args...) \
-	DEBUG_PRINTK(__dev, KERN_WARNING, "Warning", __msg, ##__args)
-#define NOTICE(__dev, __msg, __args...) \
-	DEBUG_PRINTK(__dev, KERN_NOTICE, "Notice", __msg, ##__args)
+	DEBUG_PRINTK_MSG(__dev, KERN_WARNING, "Warning", __msg, ##__args)
 #define INFO(__dev, __msg, __args...) \
-	DEBUG_PRINTK(__dev, KERN_INFO, "Info", __msg, ##__args)
+	DEBUG_PRINTK_MSG(__dev, KERN_INFO, "Info", __msg, ##__args)
 #define DEBUG(__dev, __msg, __args...) \
 	DEBUG_PRINTK(__dev, KERN_DEBUG, "Debug", __msg, ##__args)
 #define EEPROM(__dev, __msg, __args...) \
@@ -188,6 +186,7 @@ struct rt2x00_chip {
 #define RT3071		0x3071
 #define RT3090		0x3090	/* 2.4GHz PCIe */
 #define RT3290		0x3290
+#define RT3352		0x3352  /* WSOC */
 #define RT3390		0x3390
 #define RT3572		0x3572
 #define RT3593		0x3593
@@ -655,7 +654,6 @@ struct rt2x00lib_ops {
 struct rt2x00_ops {
 	const char *name;
 	const unsigned int drv_data_size;
-	const unsigned int max_sta_intf;
 	const unsigned int max_ap_intf;
 	const unsigned int eeprom_size;
 	const unsigned int rf_size;
@@ -738,6 +736,14 @@ enum rt2x00_capability_flags {
 	CAPABILITY_DOUBLE_ANTENNA,
 	CAPABILITY_BT_COEXIST,
 	CAPABILITY_VCO_RECALIBRATION,
+};
+
+/*
+ * Interface combinations
+ */
+enum {
+	IF_COMB_AP = 0,
+	NUM_IF_COMB,
 };
 
 /*
@@ -865,6 +871,12 @@ struct rt2x00_dev {
 	unsigned int intf_sta_count;
 	unsigned int intf_associated;
 	unsigned int intf_beaconing;
+
+	/*
+	 * Interface combinations
+	 */
+	struct ieee80211_iface_limit if_limits_ap;
+	struct ieee80211_iface_combination if_combinations[NUM_IF_COMB];
 
 	/*
 	 * Link quality
@@ -1002,6 +1014,26 @@ struct rt2x00_dev {
 	 * Protect the interrupt mask register.
 	 */
 	spinlock_t irqmask_lock;
+
+	/*
+	 * List of BlockAckReq TX entries that need driver BlockAck processing.
+	 */
+	struct list_head bar_list;
+	spinlock_t bar_list_lock;
+};
+
+struct rt2x00_bar_list_entry {
+	struct list_head list;
+	struct rcu_head head;
+
+	struct queue_entry *entry;
+	int block_acked;
+
+	/* Relevant parts of the IEEE80211 BAR header */
+	__u8 ra[6];
+	__u8 ta[6];
+	__le16 control;
+	__le16 start_seq_num;
 };
 
 /*
@@ -1137,8 +1169,10 @@ static inline bool rt2x00_is_soc(struct rt2x00_dev *rt2x00dev)
 /**
  * rt2x00queue_map_txskb - Map a skb into DMA for TX purposes.
  * @entry: Pointer to &struct queue_entry
+ *
+ * Returns -ENOMEM if mapping fail, 0 otherwise.
  */
-void rt2x00queue_map_txskb(struct queue_entry *entry);
+int rt2x00queue_map_txskb(struct queue_entry *entry);
 
 /**
  * rt2x00queue_unmap_skb - Unmap a skb from DMA.
@@ -1287,7 +1321,9 @@ void rt2x00lib_rxdone(struct queue_entry *entry, gfp_t gfp);
 /*
  * mac80211 handlers.
  */
-void rt2x00mac_tx(struct ieee80211_hw *hw, struct sk_buff *skb);
+void rt2x00mac_tx(struct ieee80211_hw *hw,
+		  struct ieee80211_tx_control *control,
+		  struct sk_buff *skb);
 int rt2x00mac_start(struct ieee80211_hw *hw);
 void rt2x00mac_stop(struct ieee80211_hw *hw);
 int rt2x00mac_add_interface(struct ieee80211_hw *hw,

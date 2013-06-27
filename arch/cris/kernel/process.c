@@ -25,6 +25,7 @@
 #include <linux/elfcore.h>
 #include <linux/mqueue.h>
 #include <linux/reboot.h>
+#include <linux/rcupdate.h>
 
 //#define DEBUG
 
@@ -53,11 +54,6 @@ void enable_hlt(void)
 
 EXPORT_SYMBOL(enable_hlt);
  
-/*
- * The following aren't currently used.
- */
-void (*pm_idle)(void);
-
 extern void default_idle(void);
 
 void (*pm_power_off)(void);
@@ -74,18 +70,16 @@ void cpu_idle (void)
 {
 	/* endless idle loop with no priority at all */
 	while (1) {
+		rcu_idle_enter();
 		while (!need_resched()) {
-			void (*idle)(void);
 			/*
 			 * Mark this as an RCU critical section so that
 			 * synchronize_kernel() in the unload path waits
 			 * for our completion.
 			 */
-			idle = pm_idle;
-			if (!idle)
-				idle = default_idle;
-			idle();
+			default_idle();
 		}
+		rcu_idle_exit();
 		schedule_preempt_disabled();
 	}
 }

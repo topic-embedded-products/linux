@@ -27,17 +27,15 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/gpio.h>
+#include <linux/usb/phy.h>
 
-#include <mach/hardware.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 
-#include <plat/board.h>
 #include "common.h"
-#include <plat/gpmc.h>
-#include <plat/usb.h>
-#include <plat/gpmc-smc91x.h>
+#include "gpmc.h"
+#include "gpmc-smc91x.h"
 
 #include <video/omapdss.h>
 #include <video/omap-panel-generic-dpi.h>
@@ -212,9 +210,6 @@ static struct regulator_init_data sdp2430_vmmc1 = {
 };
 
 static struct twl4030_gpio_platform_data sdp2430_gpio_data = {
-	.gpio_base	= OMAP_MAX_GPIO_LINES,
-	.irq_base	= TWL4030_GPIO_IRQ_BASE,
-	.irq_end	= TWL4030_GPIO_IRQ_END,
 };
 
 static struct twl4030_platform_data sdp2430_twldata = {
@@ -235,7 +230,7 @@ static int __init omap2430_i2c_init(void)
 	sdp2430_i2c1_boardinfo[0].irq = gpio_to_irq(78);
 	omap_register_i2c_bus(1, 100, sdp2430_i2c1_boardinfo,
 			ARRAY_SIZE(sdp2430_i2c1_boardinfo));
-	omap_pmic_init(2, 100, "twl4030", INT_24XX_SYS_NIRQ,
+	omap_pmic_init(2, 100, "twl4030", 7 + OMAP_INTC_START,
 			&sdp2430_twldata);
 	return 0;
 }
@@ -269,6 +264,7 @@ static void __init omap_2430sdp_init(void)
 	omap_hsmmc_init(mmc);
 
 	omap_mux_init_signal("usb0hs_stp", OMAP_PULL_ENA | OMAP_PULL_UP);
+	usb_bind_phy("musb-hdrc.0.auto", 0, "twl4030_usb");
 	usb_musb_init(NULL);
 
 	board_smc91x_init();
@@ -290,6 +286,6 @@ MACHINE_START(OMAP_2430SDP, "OMAP2430 sdp2430 board")
 	.handle_irq	= omap2_intc_handle_irq,
 	.init_machine	= omap_2430sdp_init,
 	.init_late	= omap2430_init_late,
-	.timer		= &omap2_timer,
-	.restart	= omap_prcm_restart,
+	.init_time	= omap2_sync32k_timer_init,
+	.restart	= omap2xxx_restart,
 MACHINE_END

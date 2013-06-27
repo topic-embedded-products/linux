@@ -9,10 +9,10 @@
 		#size-cells = <0x1>;
 		ranges;
 
-		axi_iic_0: i2c@41600000 {
+		i2c@41600000 {
 			compatible = "xlnx,axi-iic-1.01.b", "xlnx,xps-iic-2.00.a";
 			interrupt-parent = <&gic>;
-			interrupts = < 0 56 0x4 >;
+			interrupts = < 0 58 0x4 >;
 			reg = < 0x41600000 0x10000 >;
 
 			#size-cells = <0>;
@@ -41,32 +41,12 @@
 			};
 		};
 
-		axi_dma_0: axidma@40400000 {
-			#address-cells = <1>;
-			#size-cells = <1>;
-			#dma-cells = <1>;
-			compatible = "xlnx,axi-dma";
-			reg = < 0x40400000 0x1000 >;
-			xlnx,sg-include-stscntrl-strm = <0x0>;
-			dma-channel@40400000 {
-				compatible = "xlnx,axi-dma-mm2s-channel";
-				interrupts = < 0 58 0x4 >;
-				xlnx,datawidth = <0x20>;
-				xlnx,include-dre = <0x0>;
-			};
-		};
-
-		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
-			compatible = "adi,axi-spdif-tx-1.00.a";
-			reg = < 0x75c00000 0x1000 >;
-			clock-frequency = <12288000>;
-		};
-
 		axi_vdma_0: axivdma@43000000 {
+			compatible = "xlnx,axi-vdma";
 			#address-cells = <1>;
 			#size-cells = <1>;
 			#dma-cells = <1>;
-			compatible = "xlnx,axi-vdma";
+			#dma-channels = <1>;
 			reg = <0x43000000 0x1000>;
 			xlnx,include-sg = <0x0>;
 			xlnx,num-fstores = <0x3>;
@@ -82,7 +62,7 @@
 		fpga_clock: fpga_clock {
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
-			clock-frequency  = <200000000>;
+			clock-frequency = <200000000>;
 		};
 
 		hdmi_clock: axi-clkgen@66000000 {
@@ -96,89 +76,94 @@
 			compatible = "adi,axi-hdmi-1.00.a";
 			reg = <0x6c000000 0x10000>;
 			encoder-slave = <&adv7511>;
-			dma-request = <&axi_vdma_0 0>;
+			dmas = <&axi_vdma_0 0>;
+			dma-names = "video";
 			clocks = <&hdmi_clock>;
-		};
-
-		xilinx_pcm_audio: xilinx_pcm_audio {
-			compatible = "xilinx-pcm-audio";
-			#size-cells = <0>;
-			#address-cells = <1>;
-			stream@0 {
-				reg = <0>;
-				dma-request = <&axi_dma_0 0>;
-			};
-		};
-
-		adv7511_hdmi_snd: adv7511_hdmi_snd {
-			compatible = "adv7511-hdmi-snd";
-			audio-codec-adapter = <&axi_iic_0>;
-			cpu-dai = <&axi_spdif_tx_0>;
-			pcm = <&xilinx_pcm_audio>;
-		};
-
-		axi_dma_i2s: axidma@40410000 {
-			#address-cells = <1>;
-			#size-cells = <1>;
-			#dma-cells = <1>;
-			compatible = "xlnx,axi-dma";
-			reg = < 0x40410000 0x1000 >;
-			xlnx,sg-include-stscntrl-strm = <0x0>;
-			dma-channel@40410000 {
-				compatible = "xlnx,axi-dma-mm2s-channel";
-				interrupts = < 0 54 0x4 >;
-				xlnx,datawidth = <0x20>;
-				xlnx,include-dre = <0x0>;
-			};
-			dma-channel@40410030 {
-				compatible = "xlnx,axi-dma-s2mm-channel";
-				interrupts = < 0 55 0x4 >;
-				xlnx,datawidth = <0x20>;
-				xlnx,include-dre = <0x0>;
-			};
 		};
 
 		audio_clock: audio_clock {
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
-			clock-frequency  = <12288000>;
+			clock-frequency = <12288000>;
+		};
+
+		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
+			compatible = "adi,axi-spdif-tx-1.00.a";
+			reg = < 0x75c00000 0x1000 >;
+			dmas = <&ps7_dma 0>;
+			dma-names = "tx";
+			clocks = <&fpga_clock &audio_clock>;
+			clock-names = "axi", "spdif";
+		};
+
+		adv7511_hdmi_snd: adv7511_hdmi_snd {
+			compatible = "adv7511-hdmi-snd";
+			audio-codec = <&adv7511>;
+			cpu-dai = <&axi_spdif_tx_0>;
 		};
 
 		axi_i2s_0: axi-i2s@0x77600000 {
 			compatible = "adi,axi-i2s-1.00.a";
-			reg = < 0x77600000 0x1000 >;
-			clocks = <&audio_clock>;
+			reg = <0x77600000 0x1000>;
+			dmas = <&ps7_dma 1 &ps7_dma 2>;
+			dma-names = "tx", "rx";
+			clocks = <&fpga_clock &audio_clock>;
+			clock-names = "axi", "i2s";
 		};
 
-		xilinx_pcm_audio_i2s: xilinx_pcm_audio_i2s {
-			compatible = "xilinx-pcm-audio";
-			#size-cells = <0>;
-			#address-cells = <1>;
-
-			stream@0 {
-				reg = <0>;
-				dma-request = <&axi_dma_i2s 0>;
-			};
-			stream@1 {
-				reg = <1>;
-				dma-request = <&axi_dma_i2s 1>;
-			};
-		};
-
-		zed_adau1761_snd: zed_adau1761_snd {
-			compatible = "zed-adau1761-snd";
+		zed_sound {
+			compatible = "digilent,zed-sound";
 			audio-codec = <&adau1761>;
 			cpu-dai = <&axi_i2s_0>;
-			pcm = <&xilinx_pcm_audio_i2s>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		ld0 {
+			label = "ld0:red";
+			gpios = <&gpio 73 0>;
 		};
 
-		leds {
-			compatible = "gpio-leds";
-			ld9 {
-				label = "ld9";
-				gpios = <&gpio 7 0>;
-				linux,default-trigger = "heartbeat";
-			};
+		ld1 {
+			label = "ld1:red";
+			gpios = <&gpio 74 0>;
+		};
+
+		ld2 {
+			label = "ld2:red";
+			gpios = <&gpio 75 0>;
+		};
+
+		ld3 {
+			label = "ld3:red";
+			gpios = <&gpio 76 0>;
+		};
+
+		ld4 {
+			label = "ld4:red";
+			gpios = <&gpio 77 0>;
+		};
+
+		ld5 {
+			label = "ld5:red";
+			gpios = <&gpio 78 0>;
+		};
+
+		ld6 {
+			label = "ld6:red";
+			gpios = <&gpio 79 0>;
+		};
+
+		ld7 {
+			label = "ld7:red";
+			gpios = <&gpio 80 0>;
+		};
+
+		ld9 {
+			label = "ld9";
+			gpios = <&gpio 7 0>;
+			linux,default-trigger = "heartbeat";
 		};
 
 		gpio_keys {
@@ -204,37 +189,36 @@
 			btnd {
 				label = "BTND";
 				linux,code = <80>; // DOWN 2
-				gpios = <&gpio 61 0>;
+				gpios = <&gpio 55 0>;
 			};
 			btnl {
 				label = "BTNL";
 				linux,code = <75>; // LEFT 4
-				gpios = <&gpio 62 0>;
+				gpios = <&gpio 56 0>;
 			};
 			btnr {
 				label = "BTNR";
 				linux,code = <77>; // RT ARROW 6
-				gpios = <&gpio 63 0>;
+				gpios = <&gpio 57 0>;
 			};
 			btnu {
 				label = "BTNU";
 				linux,code = <72>; // UP 8
-				gpios = <&gpio 64 0>;
+				gpios = <&gpio 58 0>;
 			};
 		};
 
 		zed_oled {
 			compatible = "dglnt,pmodoled-gpio";
 			/* GPIO Pins */
-			vbat-gpio = <&gpio 55 0>;
-			vdd-gpio = <&gpio 56 0>;
-			res-gpio = <&gpio 57 0>;
-			dc-gpio = <&gpio 58 0>;
+			vbat-gpio = <&gpio 63 0>;
+			vdd-gpio = <&gpio 64 0>;
+			res-gpio = <&gpio 60 0>;
+			dc-gpio = <&gpio 59 0>;
 			/* SPI-GPIOs */
 			spi-bus-num = <2>;
-			spi-sclk-gpio = <&gpio 59 0>;
-			spi-sdin-gpio = <&gpio 60 0>;
+			spi-sclk-gpio = <&gpio 61 0>;
+			spi-sdin-gpio = <&gpio 62 0>;
 		};
-
 	};
 };

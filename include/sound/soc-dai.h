@@ -18,6 +18,7 @@
 
 struct snd_pcm_substream;
 struct snd_soc_dapm_widget;
+struct snd_compr_stream;
 
 /*
  * DAI hardware audio formats.
@@ -45,7 +46,7 @@ struct snd_soc_dapm_widget;
  * sending or receiving PCM data in a frame. This can be used to save power.
  */
 #define SND_SOC_DAIFMT_CONT		(1 << 4) /* continuous clock */
-#define SND_SOC_DAIFMT_GATED		(2 << 4) /* clock is gated */
+#define SND_SOC_DAIFMT_GATED		(0 << 4) /* clock is gated */
 
 /*
  * DAI hardware signal inversions.
@@ -53,7 +54,7 @@ struct snd_soc_dapm_widget;
  * Specifies whether the DAI can also support inverted clocks for the specified
  * format.
  */
-#define SND_SOC_DAIFMT_NB_NF		(1 << 8) /* normal bit clock + frame */
+#define SND_SOC_DAIFMT_NB_NF		(0 << 8) /* normal bit clock + frame */
 #define SND_SOC_DAIFMT_NB_IF		(2 << 8) /* normal BCLK + inv FRM */
 #define SND_SOC_DAIFMT_IB_NF		(3 << 8) /* invert BCLK + nor FRM */
 #define SND_SOC_DAIFMT_IB_IF		(4 << 8) /* invert BCLK + FRM */
@@ -126,7 +127,8 @@ int snd_soc_dai_set_channel_map(struct snd_soc_dai *dai,
 int snd_soc_dai_set_tristate(struct snd_soc_dai *dai, int tristate);
 
 /* Digital Audio Interface mute */
-int snd_soc_dai_digital_mute(struct snd_soc_dai *dai, int mute);
+int snd_soc_dai_digital_mute(struct snd_soc_dai *dai, int mute,
+			     int direction);
 
 struct snd_soc_dai_ops {
 	/*
@@ -157,6 +159,7 @@ struct snd_soc_dai_ops {
 	 * Called by soc-core to minimise any pops.
 	 */
 	int (*digital_mute)(struct snd_soc_dai *dai, int mute);
+	int (*mute_stream)(struct snd_soc_dai *dai, int mute, int stream);
 
 	/*
 	 * ALSA PCM audio operations - all optional.
@@ -206,6 +209,8 @@ struct snd_soc_dai_driver {
 	int (*remove)(struct snd_soc_dai *dai);
 	int (*suspend)(struct snd_soc_dai *dai);
 	int (*resume)(struct snd_soc_dai *dai);
+	/* compress dai */
+	bool compress_dai;
 
 	/* ops */
 	const struct snd_soc_dai_ops *ops;
@@ -240,7 +245,6 @@ struct snd_soc_dai {
 	unsigned int symmetric_rates:1;
 	struct snd_pcm_runtime *runtime;
 	unsigned int active;
-	unsigned char pop_wait:1;
 	unsigned char probed:1;
 
 	struct snd_soc_dapm_widget *playback_widget;

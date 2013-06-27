@@ -27,6 +27,8 @@
 
 struct lpfc_sli2_slim;
 
+#define ELX_MODEL_NAME_SIZE	80
+
 #define LPFC_PCI_DEV_LP		0x1
 #define LPFC_PCI_DEV_OC		0x2
 
@@ -72,6 +74,8 @@ struct lpfc_sli2_slim;
 
 #define LPFC_HB_MBOX_INTERVAL   5	/* Heart beat interval in seconds. */
 #define LPFC_HB_MBOX_TIMEOUT    30	/* Heart beat timeout  in seconds. */
+
+#define LPFC_LOOK_AHEAD_OFF	0	/* Look ahead logic is turned off */
 
 /* Error Attention event polling interval */
 #define LPFC_ERATT_POLL_INTERVAL	5 /* EATT poll interval in seconds */
@@ -462,11 +466,13 @@ enum intr_type_t {
 	MSIX,
 };
 
+#define LPFC_CT_CTX_MAX		64
 struct unsol_rcv_ct_ctx {
 	uint32_t ctxt_id;
 	uint32_t SID;
-	uint32_t flags;
-#define UNSOL_VALID	0x00000001
+	uint32_t valid;
+#define UNSOL_INVALID		0
+#define UNSOL_VALID		1
 	uint16_t oxid;
 	uint16_t rxid;
 };
@@ -684,6 +690,8 @@ struct lpfc_hba {
 #define LPFC_FCF_FOV 1		/* Fast fcf failover */
 #define LPFC_FCF_PRIORITY 2	/* Priority fcf failover */
 	uint32_t cfg_fcf_failover_policy;
+	uint32_t cfg_fcp_io_sched;
+	uint32_t cfg_fcp2_no_tgt_reset;
 	uint32_t cfg_cr_delay;
 	uint32_t cfg_cr_count;
 	uint32_t cfg_multi_ring_support;
@@ -695,6 +703,7 @@ struct lpfc_hba {
 	uint32_t cfg_fcp_imax;
 	uint32_t cfg_fcp_wq_count;
 	uint32_t cfg_fcp_eq_count;
+	uint32_t cfg_fcp_io_channel;
 	uint32_t cfg_sg_seg_cnt;
 	uint32_t cfg_prot_sg_seg_cnt;
 	uint32_t cfg_sg_dma_buf_size;
@@ -708,6 +717,7 @@ struct lpfc_hba {
 	uint32_t cfg_log_verbose;
 	uint32_t cfg_aer_support;
 	uint32_t cfg_sriov_nr_virtfn;
+	uint32_t cfg_request_firmware_upgrade;
 	uint32_t cfg_iocb_cnt;
 	uint32_t cfg_suppress_link_up;
 #define LPFC_INITIALIZE_LINK              0	/* do normal init_link mbox */
@@ -732,7 +742,7 @@ struct lpfc_hba {
 	uint32_t hbq_count;	        /* Count of configured HBQs */
 	struct hbq_s hbqs[LPFC_MAX_HBQS]; /* local copy of hbq indicies  */
 
-	uint32_t fcp_qidx;		/* next work queue to post work to */
+	atomic_t fcp_qidx;		/* next work queue to post work to */
 
 	unsigned long pci_bar0_map;     /* Physical address for PCI BAR0 */
 	unsigned long pci_bar1_map;     /* Physical address for PCI BAR1 */
@@ -742,6 +752,15 @@ struct lpfc_hba {
 	void __iomem *ctrl_regs_memmap_p;/* Kernel memory mapped address for
 					    PCI BAR2 */
 
+	void __iomem *pci_bar0_memmap_p; /* Kernel memory mapped address for
+					    PCI BAR0 with dual-ULP support */
+	void __iomem *pci_bar2_memmap_p; /* Kernel memory mapped address for
+					    PCI BAR2 with dual-ULP support */
+	void __iomem *pci_bar4_memmap_p; /* Kernel memory mapped address for
+					    PCI BAR4 with dual-ULP support */
+#define PCI_64BIT_BAR0	0
+#define PCI_64BIT_BAR2	2
+#define PCI_64BIT_BAR4	4
 	void __iomem *MBslimaddr;	/* virtual address for mbox cmds */
 	void __iomem *HAregaddr;	/* virtual address for host attn reg */
 	void __iomem *CAregaddr;	/* virtual address for chip attn reg */
@@ -930,7 +949,7 @@ struct lpfc_hba {
 
 	spinlock_t ct_ev_lock; /* synchronize access to ct_ev_waiters */
 	struct list_head ct_ev_waiters;
-	struct unsol_rcv_ct_ctx ct_ctx[64];
+	struct unsol_rcv_ct_ctx ct_ctx[LPFC_CT_CTX_MAX];
 	uint32_t ctx_idx;
 
 	uint8_t menlo_flag;	/* menlo generic flags */

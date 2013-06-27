@@ -3,7 +3,7 @@
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
  *
- * Copyright (C) 2004, 2005, 2006, 2008  Thiemo Seufer
+ * Copyright (C) 2004, 2005, 2006, 2008	 Thiemo Seufer
  * Copyright (C) 2005  Maciej W. Rozycki
  * Copyright (C) 2006  Ralf Baechle (ralf@linux-mips.org)
  * Copyright (C) 2012  MIPS Technologies, Inc.
@@ -90,6 +90,8 @@ Ip_u2u1u3(_dsrl);
 Ip_u2u1u3(_dsrl32);
 Ip_u3u1u2(_dsubu);
 Ip_0(_eret);
+Ip_u2u1msbu3(_ext);
+Ip_u2u1msbu3(_ins);
 Ip_u1(_j);
 Ip_u1(_jal);
 Ip_u1(_jr);

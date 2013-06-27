@@ -13,6 +13,7 @@
 #ifndef _IIO_TRIGGER_H_
 #define _IIO_TRIGGER_H_
 
+#ifdef CONFIG_IIO_TRIGGER
 struct iio_subirq {
 	bool enabled;
 };
@@ -30,7 +31,7 @@ struct iio_subirq {
  * instances of a given device.
  **/
 struct iio_trigger_ops {
-	struct module			*owner;
+	struct module *owner;
 	int (*set_trigger_state)(struct iio_trigger *trig, bool state);
 	int (*try_reenable)(struct iio_trigger *trig);
 	int (*validate_device)(struct iio_trigger *trig,
@@ -40,7 +41,7 @@ struct iio_trigger_ops {
 
 /**
  * struct iio_trigger - industrial I/O trigger device
- *
+ * @ops:		[DRIVER] operations structure
  * @id:			[INTERN] unique id number
  * @name:		[DRIVER] unique name
  * @dev:		[DRIVER] associated device (if relevant)
@@ -77,19 +78,19 @@ struct iio_trigger {
 static inline struct iio_trigger *to_iio_trigger(struct device *d)
 {
 	return container_of(d, struct iio_trigger, dev);
-};
+}
 
 static inline void iio_trigger_put(struct iio_trigger *trig)
 {
 	module_put(trig->ops->owner);
 	put_device(&trig->dev);
-};
+}
 
 static inline void iio_trigger_get(struct iio_trigger *trig)
 {
 	get_device(&trig->dev);
 	__module_get(trig->ops->owner);
-};
+}
 
 /**
  * iio_trigger_register() - register a trigger with the IIO core
@@ -105,7 +106,8 @@ void iio_trigger_unregister(struct iio_trigger *trig_info);
 
 /**
  * iio_trigger_poll() - called on a trigger occurring
- * @trig: trigger which occurred
+ * @trig:	trigger which occurred
+ * @time:	timestamp when trigger occurred
  *
  * Typically called in relevant hardware interrupt handler.
  **/
@@ -117,4 +119,8 @@ irqreturn_t iio_trigger_generic_data_rdy_poll(int irq, void *private);
 __printf(1, 2) struct iio_trigger *iio_trigger_alloc(const char *fmt, ...);
 void iio_trigger_free(struct iio_trigger *trig);
 
+#else
+struct iio_trigger;
+struct iio_trigger_ops;
+#endif
 #endif /* _IIO_TRIGGER_H_ */

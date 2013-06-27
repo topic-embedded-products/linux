@@ -66,6 +66,7 @@
 #define WLCORE_NUM_BANDS           2
 
 #define WL12XX_MAX_RATE_POLICIES 16
+#define WLCORE_MAX_KLV_TEMPLATES 4
 
 /* Defined by FW as 0. Will not be freed or allocated. */
 #define WL12XX_SYSTEM_HLID         0
@@ -83,11 +84,10 @@
 #define WL1271_AP_BSS_INDEX        0
 #define WL1271_AP_DEF_BEACON_EXP   20
 
-#define WL1271_AGGR_BUFFER_SIZE (5 * PAGE_SIZE)
-
-enum wl1271_state {
-	WL1271_STATE_OFF,
-	WL1271_STATE_ON,
+enum wlcore_state {
+	WLCORE_STATE_OFF,
+	WLCORE_STATE_RESTARTING,
+	WLCORE_STATE_ON,
 };
 
 enum wl12xx_fw_type {
@@ -109,21 +109,11 @@ enum {
 	NUM_FW_VER
 };
 
-#define FW_VER_CHIP_WL127X 6
-#define FW_VER_CHIP_WL128X 7
-
-#define FW_VER_IF_TYPE_STA 1
-#define FW_VER_IF_TYPE_AP  2
-
-#define FW_VER_MINOR_1_SPARE_STA_MIN 58
-#define FW_VER_MINOR_1_SPARE_AP_MIN  47
-
-#define FW_VER_MINOR_FWLOG_STA_MIN 70
-
 struct wl1271_chip {
 	u32 id;
-	char fw_ver_str[ETHTOOL_BUSINFO_LEN];
+	char fw_ver_str[ETHTOOL_FWVERS_LEN];
 	unsigned int fw_ver[NUM_FW_VER];
+	char phy_fw_ver_str[ETHTOOL_FWVERS_LEN];
 };
 
 #define NUM_TX_QUEUES              4
@@ -140,7 +130,10 @@ struct wl_fw_packet_counters {
 	/* Cumulative counter of released Voice memory blocks */
 	u8 tx_voice_released_blks;
 
-	u8 padding[3];
+	/* Tx rate of the last transmitted packet */
+	u8 tx_last_rate;
+
+	u8 padding[2];
 } __packed;
 
 /* FW status registers */
@@ -213,6 +206,11 @@ struct wl1271_if_operations {
 	void (*set_block_size) (struct device *child, unsigned int blksz);
 };
 
+struct wlcore_platdev_data {
+	struct wl12xx_platform_data *pdata;
+	struct wl1271_if_operations *if_ops;
+};
+
 #define MAX_NUM_KEYS 14
 #define MAX_KEY_SIZE 32
 
@@ -259,6 +257,8 @@ enum wl12xx_vif_flags {
 	WLVIF_FLAG_IN_USE,
 };
 
+struct wl12xx_vif;
+
 struct wl1271_link {
 	/* AP-mode - TX queue per AC in link */
 	struct sk_buff_head tx_queue[NUM_TX_QUEUES];
@@ -271,6 +271,9 @@ struct wl1271_link {
 
 	/* bitmap of TIDs where RX BA sessions are active for this link */
 	u8 ba_bitmap;
+
+	/* The wlvif this link belongs to. Might be null for global links */
+	struct wl12xx_vif *wlvif;
 };
 
 #define WL1271_MAX_RX_FILTERS 5
@@ -314,6 +317,7 @@ struct wl12xx_rx_filter {
 
 struct wl1271_station {
 	u8 hlid;
+	bool in_connection;
 };
 
 struct wl12xx_vif {
@@ -331,13 +335,16 @@ struct wl12xx_vif {
 	union {
 		struct {
 			u8 hlid;
-			u8 ba_rx_bitmap;
 
 			u8 basic_rate_idx;
 			u8 ap_rate_idx;
 			u8 p2p_rate_idx;
 
+			u8 klv_template_id;
+
 			bool qos;
+			/* channel type we started the STA role with */
+			enum nl80211_channel_type role_chan_type;
 		} sta;
 		struct {
 			u8 global_hlid;
@@ -358,6 +365,9 @@ struct wl12xx_vif {
 
 	/* the hlid of the last transmitted skb */
 	int last_tx_hlid;
+
+	/* counters of packets per AC, across all links in the vif */
+	int tx_queue_count[NUM_TX_QUEUES];
 
 	unsigned long links_map[BITS_TO_LONGS(WL12XX_MAX_LINKS)];
 
@@ -393,9 +403,6 @@ struct wl12xx_vif {
 	/* Our association ID */
 	u16 aid;
 
-	/* Session counter for the chipset */
-	int session_counter;
-
 	/* retry counter for PSM entries */
 	u8 psm_entry_retry;
 
@@ -413,10 +420,27 @@ struct wl12xx_vif {
 	bool ba_support;
 	bool ba_allowed;
 
+	bool wmm_enabled;
+
 	/* Rx Streaming */
 	struct work_struct rx_streaming_enable_work;
 	struct work_struct rx_streaming_disable_work;
 	struct timer_list rx_streaming_timer;
+
+	struct delayed_work channel_switch_work;
+	struct delayed_work connection_loss_work;
+
+	/* number of in connection stations */
+	int inconn_count;
+
+	/*
+	 * This vif's queues are mapped to mac80211 HW queues as:
+	 * VO - hw_queue_base
+	 * VI - hw_queue_base + 1
+	 * BE - hw_queue_base + 2
+	 * BK - hw_queue_base + 3
+	 */
+	int hw_queue_base;
 
 	/*
 	 * This struct must be last!
@@ -440,6 +464,7 @@ struct wl12xx_vif {
 
 static inline struct wl12xx_vif *wl12xx_vif_to_data(struct ieee80211_vif *vif)
 {
+	WARN_ON(!vif);
 	return (struct wl12xx_vif *)vif->drv_priv;
 }
 

@@ -156,7 +156,7 @@ linux_gateway_entry:
 	STREG	%r26, TASK_PT_GR26(%r1)	 	/* 1st argument */
 	STREG	%r27, TASK_PT_GR27(%r1)		/* user dp */
 	STREG   %r28, TASK_PT_GR28(%r1)         /* return value 0 */
-	STREG   %r28, TASK_PT_ORIG_R28(%r1)     /* return value 0 (saved for signals) */
+	STREG   %r0, TASK_PT_ORIG_R28(%r1)      /* don't prohibit restarts */
 	STREG	%r29, TASK_PT_GR29(%r1)		/* return value 1 */
 	STREG	%r31, TASK_PT_GR31(%r1)		/* preserve syscall return ptr */
 	
@@ -180,9 +180,10 @@ linux_gateway_entry:
 
 	/* Are we being ptraced? */
 	mfctl	%cr30, %r1
-	LDREG	TI_TASK(%r1),%r1
-	ldw	TASK_PTRACE(%r1), %r1
-	bb,<,n	%r1,31,.Ltracesys
+	LDREG	TI_FLAGS(%r1),%r1
+	ldi	_TIF_SYSCALL_TRACE_MASK, %r19
+	and,COND(=) %r1, %r19, %r0
+	b,n	.Ltracesys
 	
 	/* Note!  We cannot use the syscall table that is mapped
 	nearby since the gateway page is mapped execute-only. */
@@ -308,10 +309,13 @@ tracesys_next:
 	LDREG   TASK_PT_GR25(%r1), %r25
 	LDREG   TASK_PT_GR24(%r1), %r24
 	LDREG   TASK_PT_GR23(%r1), %r23
-#ifdef CONFIG_64BIT
 	LDREG   TASK_PT_GR22(%r1), %r22
 	LDREG   TASK_PT_GR21(%r1), %r21
+#ifdef CONFIG_64BIT
 	ldo	-16(%r30),%r29			/* Reference param save area */
+#else
+	stw     %r22, -52(%r30)                 /* 5th argument */
+	stw     %r21, -56(%r30)                 /* 6th argument */
 #endif
 
 	comiclr,>>=	__NR_Linux_syscalls, %r20, %r0

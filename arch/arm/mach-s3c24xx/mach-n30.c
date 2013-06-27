@@ -33,7 +33,7 @@
 #include <asm/mach-types.h>
 
 #include <mach/fb.h>
-#include <mach/leds-gpio.h>
+#include <linux/platform_data/leds-s3c24xx.h>
 #include <mach/regs-gpio.h>
 #include <mach/regs-lcd.h>
 
@@ -41,15 +41,15 @@
 #include <asm/mach/irq.h>
 #include <asm/mach/map.h>
 
-#include <plat/iic.h>
+#include <linux/platform_data/i2c-s3c2410.h>
 #include <plat/regs-serial.h>
 
 #include <plat/clock.h>
 #include <plat/cpu.h>
 #include <plat/devs.h>
-#include <plat/mci.h>
+#include <linux/platform_data/mmc-s3cmci.h>
 #include <plat/s3c2410.h>
-#include <plat/udc.h>
+#include <linux/platform_data/usb-s3c2410_udc.h>
 
 #include "common.h"
 
@@ -589,7 +589,7 @@ MACHINE_START(N30, "Acer-N30")
 				Ben Dooks <ben-linux@fluff.org>
 	*/
 	.atag_offset	= 0x100,
-	.timer		= &s3c24xx_timer,
+	.init_time	= s3c24xx_timer_init,
 	.init_machine	= n30_init,
 	.init_irq	= s3c24xx_init_irq,
 	.map_io		= n30_map_io,
@@ -600,7 +600,7 @@ MACHINE_START(N35, "Acer-N35")
 	/* Maintainer: Christer Weinigel <christer@weinigel.se>
 	*/
 	.atag_offset	= 0x100,
-	.timer		= &s3c24xx_timer,
+	.init_time	= s3c24xx_timer_init,
 	.init_machine	= n30_init,
 	.init_irq	= s3c24xx_init_irq,
 	.map_io		= n30_map_io,

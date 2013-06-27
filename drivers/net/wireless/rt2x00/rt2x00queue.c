@@ -87,24 +87,35 @@ struct sk_buff *rt2x00queue_alloc_rxskb(struct queue_entry *entry, gfp_t gfp)
 	skbdesc->entry = entry;
 
 	if (test_bit(REQUIRE_DMA, &rt2x00dev->cap_flags)) {
-		skbdesc->skb_dma = dma_map_single(rt2x00dev->dev,
-						  skb->data,
-						  skb->len,
-						  DMA_FROM_DEVICE);
+		dma_addr_t skb_dma;
+
+		skb_dma = dma_map_single(rt2x00dev->dev, skb->data, skb->len,
+					 DMA_FROM_DEVICE);
+		if (unlikely(dma_mapping_error(rt2x00dev->dev, skb_dma))) {
+			dev_kfree_skb_any(skb);
+			return NULL;
+		}
+
+		skbdesc->skb_dma = skb_dma;
 		skbdesc->flags |= SKBDESC_DMA_MAPPED_RX;
 	}
 
 	return skb;
 }
 
-void rt2x00queue_map_txskb(struct queue_entry *entry)
+int rt2x00queue_map_txskb(struct queue_entry *entry)
 {
 	struct device *dev = entry->queue->rt2x00dev->dev;
 	struct skb_frame_desc *skbdesc = get_skb_frame_desc(entry->skb);
 
 	skbdesc->skb_dma =
 	    dma_map_single(dev, entry->skb->data, entry->skb->len, DMA_TO_DEVICE);
+
+	if (unlikely(dma_mapping_error(dev, skbdesc->skb_dma)))
+		return -ENOMEM;
+
 	skbdesc->flags |= SKBDESC_DMA_MAPPED_TX;
+	return 0;
 }
 EXPORT_SYMBOL_GPL(rt2x00queue_map_txskb);
 
@@ -315,6 +326,7 @@ static void rt2x00queue_create_tx_descriptor_plcp(struct rt2x00_dev *rt2x00dev,
 static void rt2x00queue_create_tx_descriptor_ht(struct rt2x00_dev *rt2x00dev,
 						struct sk_buff *skb,
 						struct txentry_desc *txdesc,
+						struct ieee80211_sta *sta,
 						const struct rt2x00_rate *hwrate)
 {
 	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
@@ -322,11 +334,11 @@ static void rt2x00queue_create_tx_descriptor_ht(struct rt2x00_dev *rt2x00dev,
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct rt2x00_sta *sta_priv = NULL;
 
-	if (tx_info->control.sta) {
+	if (sta) {
 		txdesc->u.ht.mpdu_density =
-		    tx_info->control.sta->ht_cap.ampdu_density;
+		    sta->ht_cap.ampdu_density;
 
-		sta_priv = sta_to_rt2x00_sta(tx_info->control.sta);
+		sta_priv = sta_to_rt2x00_sta(sta);
 		txdesc->u.ht.wcid = sta_priv->wcid;
 	}
 
@@ -341,11 +353,8 @@ static void rt2x00queue_create_tx_descriptor_ht(struct rt2x00_dev *rt2x00dev,
 		 * MIMO PS should be set to 1 for STA's using dynamic SM PS
 		 * when using more then one tx stream (>MCS7).
 		 */
-		if (tx_info->control.sta && txdesc->u.ht.mcs > 7 &&
-		    ((tx_info->control.sta->ht_cap.cap &
-		      IEEE80211_HT_CAP_SM_PS) >>
-		     IEEE80211_HT_CAP_SM_PS_SHIFT) ==
-		    WLAN_HT_CAP_SM_PS_DYNAMIC)
+		if (sta && txdesc->u.ht.mcs > 7 &&
+		    sta->smps_mode == IEEE80211_SMPS_DYNAMIC)
 			__set_bit(ENTRY_TXD_HT_MIMO_PS, &txdesc->flags);
 	} else {
 		txdesc->u.ht.mcs = rt2x00_get_rate_mcs(hwrate->mcs);
@@ -409,7 +418,8 @@ static void rt2x00queue_create_tx_descriptor_ht(struct rt2x00_dev *rt2x00dev,
 
 static void rt2x00queue_create_tx_descriptor(struct rt2x00_dev *rt2x00dev,
 					     struct sk_buff *skb,
-					     struct txentry_desc *txdesc)
+					     struct txentry_desc *txdesc,
+					     struct ieee80211_sta *sta)
 {
 	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
@@ -503,7 +513,7 @@ static void rt2x00queue_create_tx_descriptor(struct rt2x00_dev *rt2x00dev,
 
 	if (test_bit(REQUIRE_HT_TX_DESC, &rt2x00dev->cap_flags))
 		rt2x00queue_create_tx_descriptor_ht(rt2x00dev, skb, txdesc,
-						    hwrate);
+						   sta, hwrate);
 	else
 		rt2x00queue_create_tx_descriptor_plcp(rt2x00dev, skb, txdesc,
 						      hwrate);
@@ -543,8 +553,9 @@ static int rt2x00queue_write_tx_data(struct queue_entry *entry,
 	/*
 	 * Map the skb to DMA.
 	 */
-	if (test_bit(REQUIRE_DMA, &rt2x00dev->cap_flags))
-		rt2x00queue_map_txskb(entry);
+	if (test_bit(REQUIRE_DMA, &rt2x00dev->cap_flags) &&
+	    rt2x00queue_map_txskb(entry))
+		return -ENOMEM;
 
 	return 0;
 }
@@ -580,6 +591,48 @@ static void rt2x00queue_kick_tx_queue(struct data_queue *queue,
 		queue->rt2x00dev->ops->lib->kick_queue(queue);
 }
 
+static void rt2x00queue_bar_check(struct queue_entry *entry)
+{
+	struct rt2x00_dev *rt2x00dev = entry->queue->rt2x00dev;
+	struct ieee80211_bar *bar = (void *) (entry->skb->data +
+				    rt2x00dev->ops->extra_tx_headroom);
+	struct rt2x00_bar_list_entry *bar_entry;
+
+	if (likely(!ieee80211_is_back_req(bar->frame_control)))
+		return;
+
+	bar_entry = kmalloc(sizeof(*bar_entry), GFP_ATOMIC);
+
+	/*
+	 * If the alloc fails we still send the BAR out but just don't track
+	 * it in our bar list. And as a result we will report it to mac80211
+	 * back as failed.
+	 */
+	if (!bar_entry)
+		return;
+
+	bar_entry->entry = entry;
+	bar_entry->block_acked = 0;
+
+	/*
+	 * Copy the relevant parts of the 802.11 BAR into out check list
+	 * such that we can use RCU for less-overhead in the RX path since
+	 * sending BARs and processing the according BlockAck should be
+	 * the exception.
+	 */
+	memcpy(bar_entry->ra, bar->ra, sizeof(bar->ra));
+	memcpy(bar_entry->ta, bar->ta, sizeof(bar->ta));
+	bar_entry->control = bar->control;
+	bar_entry->start_seq_num = bar->start_seq_num;
+
+	/*
+	 * Insert BAR into our BAR check list.
+	 */
+	spin_lock_bh(&rt2x00dev->bar_list_lock);
+	list_add_tail_rcu(&bar_entry->list, &rt2x00dev->bar_list);
+	spin_unlock_bh(&rt2x00dev->bar_list_lock);
+}
+
 int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 			       bool local)
 {
@@ -595,7 +648,7 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 	 * after that we are free to use the skb->cb array
 	 * for our information.
 	 */
-	rt2x00queue_create_tx_descriptor(queue->rt2x00dev, skb, &txdesc);
+	rt2x00queue_create_tx_descriptor(queue->rt2x00dev, skb, &txdesc, NULL);
 
 	/*
 	 * All information is retrieved from the skb->cb array,
@@ -678,6 +731,11 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 		goto out;
 	}
 
+	/*
+	 * Put BlockAckReqs into our check list for driver BA processing.
+	 */
+	rt2x00queue_bar_check(entry);
+
 	set_bit(ENTRY_DATA_PENDING, &entry->flags);
 
 	rt2x00queue_index_inc(entry, Q_INDEX);
@@ -740,7 +798,7 @@ int rt2x00queue_update_beacon_locked(struct rt2x00_dev *rt2x00dev,
 	 * after that we are free to use the skb->cb array
 	 * for our information.
 	 */
-	rt2x00queue_create_tx_descriptor(rt2x00dev, intf->beacon->skb, &txdesc);
+	rt2x00queue_create_tx_descriptor(rt2x00dev, intf->beacon->skb, &txdesc, NULL);
 
 	/*
 	 * Fill in skb descriptor

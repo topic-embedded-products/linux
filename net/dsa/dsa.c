@@ -80,6 +80,7 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 	int ret;
 	char *name;
 	int i;
+	bool valid_name_found = false;
 
 	/*
 	 * Probe for switch model.
@@ -131,8 +132,13 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 		} else {
 			ds->phys_port_mask |= 1 << i;
 		}
+		valid_name_found = true;
 	}
 
+	if (!valid_name_found && i == DSA_MAX_PORTS) {
+		ret = -EINVAL;
+		goto out;
+	}
 
 	/*
 	 * If the CPU connects to this switch, set the switch tree
@@ -370,7 +376,7 @@ static int dsa_remove(struct platform_device *pdev)
 	if (dst->link_poll_needed)
 		del_timer_sync(&dst->link_poll_timer);
 
-	flush_work_sync(&dst->link_poll_work);
+	flush_work(&dst->link_poll_work);
 
 	for (i = 0; i < dst->pd->nr_chips; i++) {
 		struct dsa_switch *ds = dst->ds[i];

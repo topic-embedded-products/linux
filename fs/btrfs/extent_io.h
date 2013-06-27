@@ -27,6 +27,7 @@
  * type for this bio
  */
 #define EXTENT_BIO_COMPRESSED 1
+#define EXTENT_BIO_TREE_LOG 2
 #define EXTENT_BIO_FLAG_SHIFT 16
 
 /* these are bit numbers for test/set bit */
@@ -71,10 +72,9 @@ struct extent_io_ops {
 	int (*writepage_start_hook)(struct page *page, u64 start, u64 end);
 	int (*writepage_io_hook)(struct page *page, u64 start, u64 end);
 	extent_submit_bio_hook_t *submit_bio_hook;
-	int (*merge_bio_hook)(struct page *page, unsigned long offset,
+	int (*merge_bio_hook)(int rw, struct page *page, unsigned long offset,
 			      size_t size, struct bio *bio,
 			      unsigned long bio_flags);
-	int (*readpage_io_hook)(struct page *page, u64 start, u64 end);
 	int (*readpage_io_failed_hook)(struct page *page, int failed_mirror);
 	int (*readpage_end_io_hook)(struct page *page, u64 start, u64 end,
 				    struct extent_state *state, int mirror);
@@ -89,8 +89,6 @@ struct extent_io_ops {
 				  struct extent_state *other);
 	void (*split_extent_hook)(struct inode *inode,
 				  struct extent_state *orig, u64 split);
-	int (*write_cache_pages_lock_hook)(struct page *page, void *data,
-					   void (*flush_fn)(void *));
 };
 
 struct extent_io_tree {
@@ -160,8 +158,7 @@ struct extent_buffer {
 	 */
 	wait_queue_head_t read_lock_wq;
 	wait_queue_head_t lock_wq;
-	struct page *inline_pages[INLINE_EXTENT_BUFFER_PAGES];
-	struct page **pages;
+	struct page *pages[INLINE_EXTENT_BUFFER_PAGES];
 };
 
 static inline void extent_set_compress_type(unsigned long *bio_flags,
@@ -232,11 +229,15 @@ int set_extent_dirty(struct extent_io_tree *tree, u64 start, u64 end,
 int clear_extent_dirty(struct extent_io_tree *tree, u64 start, u64 end,
 		       gfp_t mask);
 int convert_extent_bit(struct extent_io_tree *tree, u64 start, u64 end,
-		       int bits, int clear_bits, gfp_t mask);
+		       int bits, int clear_bits,
+		       struct extent_state **cached_state, gfp_t mask);
 int set_extent_delalloc(struct extent_io_tree *tree, u64 start, u64 end,
 			struct extent_state **cached_state, gfp_t mask);
+int set_extent_defrag(struct extent_io_tree *tree, u64 start, u64 end,
+		      struct extent_state **cached_state, gfp_t mask);
 int find_first_extent_bit(struct extent_io_tree *tree, u64 start,
-			  u64 *start_ret, u64 *end_ret, int bits);
+			  u64 *start_ret, u64 *end_ret, int bits,
+			  struct extent_state **cached_state);
 struct extent_state *find_first_extent_bit_state(struct extent_io_tree *tree,
 						 u64 start, int bits);
 int extent_invalidatepage(struct extent_io_tree *tree,
@@ -277,8 +278,18 @@ void free_extent_buffer_stale(struct extent_buffer *eb);
 int read_extent_buffer_pages(struct extent_io_tree *tree,
 			     struct extent_buffer *eb, u64 start, int wait,
 			     get_extent_t *get_extent, int mirror_num);
-unsigned long num_extent_pages(u64 start, u64 len);
-struct page *extent_buffer_page(struct extent_buffer *eb, unsigned long i);
+
+static inline unsigned long num_extent_pages(u64 start, u64 len)
+{
+	return ((start + len + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT) -
+		(start >> PAGE_CACHE_SHIFT);
+}
+
+static inline struct page *extent_buffer_page(struct extent_buffer *eb,
+					      unsigned long i)
+{
+	return eb->pages[i];
+}
 
 static inline void extent_buffer_get(struct extent_buffer *eb)
 {
@@ -314,6 +325,8 @@ int map_private_extent_buffer(struct extent_buffer *eb, unsigned long offset,
 		      unsigned long *map_len);
 int extent_range_uptodate(struct extent_io_tree *tree,
 			  u64 start, u64 end);
+int extent_range_clear_dirty_for_io(struct inode *inode, u64 start, u64 end);
+int extent_range_redirty_for_io(struct inode *inode, u64 start, u64 end);
 int extent_clear_unlock_delalloc(struct inode *inode,
 				struct extent_io_tree *tree,
 				u64 start, u64 end, struct page *locked_page,
@@ -322,9 +335,9 @@ struct bio *
 btrfs_bio_alloc(struct block_device *bdev, u64 first_sector, int nr_vecs,
 		gfp_t gfp_flags);
 
-struct btrfs_mapping_tree;
+struct btrfs_fs_info;
 
-int repair_io_failure(struct btrfs_mapping_tree *map_tree, u64 start,
+int repair_io_failure(struct btrfs_fs_info *fs_info, u64 start,
 			u64 length, u64 logical, struct page *page,
 			int mirror_num);
 int end_extent_writepage(struct page *page, int err, u64 start, u64 end);

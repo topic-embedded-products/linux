@@ -100,12 +100,15 @@ static int snd_compr_open(struct inode *inode, struct file *f)
 
 	if (dirn != compr->direction) {
 		pr_err("this device doesn't support this direction\n");
+		snd_card_unref(compr->card);
 		return -EINVAL;
 	}
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
-	if (!data)
+	if (!data) {
+		snd_card_unref(compr->card);
 		return -ENOMEM;
+	}
 	data->stream.ops = compr->ops;
 	data->stream.direction = dirn;
 	data->stream.private_data = compr->private_data;
@@ -113,6 +116,7 @@ static int snd_compr_open(struct inode *inode, struct file *f)
 	runtime = kzalloc(sizeof(*runtime), GFP_KERNEL);
 	if (!runtime) {
 		kfree(data);
+		snd_card_unref(compr->card);
 		return -ENOMEM;
 	}
 	runtime->state = SNDRV_PCM_STATE_OPEN;
@@ -126,7 +130,8 @@ static int snd_compr_open(struct inode *inode, struct file *f)
 		kfree(runtime);
 		kfree(data);
 	}
-	return ret;
+	snd_card_unref(compr->card);
+	return 0;
 }
 
 static int snd_compr_free(struct inode *inode, struct file *f)
@@ -139,16 +144,17 @@ static int snd_compr_free(struct inode *inode, struct file *f)
 	return 0;
 }
 
-static void snd_compr_update_tstamp(struct snd_compr_stream *stream,
+static int snd_compr_update_tstamp(struct snd_compr_stream *stream,
 		struct snd_compr_tstamp *tstamp)
 {
 	if (!stream->ops->pointer)
-		return;
+		return -ENOTSUPP;
 	stream->ops->pointer(stream, tstamp);
 	pr_debug("dsp consumed till %d total %d bytes\n",
 		tstamp->byte_offset, tstamp->copied_total);
 	stream->runtime->hw_pointer = tstamp->byte_offset;
 	stream->runtime->total_bytes_transferred = tstamp->copied_total;
+	return 0;
 }
 
 static size_t snd_compr_calc_avail(struct snd_compr_stream *stream,
@@ -156,7 +162,9 @@ static size_t snd_compr_calc_avail(struct snd_compr_stream *stream,
 {
 	long avail_calc; /*this needs to be signed variable */
 
+	memset(avail, 0, sizeof(*avail));
 	snd_compr_update_tstamp(stream, &avail->tstamp);
+	/* Still need to return avail even if tstamp can't be filled in */
 
 	/* FIXME: This needs to be different for capture stream,
 	   available is # of compressed data, for playback it's
@@ -425,6 +433,26 @@ static int snd_compr_allocate_buffer(struct snd_compr_stream *stream,
 	return 0;
 }
 
+static int snd_compress_check_input(struct snd_compr_params *params)
+{
+	/* first let's check the buffer parameter's */
+	if (params->buffer.fragment_size == 0 ||
+			params->buffer.fragments > SIZE_MAX / params->buffer.fragment_size)
+		return -EINVAL;
+
+	/* now codec parameters */
+	if (params->codec.id == 0 || params->codec.id > SND_AUDIOCODEC_MAX)
+		return -EINVAL;
+
+	if (params->codec.ch_in == 0 || params->codec.ch_out == 0)
+		return -EINVAL;
+
+	if (!(params->codec.sample_rate & SNDRV_PCM_RATE_8000_192000))
+		return -EINVAL;
+
+	return 0;
+}
+
 static int
 snd_compr_set_params(struct snd_compr_stream *stream, unsigned long arg)
 {
@@ -443,15 +471,23 @@ snd_compr_set_params(struct snd_compr_stream *stream, unsigned long arg)
 			retval = -EFAULT;
 			goto out;
 		}
+
+		retval = snd_compress_check_input(params);
+		if (retval)
+			goto out;
+
 		retval = snd_compr_allocate_buffer(stream, params);
 		if (retval) {
 			retval = -ENOMEM;
 			goto out;
 		}
+
 		retval = stream->ops->set_params(stream, params);
 		if (retval)
 			goto out;
 		stream->runtime->state = SNDRV_PCM_STATE_SETUP;
+		stream->metadata_set = false;
+		stream->next_track = false;
 	} else {
 		return -EPERM;
 	}
@@ -483,14 +519,60 @@ out:
 	return retval;
 }
 
+static int
+snd_compr_get_metadata(struct snd_compr_stream *stream, unsigned long arg)
+{
+	struct snd_compr_metadata metadata;
+	int retval;
+
+	if (!stream->ops->get_metadata)
+		return -ENXIO;
+
+	if (copy_from_user(&metadata, (void __user *)arg, sizeof(metadata)))
+		return -EFAULT;
+
+	retval = stream->ops->get_metadata(stream, &metadata);
+	if (retval != 0)
+		return retval;
+
+	if (copy_to_user((void __user *)arg, &metadata, sizeof(metadata)))
+		return -EFAULT;
+
+	return 0;
+}
+
+static int
+snd_compr_set_metadata(struct snd_compr_stream *stream, unsigned long arg)
+{
+	struct snd_compr_metadata metadata;
+	int retval;
+
+	if (!stream->ops->set_metadata)
+		return -ENXIO;
+	/*
+	* we should allow parameter change only when stream has been
+	* opened not in other cases
+	*/
+	if (copy_from_user(&metadata, (void __user *)arg, sizeof(metadata)))
+		return -EFAULT;
+
+	retval = stream->ops->set_metadata(stream, &metadata);
+	stream->metadata_set = true;
+
+	return retval;
+}
+
 static inline int
 snd_compr_tstamp(struct snd_compr_stream *stream, unsigned long arg)
 {
-	struct snd_compr_tstamp tstamp;
+	struct snd_compr_tstamp tstamp = {0};
+	int ret;
 
-	snd_compr_update_tstamp(stream, &tstamp);
-	return copy_to_user((struct snd_compr_tstamp __user *)arg,
-		&tstamp, sizeof(tstamp)) ? -EFAULT : 0;
+	ret = snd_compr_update_tstamp(stream, &tstamp);
+	if (ret == 0)
+		ret = copy_to_user((struct snd_compr_tstamp __user *)arg,
+			&tstamp, sizeof(tstamp)) ? -EFAULT : 0;
+	return ret;
 }
 
 static int snd_compr_pause(struct snd_compr_stream *stream)
@@ -563,6 +645,44 @@ static int snd_compr_drain(struct snd_compr_stream *stream)
 	return retval;
 }
 
+static int snd_compr_next_track(struct snd_compr_stream *stream)
+{
+	int retval;
+
+	/* only a running stream can transition to next track */
+	if (stream->runtime->state != SNDRV_PCM_STATE_RUNNING)
+		return -EPERM;
+
+	/* you can signal next track isf this is intended to be a gapless stream
+	 * and current track metadata is set
+	 */
+	if (stream->metadata_set == false)
+		return -EPERM;
+
+	retval = stream->ops->trigger(stream, SND_COMPR_TRIGGER_NEXT_TRACK);
+	if (retval != 0)
+		return retval;
+	stream->metadata_set = false;
+	stream->next_track = true;
+	return 0;
+}
+
+static int snd_compr_partial_drain(struct snd_compr_stream *stream)
+{
+	int retval;
+	if (stream->runtime->state == SNDRV_PCM_STATE_PREPARED ||
+			stream->runtime->state == SNDRV_PCM_STATE_SETUP)
+		return -EPERM;
+	/* stream can be drained only when next track has been signalled */
+	if (stream->next_track == false)
+		return -EPERM;
+
+	retval = stream->ops->trigger(stream, SND_COMPR_TRIGGER_PARTIAL_DRAIN);
+
+	stream->next_track = false;
+	return retval;
+}
+
 static long snd_compr_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
 	struct snd_compr_file *data = f->private_data;
@@ -592,6 +712,12 @@ static long snd_compr_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	case _IOC_NR(SNDRV_COMPRESS_GET_PARAMS):
 		retval = snd_compr_get_params(stream, arg);
 		break;
+	case _IOC_NR(SNDRV_COMPRESS_SET_METADATA):
+		retval = snd_compr_set_metadata(stream, arg);
+		break;
+	case _IOC_NR(SNDRV_COMPRESS_GET_METADATA):
+		retval = snd_compr_get_metadata(stream, arg);
+		break;
 	case _IOC_NR(SNDRV_COMPRESS_TSTAMP):
 		retval = snd_compr_tstamp(stream, arg);
 		break;
@@ -613,6 +739,13 @@ static long snd_compr_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 	case _IOC_NR(SNDRV_COMPRESS_DRAIN):
 		retval = snd_compr_drain(stream);
 		break;
+	case _IOC_NR(SNDRV_COMPRESS_PARTIAL_DRAIN):
+		retval = snd_compr_partial_drain(stream);
+		break;
+	case _IOC_NR(SNDRV_COMPRESS_NEXT_TRACK):
+		retval = snd_compr_next_track(stream);
+		break;
+
 	}
 	mutex_unlock(&stream->device->lock);
 	return retval;

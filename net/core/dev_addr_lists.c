@@ -15,14 +15,13 @@
 #include <linux/rtnetlink.h>
 #include <linux/export.h>
 #include <linux/list.h>
-#include <linux/proc_fs.h>
 
 /*
  * General list handling functions
  */
 
 static int __hw_addr_create_ex(struct netdev_hw_addr_list *list,
-			       unsigned char *addr, int addr_len,
+			       const unsigned char *addr, int addr_len,
 			       unsigned char addr_type, bool global)
 {
 	struct netdev_hw_addr *ha;
@@ -38,7 +37,7 @@ static int __hw_addr_create_ex(struct netdev_hw_addr_list *list,
 	ha->type = addr_type;
 	ha->refcount = 1;
 	ha->global_use = global;
-	ha->synced = false;
+	ha->synced = 0;
 	list_add_tail_rcu(&ha->list, &list->list);
 	list->count++;
 
@@ -46,7 +45,7 @@ static int __hw_addr_create_ex(struct netdev_hw_addr_list *list,
 }
 
 static int __hw_addr_add_ex(struct netdev_hw_addr_list *list,
-			    unsigned char *addr, int addr_len,
+			    const unsigned char *addr, int addr_len,
 			    unsigned char addr_type, bool global)
 {
 	struct netdev_hw_addr *ha;
@@ -72,14 +71,15 @@ static int __hw_addr_add_ex(struct netdev_hw_addr_list *list,
 	return __hw_addr_create_ex(list, addr, addr_len, addr_type, global);
 }
 
-static int __hw_addr_add(struct netdev_hw_addr_list *list, unsigned char *addr,
-			 int addr_len, unsigned char addr_type)
+static int __hw_addr_add(struct netdev_hw_addr_list *list,
+			 const unsigned char *addr, int addr_len,
+			 unsigned char addr_type)
 {
 	return __hw_addr_add_ex(list, addr, addr_len, addr_type, false);
 }
 
 static int __hw_addr_del_ex(struct netdev_hw_addr_list *list,
-			    unsigned char *addr, int addr_len,
+			    const unsigned char *addr, int addr_len,
 			    unsigned char addr_type, bool global)
 {
 	struct netdev_hw_addr *ha;
@@ -104,8 +104,9 @@ static int __hw_addr_del_ex(struct netdev_hw_addr_list *list,
 	return -ENOENT;
 }
 
-static int __hw_addr_del(struct netdev_hw_addr_list *list, unsigned char *addr,
-			 int addr_len, unsigned char addr_type)
+static int __hw_addr_del(struct netdev_hw_addr_list *list,
+			 const unsigned char *addr, int addr_len,
+			 unsigned char addr_type)
 {
 	return __hw_addr_del_ex(list, addr, addr_len, addr_type, false);
 }
@@ -164,7 +165,7 @@ int __hw_addr_sync(struct netdev_hw_addr_list *to_list,
 					    addr_len, ha->type);
 			if (err)
 				break;
-			ha->synced = true;
+			ha->synced++;
 			ha->refcount++;
 		} else if (ha->refcount == 1) {
 			__hw_addr_del(to_list, ha->addr, addr_len, ha->type);
@@ -185,7 +186,7 @@ void __hw_addr_unsync(struct netdev_hw_addr_list *to_list,
 		if (ha->synced) {
 			__hw_addr_del(to_list, ha->addr,
 				      addr_len, ha->type);
-			ha->synced = false;
+			ha->synced--;
 			__hw_addr_del(from_list, ha->addr,
 				      addr_len, ha->type);
 		}
@@ -278,7 +279,7 @@ EXPORT_SYMBOL(dev_addr_init);
  *
  *	The caller must hold the rtnl_mutex.
  */
-int dev_addr_add(struct net_device *dev, unsigned char *addr,
+int dev_addr_add(struct net_device *dev, const unsigned char *addr,
 		 unsigned char addr_type)
 {
 	int err;
@@ -303,7 +304,7 @@ EXPORT_SYMBOL(dev_addr_add);
  *
  *	The caller must hold the rtnl_mutex.
  */
-int dev_addr_del(struct net_device *dev, unsigned char *addr,
+int dev_addr_del(struct net_device *dev, const unsigned char *addr,
 		 unsigned char addr_type)
 {
 	int err;
@@ -317,7 +318,8 @@ int dev_addr_del(struct net_device *dev, unsigned char *addr,
 	 */
 	ha = list_first_entry(&dev->dev_addrs.list,
 			      struct netdev_hw_addr, list);
-	if (ha->addr == dev->dev_addr && ha->refcount == 1)
+	if (!memcmp(ha->addr, addr, dev->addr_len) &&
+	    ha->type == addr_type && ha->refcount == 1)
 		return -ENOENT;
 
 	err = __hw_addr_del(&dev->dev_addrs, addr, dev->addr_len,
@@ -390,7 +392,7 @@ EXPORT_SYMBOL(dev_addr_del_multiple);
  *	@dev: device
  *	@addr: address to add
  */
-int dev_uc_add_excl(struct net_device *dev, unsigned char *addr)
+int dev_uc_add_excl(struct net_device *dev, const unsigned char *addr)
 {
 	struct netdev_hw_addr *ha;
 	int err;
@@ -421,7 +423,7 @@ EXPORT_SYMBOL(dev_uc_add_excl);
  *	Add a secondary unicast address to the device or increase
  *	the reference count if it already exists.
  */
-int dev_uc_add(struct net_device *dev, unsigned char *addr)
+int dev_uc_add(struct net_device *dev, const unsigned char *addr)
 {
 	int err;
 
@@ -443,7 +445,7 @@ EXPORT_SYMBOL(dev_uc_add);
  *	Release reference to a secondary unicast address and remove it
  *	from the device if the reference count drops to zero.
  */
-int dev_uc_del(struct net_device *dev, unsigned char *addr)
+int dev_uc_del(struct net_device *dev, const unsigned char *addr)
 {
 	int err;
 
@@ -543,7 +545,7 @@ EXPORT_SYMBOL(dev_uc_init);
  *	@dev: device
  *	@addr: address to add
  */
-int dev_mc_add_excl(struct net_device *dev, unsigned char *addr)
+int dev_mc_add_excl(struct net_device *dev, const unsigned char *addr)
 {
 	struct netdev_hw_addr *ha;
 	int err;
@@ -566,7 +568,7 @@ out:
 }
 EXPORT_SYMBOL(dev_mc_add_excl);
 
-static int __dev_mc_add(struct net_device *dev, unsigned char *addr,
+static int __dev_mc_add(struct net_device *dev, const unsigned char *addr,
 			bool global)
 {
 	int err;
@@ -587,7 +589,7 @@ static int __dev_mc_add(struct net_device *dev, unsigned char *addr,
  *	Add a multicast address to the device or increase
  *	the reference count if it already exists.
  */
-int dev_mc_add(struct net_device *dev, unsigned char *addr)
+int dev_mc_add(struct net_device *dev, const unsigned char *addr)
 {
 	return __dev_mc_add(dev, addr, false);
 }
@@ -600,13 +602,13 @@ EXPORT_SYMBOL(dev_mc_add);
  *
  *	Add a global multicast address to the device.
  */
-int dev_mc_add_global(struct net_device *dev, unsigned char *addr)
+int dev_mc_add_global(struct net_device *dev, const unsigned char *addr)
 {
 	return __dev_mc_add(dev, addr, true);
 }
 EXPORT_SYMBOL(dev_mc_add_global);
 
-static int __dev_mc_del(struct net_device *dev, unsigned char *addr,
+static int __dev_mc_del(struct net_device *dev, const unsigned char *addr,
 			bool global)
 {
 	int err;
@@ -628,7 +630,7 @@ static int __dev_mc_del(struct net_device *dev, unsigned char *addr,
  *	Release reference to a multicast address and remove it
  *	from the device if the reference count drops to zero.
  */
-int dev_mc_del(struct net_device *dev, unsigned char *addr)
+int dev_mc_del(struct net_device *dev, const unsigned char *addr)
 {
 	return __dev_mc_del(dev, addr, false);
 }
@@ -642,7 +644,7 @@ EXPORT_SYMBOL(dev_mc_del);
  *	Release reference to a multicast address and remove it
  *	from the device if the reference count drops to zero.
  */
-int dev_mc_del_global(struct net_device *dev, unsigned char *addr)
+int dev_mc_del_global(struct net_device *dev, const unsigned char *addr)
 {
 	return __dev_mc_del(dev, addr, true);
 }
@@ -724,76 +726,3 @@ void dev_mc_init(struct net_device *dev)
 	__hw_addr_init(&dev->mc);
 }
 EXPORT_SYMBOL(dev_mc_init);
-
-#ifdef CONFIG_PROC_FS
-#include <linux/seq_file.h>
-
-static int dev_mc_seq_show(struct seq_file *seq, void *v)
-{
-	struct netdev_hw_addr *ha;
-	struct net_device *dev = v;
-
-	if (v == SEQ_START_TOKEN)
-		return 0;
-
-	netif_addr_lock_bh(dev);
-	netdev_for_each_mc_addr(ha, dev) {
-		int i;
-
-		seq_printf(seq, "%-4d %-15s %-5d %-5d ", dev->ifindex,
-			   dev->name, ha->refcount, ha->global_use);
-
-		for (i = 0; i < dev->addr_len; i++)
-			seq_printf(seq, "%02x", ha->addr[i]);
-
-		seq_putc(seq, '\n');
-	}
-	netif_addr_unlock_bh(dev);
-	return 0;
-}
-
-static const struct seq_operations dev_mc_seq_ops = {
-	.start = dev_seq_start,
-	.next  = dev_seq_next,
-	.stop  = dev_seq_stop,
-	.show  = dev_mc_seq_show,
-};
-
-static int dev_mc_seq_open(struct inode *inode, struct file *file)
-{
-	return seq_open_net(inode, file, &dev_mc_seq_ops,
-			    sizeof(struct seq_net_private));
-}
-
-static const struct file_operations dev_mc_seq_fops = {
-	.owner	 = THIS_MODULE,
-	.open    = dev_mc_seq_open,
-	.read    = seq_read,
-	.llseek  = seq_lseek,
-	.release = seq_release_net,
-};
-
-#endif
-
-static int __net_init dev_mc_net_init(struct net *net)
-{
-	if (!proc_net_fops_create(net, "dev_mcast", 0, &dev_mc_seq_fops))
-		return -ENOMEM;
-	return 0;
-}
-
-static void __net_exit dev_mc_net_exit(struct net *net)
-{
-	proc_net_remove(net, "dev_mcast");
-}
-
-static struct pernet_operations __net_initdata dev_mc_net_ops = {
-	.init = dev_mc_net_init,
-	.exit = dev_mc_net_exit,
-};
-
-void __init dev_mcast_init(void)
-{
-	register_pernet_subsys(&dev_mc_net_ops);
-}
-

@@ -16,6 +16,7 @@ struct netns_sysctl_ipv6 {
 	struct ctl_table_header *route_hdr;
 	struct ctl_table_header *icmp_hdr;
 	struct ctl_table_header *frags_hdr;
+	struct ctl_table_header *xfrm6_hdr;
 #endif
 	int bindv6only;
 	int flush_delay;
@@ -42,6 +43,7 @@ struct netns_ipv6 {
 #ifdef CONFIG_SECURITY
 	struct xt_table		*ip6table_security;
 #endif
+	struct xt_table		*ip6table_nat;
 #endif
 	struct rt6_info         *ip6_null_entry;
 	struct rt6_statistics   *rt6_stats;
@@ -70,4 +72,12 @@ struct netns_ipv6 {
 #endif
 #endif
 };
+
+#if IS_ENABLED(CONFIG_NF_DEFRAG_IPV6)
+struct netns_nf_frag {
+	struct netns_sysctl_ipv6 sysctl;
+	struct netns_frags	frags;
+};
+#endif
+
 #endif

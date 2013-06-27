@@ -19,8 +19,8 @@
 #include <linux/backlight.h>
 #include <linux/gfp.h>
 #include <linux/module.h>
+#include <linux/platform_data/atmel.h>
 
-#include <mach/board.h>
 #include <mach/cpu.h>
 #include <asm/gpio.h>
 
@@ -422,17 +422,22 @@ static int atmel_lcdfb_check_var(struct fb_var_screeninfo *var,
 			= var->bits_per_pixel;
 		break;
 	case 16:
+		/* Older SOCs use IBGR:555 rather than BGR:565. */
+		if (sinfo->have_intensity_bit)
+			var->green.length = 5;
+		else
+			var->green.length = 6;
+
 		if (sinfo->lcd_wiring_mode == ATMEL_LCDC_WIRING_RGB) {
-			/* RGB:565 mode */
-			var->red.offset = 11;
+			/* RGB:5X5 mode */
+			var->red.offset = var->green.length + 5;
 			var->blue.offset = 0;
 		} else {
-			/* BGR:565 mode */
+			/* BGR:5X5 mode */
 			var->red.offset = 0;
-			var->blue.offset = 11;
+			var->blue.offset = var->green.length + 5;
 		}
 		var->green.offset = 5;
-		var->green.length = 6;
 		var->red.length = var->blue.length = 5;
 		break;
 	case 32:
@@ -679,8 +684,7 @@ static int atmel_lcdfb_setcolreg(unsigned int regno, unsigned int red,
 
 	case FB_VISUAL_PSEUDOCOLOR:
 		if (regno < 256) {
-			if (cpu_is_at91sam9261() || cpu_is_at91sam9263()
-			    || cpu_is_at91sam9rl()) {
+			if (sinfo->have_intensity_bit) {
 				/* old style I+BGR:555 */
 				val  = ((red   >> 11) & 0x001f);
 				val |= ((green >>  6) & 0x03e0);
@@ -870,6 +874,10 @@ static int __init atmel_lcdfb_probe(struct platform_device *pdev)
 	}
 	sinfo->info = info;
 	sinfo->pdev = pdev;
+	if (cpu_is_at91sam9261() || cpu_is_at91sam9263() ||
+							cpu_is_at91sam9rl()) {
+		sinfo->have_intensity_bit = true;
+	}
 
 	strcpy(info->fix.id, sinfo->pdev->name);
 	info->flags = ATMEL_LCDFB_FBINFO_DEFAULT;
@@ -931,8 +939,10 @@ static int __init atmel_lcdfb_probe(struct platform_device *pdev)
 		}
 
 		info->screen_base = ioremap(info->fix.smem_start, info->fix.smem_len);
-		if (!info->screen_base)
+		if (!info->screen_base) {
+			ret = -ENOMEM;
 			goto release_intmem;
+		}
 
 		/*
 		 * Don't clear the framebuffer -- someone may have set
@@ -960,6 +970,7 @@ static int __init atmel_lcdfb_probe(struct platform_device *pdev)
 	sinfo->mmio = ioremap(info->fix.mmio_start, info->fix.mmio_len);
 	if (!sinfo->mmio) {
 		dev_err(dev, "cannot map LCDC registers\n");
+		ret = -ENOMEM;
 		goto release_mem;
 	}
 

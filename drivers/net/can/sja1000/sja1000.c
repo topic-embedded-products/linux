@@ -60,6 +60,7 @@
 
 #include <linux/can/dev.h>
 #include <linux/can/error.h>
+#include <linux/can/led.h>
 
 #include "sja1000.h"
 
@@ -91,7 +92,7 @@ static void sja1000_write_cmdreg(struct sja1000_priv *priv, u8 val)
 	 */
 	spin_lock_irqsave(&priv->cmdreg_lock, flags);
 	priv->write_reg(priv, REG_CMR, val);
-	priv->read_reg(priv, REG_SR);
+	priv->read_reg(priv, SJA1000_REG_SR);
 	spin_unlock_irqrestore(&priv->cmdreg_lock, flags);
 }
 
@@ -156,8 +157,13 @@ static void set_normal_mode(struct net_device *dev)
 		}
 
 		/* set chip to normal mode */
-		priv->write_reg(priv, REG_MOD, 0x00);
+		if (priv->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)
+			priv->write_reg(priv, REG_MOD, MOD_LOM);
+		else
+			priv->write_reg(priv, REG_MOD, 0x00);
+
 		udelay(10);
+
 		status = priv->read_reg(priv, REG_MOD);
 	}
 
@@ -183,11 +189,6 @@ static void sja1000_start(struct net_device *dev)
 
 static int sja1000_set_mode(struct net_device *dev, enum can_mode mode)
 {
-	struct sja1000_priv *priv = netdev_priv(dev);
-
-	if (!priv->open_time)
-		return -EINVAL;
-
 	switch (mode) {
 	case CAN_MODE_START:
 		sja1000_start(dev);
@@ -310,7 +311,10 @@ static netdev_tx_t sja1000_start_xmit(struct sk_buff *skb,
 
 	can_put_echo_skb(skb, dev, 0);
 
-	sja1000_write_cmdreg(priv, CMD_TR);
+	if (priv->can.ctrlmode & CAN_CTRLMODE_ONE_SHOT)
+		sja1000_write_cmdreg(priv, CMD_TR | CMD_AT);
+	else
+		sja1000_write_cmdreg(priv, CMD_TR);
 
 	return NETDEV_TX_OK;
 }
@@ -365,6 +369,8 @@ static void sja1000_rx(struct net_device *dev)
 
 	stats->rx_packets++;
 	stats->rx_bytes += cf->can_dlc;
+
+	can_led_event(dev, CAN_LED_EVENT_RX);
 }
 
 static int sja1000_err(struct net_device *dev, uint8_t isrc, uint8_t status)
@@ -496,7 +502,7 @@ irqreturn_t sja1000_interrupt(int irq, void *dev_id)
 
 	while ((isrc = priv->read_reg(priv, REG_IR)) && (n < SJA1000_MAX_IRQ)) {
 		n++;
-		status = priv->read_reg(priv, REG_SR);
+		status = priv->read_reg(priv, SJA1000_REG_SR);
 		/* check for absent controller due to hw unplug */
 		if (status == 0xFF && sja1000_is_absent(priv))
 			return IRQ_NONE;
@@ -505,17 +511,26 @@ irqreturn_t sja1000_interrupt(int irq, void *dev_id)
 			netdev_warn(dev, "wakeup interrupt\n");
 
 		if (isrc & IRQ_TI) {
-			/* transmission complete interrupt */
-			stats->tx_bytes += priv->read_reg(priv, REG_FI) & 0xf;
-			stats->tx_packets++;
-			can_get_echo_skb(dev, 0);
+			/* transmission buffer released */
+			if (priv->can.ctrlmode & CAN_CTRLMODE_ONE_SHOT &&
+			    !(status & SR_TCS)) {
+				stats->tx_errors++;
+				can_free_echo_skb(dev, 0);
+			} else {
+				/* transmission complete */
+				stats->tx_bytes +=
+					priv->read_reg(priv, REG_FI) & 0xf;
+				stats->tx_packets++;
+				can_get_echo_skb(dev, 0);
+			}
 			netif_wake_queue(dev);
+			can_led_event(dev, CAN_LED_EVENT_TX);
 		}
 		if (isrc & IRQ_RI) {
 			/* receive interrupt */
 			while (status & SR_RBS) {
 				sja1000_rx(dev);
-				status = priv->read_reg(priv, REG_SR);
+				status = priv->read_reg(priv, SJA1000_REG_SR);
 				/* check for absent controller */
 				if (status == 0xFF && sja1000_is_absent(priv))
 					return IRQ_NONE;
@@ -563,7 +578,8 @@ static int sja1000_open(struct net_device *dev)
 
 	/* init and start chi */
 	sja1000_start(dev);
-	priv->open_time = jiffies;
+
+	can_led_event(dev, CAN_LED_EVENT_OPEN);
 
 	netif_start_queue(dev);
 
@@ -582,7 +598,7 @@ static int sja1000_close(struct net_device *dev)
 
 	close_candev(dev);
 
-	priv->open_time = 0;
+	can_led_event(dev, CAN_LED_EVENT_STOP);
 
 	return 0;
 }
@@ -605,7 +621,8 @@ struct net_device *alloc_sja1000dev(int sizeof_priv)
 	priv->can.do_set_mode = sja1000_set_mode;
 	priv->can.do_get_berr_counter = sja1000_get_berr_counter;
 	priv->can.ctrlmode_supported = CAN_CTRLMODE_3_SAMPLES |
-		CAN_CTRLMODE_BERR_REPORTING;
+		CAN_CTRLMODE_BERR_REPORTING | CAN_CTRLMODE_LISTENONLY |
+		CAN_CTRLMODE_ONE_SHOT;
 
 	spin_lock_init(&priv->cmdreg_lock);
 
@@ -630,6 +647,8 @@ static const struct net_device_ops sja1000_netdev_ops = {
 
 int register_sja1000dev(struct net_device *dev)
 {
+	int ret;
+
 	if (!sja1000_probe_chip(dev))
 		return -ENODEV;
 
@@ -639,7 +658,12 @@ int register_sja1000dev(struct net_device *dev)
 	set_reset_mode(dev);
 	chipset_init(dev);
 
-	return register_candev(dev);
+	ret =  register_candev(dev);
+
+	if (!ret)
+		devm_can_led_init(dev);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(register_sja1000dev);
 

@@ -71,7 +71,7 @@ static unsigned int __init smvp_vpe_init(unsigned int tc, unsigned int mvpconf0,
 		/* Record this as available CPU */
 		set_cpu_possible(tc, true);
 		__cpu_number_map[tc]	= ++ncpu;
-		__cpu_logical_map[ncpu]	= tc;
+		__cpu_logical_map[ncpu] = tc;
 	}
 
 	/* Disable multi-threading with TC's */
@@ -150,6 +150,7 @@ static void vsmp_send_ipi_mask(const struct cpumask *mask, unsigned int action)
 
 static void __cpuinit vsmp_init_secondary(void)
 {
+#ifdef CONFIG_IRQ_GIC
 	extern int gic_present;
 
 	/* This is Malta specific: IPI,performance and timer interrupts */
@@ -157,6 +158,7 @@ static void __cpuinit vsmp_init_secondary(void)
 		change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 |
 					 STATUSF_IP6 | STATUSF_IP7);
 	else
+#endif
 		change_c0_status(ST0_IM, STATUSF_IP0 | STATUSF_IP1 |
 					 STATUSF_IP6 | STATUSF_IP7);
 }
@@ -213,7 +215,7 @@ static void __cpuinit vsmp_boot_secondary(int cpu, struct task_struct *idle)
 	write_tc_gpr_gp((unsigned long)gp);
 
 	flush_icache_range((unsigned long)gp,
-	                   (unsigned long)(gp + sizeof(struct thread_info)));
+			   (unsigned long)(gp + sizeof(struct thread_info)));
 
 	/* finally out of configuration and into chaos */
 	clear_c0_mvpcontrol(MVPCONTROL_VPC);

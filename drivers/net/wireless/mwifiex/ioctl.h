@@ -20,7 +20,6 @@
 #ifndef _MWIFIEX_IOCTL_H_
 #define _MWIFIEX_IOCTL_H_
 
-#include <net/mac80211.h>
 #include <net/lib80211.h>
 
 enum {
@@ -61,6 +60,8 @@ enum {
 	BAND_A = 4,
 	BAND_GN = 8,
 	BAND_AN = 16,
+	BAND_GAC = 32,
+	BAND_AAC = 64,
 };
 
 #define MWIFIEX_WPA_PASSHPHRASE_LEN 64
@@ -81,7 +82,11 @@ struct wep_key {
 
 #define KEY_MGMT_ON_HOST        0x03
 #define MWIFIEX_AUTH_MODE_AUTO  0xFF
-#define BAND_CONFIG_MANUAL      0x00
+#define BAND_CONFIG_BG          0x00
+#define BAND_CONFIG_A           0x01
+#define MWIFIEX_SUPPORTED_RATES                 14
+#define MWIFIEX_SUPPORTED_RATES_EXT             32
+
 struct mwifiex_uap_bss_param {
 	u8 channel;
 	u8 band_cfg;
@@ -100,6 +105,12 @@ struct mwifiex_uap_bss_param {
 	struct wpa_param wpa_cfg;
 	struct wep_key wep_cfg[NUM_WEP_KEYS];
 	struct ieee80211_ht_cap ht_cap;
+	struct ieee80211_vht_cap vht_cap;
+	u8 rates[MWIFIEX_SUPPORTED_RATES];
+	u32 sta_ao_timer;
+	u32 ps_sta_ao_timer;
+	u8 qos_info;
+	struct mwifiex_types_wmm_info wmm_info;
 };
 
 enum {
@@ -170,7 +181,6 @@ struct mwifiex_ds_tx_ba_stream_tbl {
 struct mwifiex_debug_info {
 	u32 int_counter;
 	u32 packets_out[MAX_NUM_TID];
-	u32 max_tx_buf_size;
 	u32 tx_buf_size;
 	u32 curr_tx_buf_size;
 	u32 tx_tbl_num;
@@ -213,7 +223,7 @@ struct mwifiex_debug_info {
 };
 
 #define MWIFIEX_KEY_INDEX_UNICAST	0x40000000
-#define WAPI_RXPN_LEN			16
+#define PN_LEN				16
 
 struct mwifiex_ds_encrypt_key {
 	u32 key_disable;
@@ -222,7 +232,8 @@ struct mwifiex_ds_encrypt_key {
 	u8 key_material[WLAN_MAX_KEY_LEN];
 	u8 mac_addr[ETH_ALEN];
 	u32 is_wapi_key;
-	u8 wapi_rxpn[WAPI_RXPN_LEN];
+	u8 pn[PN_LEN];		/* packet number */
+	u8 is_igtk_key;
 };
 
 struct mwifiex_power_cfg {
@@ -264,6 +275,7 @@ struct mwifiex_ds_pm_cfg {
 struct mwifiex_ds_11n_tx_cfg {
 	u16 tx_htcap;
 	u16 tx_htinfo;
+	u16 misc_config; /* Needed for 802.11AC cards only */
 };
 
 struct mwifiex_ds_11n_amsdu_aggr_ctrl {

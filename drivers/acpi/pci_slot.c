@@ -50,13 +50,12 @@ module_param(debug, bool, 0644);
 ACPI_MODULE_NAME("pci_slot");
 
 #define MY_NAME "pci_slot"
-#define err(format, arg...) printk(KERN_ERR "%s: " format , MY_NAME , ## arg)
-#define info(format, arg...) printk(KERN_INFO "%s: " format , MY_NAME , ## arg)
+#define err(format, arg...) pr_err("%s: " format , MY_NAME , ## arg)
+#define info(format, arg...) pr_info("%s: " format , MY_NAME , ## arg)
 #define dbg(format, arg...)					\
 	do {							\
 		if (debug)					\
-			printk(KERN_DEBUG "%s: " format,	\
-				MY_NAME , ## arg);		\
+			pr_debug("%s: " format,	MY_NAME , ## arg); \
 	} while (0)
 
 #define SLOT_NAME_SIZE 21		/* Inspired by #define in acpiphp.h */
@@ -67,8 +66,8 @@ struct acpi_pci_slot {
 	struct list_head list;		/* node in the list of slots */
 };
 
-static int acpi_pci_slot_add(acpi_handle handle);
-static void acpi_pci_slot_remove(acpi_handle handle);
+static int acpi_pci_slot_add(struct acpi_pci_root *root);
+static void acpi_pci_slot_remove(struct acpi_pci_root *root);
 
 static LIST_HEAD(slot_list);
 static DEFINE_MUTEX(slot_list_lock);
@@ -233,44 +232,19 @@ out:
 
 /*
  * walk_root_bridge - generic root bridge walker
- * @handle: points to an acpi_pci_root
+ * @root: poiner of an acpi_pci_root
  * @user_function: user callback for slot objects
  *
  * Call user_function for all objects underneath this root bridge.
  * Walk p2p bridges underneath us and call user_function on those too.
  */
 static int
-walk_root_bridge(acpi_handle handle, acpi_walk_callback user_function)
+walk_root_bridge(struct acpi_pci_root *root, acpi_walk_callback user_function)
 {
-	int seg, bus;
-	unsigned long long tmp;
 	acpi_status status;
-	acpi_handle dummy_handle;
-	struct pci_bus *pci_bus;
+	acpi_handle handle = root->device->handle;
+	struct pci_bus *pci_bus = root->bus;
 	struct callback_args context;
-
-	/* If the bridge doesn't have _STA, we assume it is always there */
-	status = acpi_get_handle(handle, "_STA", &dummy_handle);
-	if (ACPI_SUCCESS(status)) {
-		status = acpi_evaluate_integer(handle, "_STA", NULL, &tmp);
-		if (ACPI_FAILURE(status)) {
-			info("%s: _STA evaluation failure\n", __func__);
-			return 0;
-		}
-		if ((tmp & ACPI_STA_DEVICE_FUNCTIONING) == 0)
-			/* don't register this object */
-			return 0;
-	}
-
-	status = acpi_evaluate_integer(handle, "_SEG", NULL, &tmp);
-	seg = ACPI_SUCCESS(status) ? tmp : 0;
-
-	status = acpi_evaluate_integer(handle, "_BBN", NULL, &tmp);
-	bus = ACPI_SUCCESS(status) ? tmp : 0;
-
-	pci_bus = pci_find_bus(seg, bus);
-	if (!pci_bus)
-		return 0;
 
 	context.pci_bus = pci_bus;
 	context.user_function = user_function;
@@ -295,11 +269,11 @@ walk_root_bridge(acpi_handle handle, acpi_walk_callback user_function)
  * @handle: points to an acpi_pci_root
  */
 static int
-acpi_pci_slot_add(acpi_handle handle)
+acpi_pci_slot_add(struct acpi_pci_root *root)
 {
 	acpi_status status;
 
-	status = walk_root_bridge(handle, register_slot);
+	status = walk_root_bridge(root, register_slot);
 	if (ACPI_FAILURE(status))
 		err("%s: register_slot failure - %d\n", __func__, status);
 
@@ -311,10 +285,11 @@ acpi_pci_slot_add(acpi_handle handle)
  * @handle: points to an acpi_pci_root
  */
 static void
-acpi_pci_slot_remove(acpi_handle handle)
+acpi_pci_slot_remove(struct acpi_pci_root *root)
 {
 	struct acpi_pci_slot *slot, *tmp;
 	struct pci_bus *pbus;
+	acpi_handle handle = root->device->handle;
 
 	mutex_lock(&slot_list_lock);
 	list_for_each_entry_safe(slot, tmp, &slot_list, list) {
@@ -354,19 +329,8 @@ static struct dmi_system_id acpi_pci_slot_dmi_table[] __initdata = {
 	{}
 };
 
-static int __init
-acpi_pci_slot_init(void)
+void __init acpi_pci_slot_init(void)
 {
 	dmi_check_system(acpi_pci_slot_dmi_table);
 	acpi_pci_register_driver(&acpi_pci_slot_driver);
-	return 0;
 }
-
-static void __exit
-acpi_pci_slot_exit(void)
-{
-	acpi_pci_unregister_driver(&acpi_pci_slot_driver);
-}
-
-module_init(acpi_pci_slot_init);
-module_exit(acpi_pci_slot_exit);

@@ -14,11 +14,15 @@
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
 
+#define PLATFORM_DEVID_NONE	(-1)
+#define PLATFORM_DEVID_AUTO	(-2)
+
 struct mfd_cell;
 
 struct platform_device {
 	const char	* name;
 	int		id;
+	bool		id_auto;
 	struct device	dev;
 	u32		num_resources;
 	struct resource	* resource;
@@ -51,6 +55,7 @@ extern int platform_add_devices(struct platform_device **, int);
 
 struct platform_device_info {
 		struct device *parent;
+		struct acpi_dev_node acpi_node;
 
 		const char *name;
 		int id;
@@ -198,6 +203,24 @@ static inline void platform_set_drvdata(struct platform_device *pdev, void *data
 #define module_platform_driver(__platform_driver) \
 	module_driver(__platform_driver, platform_driver_register, \
 			platform_driver_unregister)
+
+/* module_platform_driver_probe() - Helper macro for drivers that don't do
+ * anything special in module init/exit.  This eliminates a lot of
+ * boilerplate.  Each module may only use this macro once, and
+ * calling it replaces module_init() and module_exit()
+ */
+#define module_platform_driver_probe(__platform_driver, __platform_probe) \
+static int __init __platform_driver##_init(void) \
+{ \
+	return platform_driver_probe(&(__platform_driver), \
+				     __platform_probe);    \
+} \
+module_init(__platform_driver##_init); \
+static void __exit __platform_driver##_exit(void) \
+{ \
+	platform_driver_unregister(&(__platform_driver)); \
+} \
+module_exit(__platform_driver##_exit);
 
 extern struct platform_device *platform_create_bundle(struct platform_driver *driver,
 					int (*probe)(struct platform_device *),

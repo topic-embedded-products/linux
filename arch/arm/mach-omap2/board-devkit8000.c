@@ -29,37 +29,36 @@
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
 #include <linux/mmc/host.h>
+#include <linux/usb/phy.h>
 
 #include <linux/regulator/machine.h>
 #include <linux/i2c/twl.h>
-
-#include <mach/hardware.h>
-#include <mach/id.h>
+#include "id.h"
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 #include <asm/mach/flash.h>
 
-#include <plat/board.h>
 #include "common.h"
-#include <plat/gpmc.h>
-#include <plat/nand.h>
-#include <plat/usb.h>
+#include "gpmc.h"
+#include <linux/platform_data/mtd-nand-omap2.h>
 #include <video/omapdss.h>
 #include <video/omap-panel-generic-dpi.h>
 #include <video/omap-panel-tfp410.h>
 
-#include <plat/mcspi.h>
+#include <linux/platform_data/spi-omap2-mcspi.h>
 #include <linux/input/matrix_keypad.h>
 #include <linux/spi/spi.h>
 #include <linux/dm9000.h>
 #include <linux/interrupt.h>
 
 #include "sdram-micron-mt46h32m32lf-6.h"
-
 #include "mux.h"
 #include "hsmmc.h"
+#include "board-flash.h"
 #include "common-board-devices.h"
+
+#define	NAND_CS			0
 
 #define OMAP_DM9000_GPIO_IRQ	25
 #define OMAP3_DEVKIT_TS_GPIO	27
@@ -143,6 +142,7 @@ static struct omap_dss_device devkit8000_lcd_device = {
 
 static struct tfp410_platform_data dvi_panel = {
 	.power_down_gpio	= -1,
+	.i2c_bus_num		= 1,
 };
 
 static struct omap_dss_device devkit8000_dvi_device = {
@@ -236,9 +236,6 @@ static int devkit8000_twl_gpio_setup(struct device *dev,
 }
 
 static struct twl4030_gpio_platform_data devkit8000_gpio_data = {
-	.gpio_base	= OMAP_MAX_GPIO_LINES,
-	.irq_base	= TWL4030_GPIO_IRQ_BASE,
-	.irq_end	= TWL4030_GPIO_IRQ_END,
 	.use_leds	= true,
 	.pulldowns	= BIT(1) | BIT(2) | BIT(6) | BIT(8) | BIT(13)
 				| BIT(15) | BIT(16) | BIT(17),
@@ -439,7 +436,7 @@ static struct platform_device *devkit8000_devices[] __initdata = {
 	&omap_dm9000_dev,
 };
 
-static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
+static struct usbhs_omap_platform_data usbhs_bdata __initdata = {
 
 	.port_mode[0] = OMAP_EHCI_PORT_MODE_PHY,
 	.port_mode[1] = OMAP_USBHS_PORT_MODE_UNUSED,
@@ -626,10 +623,13 @@ static void __init devkit8000_init(void)
 
 	omap_ads7846_init(2, OMAP3_DEVKIT_TS_GPIO, 0, NULL);
 
+	usb_bind_phy("musb-hdrc.0.auto", 0, "twl4030_usb");
 	usb_musb_init(NULL);
 	usbhs_init(&usbhs_bdata);
-	omap_nand_flash_init(NAND_BUSWIDTH_16, devkit8000_nand_partitions,
-			     ARRAY_SIZE(devkit8000_nand_partitions));
+	board_nand_init(devkit8000_nand_partitions,
+			ARRAY_SIZE(devkit8000_nand_partitions), NAND_CS,
+			NAND_BUSWIDTH_16, NULL);
+	omap_twl4030_audio_init("omap3beagle", NULL);
 
 	/* Ensure SDRC pins are mux'd for self-refresh */
 	omap_mux_init_signal("sdrc_cke0", OMAP_PIN_OUTPUT);
@@ -645,6 +645,6 @@ MACHINE_START(DEVKIT8000, "OMAP3 Devkit8000")
 	.handle_irq	= omap3_intc_handle_irq,
 	.init_machine	= devkit8000_init,
 	.init_late	= omap35xx_init_late,
-	.timer		= &omap3_secure_timer,
-	.restart	= omap_prcm_restart,
+	.init_time	= omap3_secure_sync32k_timer_init,
+	.restart	= omap3xxx_restart,
 MACHINE_END

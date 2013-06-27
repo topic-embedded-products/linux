@@ -468,7 +468,7 @@ static int irda_open_tsap(struct irda_sock *self, __u8 tsap_sel, char *name)
 	notify_t notify;
 
 	if (self->tsap) {
-		IRDA_WARNING("%s: busy!\n", __func__);
+		IRDA_DEBUG(0, "%s: busy!\n", __func__);
 		return -EBUSY;
 	}
 
@@ -1385,6 +1385,8 @@ static int irda_recvmsg_dgram(struct kiocb *iocb, struct socket *sock,
 	int err;
 
 	IRDA_DEBUG(4, "%s()\n", __func__);
+
+	msg->msg_namelen = 0;
 
 	skb = skb_recv_datagram(sk, flags & ~MSG_DONTWAIT,
 				flags & MSG_DONTWAIT, &err);
@@ -2567,8 +2569,7 @@ bed:
 						   err);
 
 			/* If watchdog is still activated, kill it! */
-			if(timer_pending(&(self->watchdog)))
-				del_timer(&(self->watchdog));
+			del_timer(&(self->watchdog));
 
 			IRDA_DEBUG(1, "%s(), ...waking up !\n", __func__);
 
@@ -2584,8 +2585,10 @@ bed:
 				    NULL, NULL, NULL);
 
 		/* Check if the we got some results */
-		if (!self->cachedaddr)
-			return -EAGAIN;		/* Didn't find any devices */
+		if (!self->cachedaddr) {
+			err = -EAGAIN;		/* Didn't find any devices */
+			goto out;
+		}
 		daddr = self->cachedaddr;
 		/* Cleanup */
 		self->cachedaddr = 0;

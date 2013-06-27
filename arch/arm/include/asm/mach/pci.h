@@ -11,6 +11,8 @@
 #ifndef __ASM_MACH_PCI_H
 #define __ASM_MACH_PCI_H
 
+#include <linux/ioport.h>
+
 struct pci_sys_data;
 struct pci_ops;
 struct pci_bus;
@@ -21,6 +23,7 @@ struct hw_pci {
 #endif
 	struct pci_ops	*ops;
 	int		nr_controllers;
+	void		**private_data;
 	int		(*setup)(int nr, struct pci_sys_data *);
 	struct pci_bus *(*scan)(int nr, struct pci_sys_data *);
 	void		(*preinit)(void);
@@ -42,6 +45,8 @@ struct pci_sys_data {
 	unsigned long	io_offset;	/* bus->cpu IO mapping offset		*/
 	struct pci_bus	*bus;		/* PCI bus				*/
 	struct list_head resources;	/* root bus resources (apertures)       */
+	struct resource io_res;
+	char		io_res_name[12];
 					/* Bridge swizzling			*/
 	u8		(*swizzle)(struct pci_dev *, u8 *);
 					/* IRQ mapping				*/
@@ -53,6 +58,15 @@ struct pci_sys_data {
  * Call this with your hw_pci struct to initialise the PCI system.
  */
 void pci_common_init(struct hw_pci *);
+
+/*
+ * Setup early fixed I/O mapping.
+ */
+#if defined(CONFIG_PCI)
+extern void pci_map_io_early(unsigned long pfn);
+#else
+static inline void pci_map_io_early(unsigned long pfn) {}
+#endif
 
 /*
  * PCI controllers

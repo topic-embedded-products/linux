@@ -466,7 +466,7 @@ is_valid_oplock_break(char *buffer, struct TCP_Server_Info *srv)
 			list_for_each(tmp2, &tcon->openFileList) {
 				netfile = list_entry(tmp2, struct cifsFileInfo,
 						     tlist);
-				if (pSMB->Fid != netfile->netfid)
+				if (pSMB->Fid != netfile->fid.netfid)
 					continue;
 
 				cFYI(1, "file id match, oplock break");
@@ -569,7 +569,7 @@ bool
 backup_cred(struct cifs_sb_info *cifs_sb)
 {
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_BACKUPUID) {
-		if (cifs_sb->mnt_backupuid == current_fsuid())
+		if (uid_eq(cifs_sb->mnt_backupuid, current_fsuid()))
 			return true;
 	}
 	if (cifs_sb->mnt_cifs_flags & CIFS_MOUNT_CIFS_BACKUPGID) {
@@ -578,4 +578,34 @@ backup_cred(struct cifs_sb_info *cifs_sb)
 	}
 
 	return false;
+}
+
+void
+cifs_del_pending_open(struct cifs_pending_open *open)
+{
+	spin_lock(&cifs_file_list_lock);
+	list_del(&open->olist);
+	spin_unlock(&cifs_file_list_lock);
+}
+
+void
+cifs_add_pending_open_locked(struct cifs_fid *fid, struct tcon_link *tlink,
+			     struct cifs_pending_open *open)
+{
+#ifdef CONFIG_CIFS_SMB2
+	memcpy(open->lease_key, fid->lease_key, SMB2_LEASE_KEY_SIZE);
+#endif
+	open->oplock = CIFS_OPLOCK_NO_CHANGE;
+	open->tlink = tlink;
+	fid->pending_open = open;
+	list_add_tail(&open->olist, &tlink_tcon(tlink)->pending_opens);
+}
+
+void
+cifs_add_pending_open(struct cifs_fid *fid, struct tcon_link *tlink,
+		      struct cifs_pending_open *open)
+{
+	spin_lock(&cifs_file_list_lock);
+	cifs_add_pending_open_locked(fid, tlink, open);
+	spin_unlock(&cifs_file_list_lock);
 }

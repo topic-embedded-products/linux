@@ -8,6 +8,7 @@
 #include "builtin.h"
 
 #include "util/util.h"
+#include "util/cache.h"
 
 #include "util/annotate.h"
 #include "util/color.h"
@@ -33,13 +34,13 @@
 #include "util/thread.h"
 #include "util/sort.h"
 #include "util/hist.h"
+#include "arch/common.h"
 
 #include <linux/bitmap.h>
 
 struct perf_report {
 	struct perf_tool	tool;
 	struct perf_session	*session;
-	char const		*input_name;
 	bool			force, use_tui, use_gtk, use_stdio;
 	bool			hide_unresolved;
 	bool			dont_use_callchains;
@@ -53,6 +54,16 @@ struct perf_report {
 	const char		*symbol_filter_str;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
 };
+
+static int perf_report_config(const char *var, const char *value, void *cb)
+{
+	if (!strcmp(var, "report.group")) {
+		symbol_conf.event_group = perf_config_bool(var, value);
+		return 0;
+	}
+
+	return perf_default_config(var, value, cb);
+}
 
 static int perf_report__add_branch_hist_entry(struct perf_tool *tool,
 					struct addr_location *al,
@@ -69,8 +80,8 @@ static int perf_report__add_branch_hist_entry(struct perf_tool *tool,
 
 	if ((sort__has_parent || symbol_conf.use_callchain)
 	    && sample->callchain) {
-		err = machine__resolve_callchain(machine, al->thread,
-						 sample->callchain, &parent);
+		err = machine__resolve_callchain(machine, evsel, al->thread,
+						 sample, &parent);
 		if (err)
 			return err;
 	}
@@ -93,7 +104,7 @@ static int perf_report__add_branch_hist_entry(struct perf_tool *tool,
 			struct annotation *notes;
 			err = -ENOMEM;
 			bx = he->branch_info;
-			if (bx->from.sym && use_browser > 0) {
+			if (bx->from.sym && use_browser == 1 && sort__has_sym) {
 				notes = symbol__annotation(bx->from.sym);
 				if (!notes->src
 				    && symbol__alloc_hist(bx->from.sym) < 0)
@@ -107,7 +118,7 @@ static int perf_report__add_branch_hist_entry(struct perf_tool *tool,
 					goto out;
 			}
 
-			if (bx->to.sym && use_browser > 0) {
+			if (bx->to.sym && use_browser == 1 && sort__has_sym) {
 				notes = symbol__annotation(bx->to.sym);
 				if (!notes->src
 				    && symbol__alloc_hist(bx->to.sym) < 0)
@@ -140,8 +151,8 @@ static int perf_evsel__add_hist_entry(struct perf_evsel *evsel,
 	struct hist_entry *he;
 
 	if ((sort__has_parent || symbol_conf.use_callchain) && sample->callchain) {
-		err = machine__resolve_callchain(machine, al->thread,
-						 sample->callchain, &parent);
+		err = machine__resolve_callchain(machine, evsel, al->thread,
+						 sample, &parent);
 		if (err)
 			return err;
 	}
@@ -162,7 +173,7 @@ static int perf_evsel__add_hist_entry(struct perf_evsel *evsel,
 	 * so we don't allocated the extra space needed because the stdio
 	 * code will not use it.
 	 */
-	if (he->ms.sym != NULL && use_browser > 0) {
+	if (he->ms.sym != NULL && use_browser == 1 && sort__has_sym) {
 		struct annotation *notes = symbol__annotation(he->ms.sym);
 
 		assert(evsel != NULL);
@@ -223,9 +234,9 @@ static int process_sample_event(struct perf_tool *tool,
 
 static int process_read_event(struct perf_tool *tool,
 			      union perf_event *event,
-			      struct perf_sample *sample __used,
+			      struct perf_sample *sample __maybe_unused,
 			      struct perf_evsel *evsel,
-			      struct machine *machine __used)
+			      struct machine *machine __maybe_unused)
 {
 	struct perf_report *rep = container_of(tool, struct perf_report, tool);
 
@@ -287,7 +298,7 @@ static int perf_report__setup_sample_type(struct perf_report *rep)
 
 extern volatile int session_done;
 
-static void sig_handler(int sig __used)
+static void sig_handler(int sig __maybe_unused)
 {
 	session_done = 1;
 }
@@ -299,6 +310,21 @@ static size_t hists__fprintf_nr_sample_events(struct hists *self,
 	char unit;
 	unsigned long nr_samples = self->stats.nr_events[PERF_RECORD_SAMPLE];
 	u64 nr_events = self->stats.total_period;
+	struct perf_evsel *evsel = hists_to_evsel(self);
+	char buf[512];
+	size_t size = sizeof(buf);
+
+	if (symbol_conf.event_group && evsel->nr_members > 1) {
+		struct perf_evsel *pos;
+
+		perf_evsel__group_desc(evsel, buf, size);
+		evname = buf;
+
+		for_each_group_member(pos, evsel) {
+			nr_samples += pos->hists.stats.nr_events[PERF_RECORD_SAMPLE];
+			nr_events += pos->hists.stats.total_period;
+		}
+	}
 
 	nr_samples = convert_unit(nr_samples, &unit);
 	ret = fprintf(fp, "# Samples: %lu%c", nr_samples, unit);
@@ -319,8 +345,12 @@ static int perf_evlist__tty_browse_hists(struct perf_evlist *evlist,
 		struct hists *hists = &pos->hists;
 		const char *evname = perf_evsel__name(pos);
 
+		if (symbol_conf.event_group &&
+		    !perf_evsel__is_group_leader(pos))
+			continue;
+
 		hists__fprintf_nr_sample_events(hists, evname, stdout);
-		hists__fprintf(hists, NULL, false, true, 0, 0, stdout);
+		hists__fprintf(hists, true, 0, 0, stdout);
 		fprintf(stdout, "\n\n");
 	}
 
@@ -372,7 +402,7 @@ static int __cmd_report(struct perf_report *rep)
 	if (ret)
 		goto out_delete;
 
-	kernel_map = session->host_machine.vmlinux_maps[MAP__FUNCTION];
+	kernel_map = session->machines.host.vmlinux_maps[MAP__FUNCTION];
 	kernel_kmap = map__kmap(kernel_map);
 	if (kernel_map == NULL ||
 	    (kernel_map->dso->hit &&
@@ -397,16 +427,16 @@ static int __cmd_report(struct perf_report *rep)
 		desc);
 	}
 
-	if (dump_trace) {
-		perf_session__fprintf_nr_events(session, stdout);
-		goto out_delete;
-	}
-
 	if (verbose > 3)
 		perf_session__fprintf(session, stdout);
 
 	if (verbose > 2)
 		perf_session__fprintf_dsos(session, stdout);
+
+	if (dump_trace) {
+		perf_session__fprintf_nr_events(session, stdout);
+		goto out_delete;
+	}
 
 	nr_samples = 0;
 	list_for_each_entry(pos, &session->evlist->entries, node) {
@@ -416,8 +446,16 @@ static int __cmd_report(struct perf_report *rep)
 			hists->symbol_filter_str = rep->symbol_filter_str;
 
 		hists__collapse_resort(hists);
-		hists__output_resort(hists);
 		nr_samples += hists->stats.nr_events[PERF_RECORD_SAMPLE];
+
+		/* Non-group events are considered as leader */
+		if (symbol_conf.event_group &&
+		    !perf_evsel__is_group_leader(pos)) {
+			struct hists *leader_hists = &pos->leader->hists;
+
+			hists__match(leader_hists, hists);
+			hists__link(leader_hists, hists);
+		}
 	}
 
 	if (nr_samples == 0) {
@@ -425,13 +463,25 @@ static int __cmd_report(struct perf_report *rep)
 		goto out_delete;
 	}
 
+	list_for_each_entry(pos, &session->evlist->entries, node)
+		hists__output_resort(&pos->hists);
+
 	if (use_browser > 0) {
 		if (use_browser == 1) {
-			perf_evlist__tui_browse_hists(session->evlist, help,
-						      NULL, NULL, 0);
+			ret = perf_evlist__tui_browse_hists(session->evlist,
+							help,
+							NULL,
+							&session->header.env);
+			/*
+			 * Usually "ret" is the last pressed key, and we only
+			 * care if the key notifies us to switch data file.
+			 */
+			if (ret != K_SWITCH_INPUT_DATA)
+				ret = 0;
+
 		} else if (use_browser == 2) {
 			perf_evlist__gtk_browse_hists(session->evlist, help,
-						      NULL, NULL, 0);
+						      NULL);
 		}
 	} else
 		perf_evlist__tty_browse_hists(session->evlist, rep, help);
@@ -533,13 +583,14 @@ setup:
 }
 
 static int
-parse_branch_mode(const struct option *opt __used, const char *str __used, int unset)
+parse_branch_mode(const struct option *opt __maybe_unused,
+		  const char *str __maybe_unused, int unset)
 {
 	sort__branch_mode = !unset;
 	return 0;
 }
 
-int cmd_report(int argc, const char **argv, const char *prefix __used)
+int cmd_report(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	struct perf_session *session;
 	struct stat st;
@@ -555,8 +606,8 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 			.sample		 = process_sample_event,
 			.mmap		 = perf_event__process_mmap,
 			.comm		 = perf_event__process_comm,
-			.exit		 = perf_event__process_task,
-			.fork		 = perf_event__process_task,
+			.exit		 = perf_event__process_exit,
+			.fork		 = perf_event__process_fork,
 			.lost		 = perf_event__process_lost,
 			.read		 = process_read_event,
 			.attr		 = perf_event__process_attr,
@@ -569,7 +620,7 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 		.pretty_printing_style	 = "normal",
 	};
 	const struct option options[] = {
-	OPT_STRING('i', "input", &report.input_name, "file",
+	OPT_STRING('i', "input", &input_name, "file",
 		    "input file name"),
 	OPT_INCR('v', "verbose", &verbose,
 		    "be more verbose (show symbol address, etc)"),
@@ -593,8 +644,8 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 	OPT_BOOLEAN(0, "stdio", &report.use_stdio,
 		    "Use the stdio interface"),
 	OPT_STRING('s', "sort", &sort_order, "key[,key2...]",
-		   "sort by key(s): pid, comm, dso, symbol, parent, dso_to,"
-		   " dso_from, symbol_to, symbol_from, mispredict"),
+		   "sort by key(s): pid, comm, dso, symbol, parent, cpu, srcline,"
+		   " dso_to, dso_from, symbol_to, symbol_from, mispredict"),
 	OPT_BOOLEAN(0, "showcpuutilization", &symbol_conf.show_cpu_utilization,
 		    "Show sample percentage for different cpu modes"),
 	OPT_STRING('p', "parent", &parent_pattern, "regex",
@@ -636,10 +687,16 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 		   "Specify disassembler style (e.g. -M intel for intel syntax)"),
 	OPT_BOOLEAN(0, "show-total-period", &symbol_conf.show_total_period,
 		    "Show a column with the sum of periods"),
+	OPT_BOOLEAN(0, "group", &symbol_conf.event_group,
+		    "Show event group information together"),
 	OPT_CALLBACK_NOOPT('b', "branch-stack", &sort__branch_mode, "",
 		    "use branch records for histogram filling", parse_branch_mode),
+	OPT_STRING(0, "objdump", &objdump_path, "path",
+		   "objdump binary to use for disassembly and annotations"),
 	OPT_END()
 	};
+
+	perf_config(perf_report_config, NULL);
 
 	argc = parse_options(argc, argv, options, report_usage, 0);
 
@@ -653,13 +710,23 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 	if (report.inverted_callchain)
 		callchain_param.order = ORDER_CALLER;
 
-	if (!report.input_name || !strlen(report.input_name)) {
+	if (!input_name || !strlen(input_name)) {
 		if (!fstat(STDIN_FILENO, &st) && S_ISFIFO(st.st_mode))
-			report.input_name = "-";
+			input_name = "-";
 		else
-			report.input_name = "perf.data";
+			input_name = "perf.data";
 	}
-	session = perf_session__new(report.input_name, O_RDONLY,
+
+	if (strcmp(input_name, "-") != 0)
+		setup_browser(true);
+	else {
+		use_browser = 0;
+		perf_hpp__column_enable(PERF_HPP__OVERHEAD);
+		perf_hpp__init();
+	}
+
+repeat:
+	session = perf_session__new(input_name, O_RDONLY,
 				    report.force, false, &report.tool);
 	if (session == NULL)
 		return -ENOMEM;
@@ -684,17 +751,15 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 
 	}
 
-	if (strcmp(report.input_name, "-") != 0)
-		setup_browser(true);
-	else
-		use_browser = 0;
+	if (setup_sorting() < 0)
+		usage_with_options(report_usage, options);
 
 	/*
 	 * Only in the newt browser we are doing integrated annotation,
 	 * so don't allocate extra space that won't be used in the stdio
 	 * implementation.
 	 */
-	if (use_browser > 0) {
+	if (use_browser == 1 && sort__has_sym) {
 		symbol_conf.priv_size = sizeof(struct annotation);
 		report.annotate_init  = symbol__annotate_init;
 		/*
@@ -716,8 +781,6 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 
 	if (symbol__init() < 0)
 		goto error;
-
-	setup_sorting(report_usage, options);
 
 	if (parent_pattern != default_parent_pattern) {
 		if (sort_dimension__add("parent") < 0)
@@ -757,6 +820,12 @@ int cmd_report(int argc, const char **argv, const char *prefix __used)
 	}
 
 	ret = __cmd_report(&report);
+	if (ret == K_SWITCH_INPUT_DATA) {
+		perf_session__delete(session);
+		goto repeat;
+	} else
+		ret = 0;
+
 error:
 	perf_session__delete(session);
 	return ret;

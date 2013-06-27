@@ -63,6 +63,7 @@ int writeback_in_progress(struct backing_dev_info *bdi)
 {
 	return test_bit(BDI_writeback_running, &bdi->state);
 }
+EXPORT_SYMBOL(writeback_in_progress);
 
 static inline struct backing_dev_info *inode_to_bdi(struct inode *inode)
 {
@@ -227,6 +228,8 @@ static void requeue_io(struct inode *inode, struct bdi_writeback *wb)
 static void inode_sync_complete(struct inode *inode)
 {
 	inode->i_state &= ~I_SYNC;
+	/* If inode is clean an unused, put it into LRU now... */
+	inode_add_lru(inode);
 	/* Waiters must see I_SYNC cleared before being woken up */
 	smp_mb();
 	wake_up_bit(&inode->i_state, __I_SYNC);
@@ -248,7 +251,7 @@ static bool inode_dirtied_after(struct inode *inode, unsigned long t)
 }
 
 /*
- * Move expired (dirtied after work->older_than_this) dirty inodes from
+ * Move expired (dirtied before work->older_than_this) dirty inodes from
  * @delaying_queue to @dispatch_queue.
  */
 static int move_expired_inodes(struct list_head *delaying_queue,
@@ -315,8 +318,14 @@ static void queue_io(struct bdi_writeback *wb, struct wb_writeback_work *work)
 
 static int write_inode(struct inode *inode, struct writeback_control *wbc)
 {
-	if (inode->i_sb->s_op->write_inode && !is_bad_inode(inode))
-		return inode->i_sb->s_op->write_inode(inode, wbc);
+	int ret;
+
+	if (inode->i_sb->s_op->write_inode && !is_bad_inode(inode)) {
+		trace_writeback_write_inode_start(inode, wbc);
+		ret = inode->i_sb->s_op->write_inode(inode, wbc);
+		trace_writeback_write_inode(inode, wbc);
+		return ret;
+	}
 	return 0;
 }
 
@@ -438,8 +447,7 @@ static void requeue_inode(struct inode *inode, struct bdi_writeback *wb,
  * setting I_SYNC flag and calling inode_sync_complete() to clear it.
  */
 static int
-__writeback_single_inode(struct inode *inode, struct bdi_writeback *wb,
-			 struct writeback_control *wbc)
+__writeback_single_inode(struct inode *inode, struct writeback_control *wbc)
 {
 	struct address_space *mapping = inode->i_mapping;
 	long nr_to_write = wbc->nr_to_write;
@@ -447,6 +455,8 @@ __writeback_single_inode(struct inode *inode, struct bdi_writeback *wb,
 	int ret;
 
 	WARN_ON(!(inode->i_state & I_SYNC));
+
+	trace_writeback_single_inode_start(inode, wbc, nr_to_write);
 
 	ret = do_writepages(mapping, wbc);
 
@@ -526,7 +536,7 @@ writeback_single_inode(struct inode *inode, struct bdi_writeback *wb,
 	inode->i_state |= I_SYNC;
 	spin_unlock(&inode->i_lock);
 
-	ret = __writeback_single_inode(inode, wb, wbc);
+	ret = __writeback_single_inode(inode, wbc);
 
 	spin_lock(&wb->list_lock);
 	spin_lock(&inode->i_lock);
@@ -576,10 +586,6 @@ static long writeback_chunk_size(struct backing_dev_info *bdi,
 
 /*
  * Write a portion of b_io inodes which belong to @sb.
- *
- * If @only_this_sb is true, then find and write all such
- * inodes. Otherwise write only ones which go sequentially
- * in reverse order.
  *
  * Return the number of pages and/or inodes written.
  */
@@ -673,7 +679,7 @@ static long writeback_sb_inodes(struct super_block *sb,
 		 * We use I_SYNC to pin the inode in memory. While it is set
 		 * evict_inode() will wait so the inode cannot be freed.
 		 */
-		__writeback_single_inode(inode, wb, &wbc);
+		__writeback_single_inode(inode, &wbc);
 
 		work->nr_pages -= write_chunk - wbc.nr_to_write;
 		wrote += write_chunk - wbc.nr_to_write;
@@ -1036,7 +1042,7 @@ int bdi_writeback_thread(void *data)
 	while (!kthread_freezable_should_stop(NULL)) {
 		/*
 		 * Remove own delayed wake-up timer, since we are already awake
-		 * and we'll take care of the preriodic write-back.
+		 * and we'll take care of the periodic write-back.
 		 */
 		del_timer(&wb->wakeup_timer);
 
@@ -1152,8 +1158,12 @@ void __mark_inode_dirty(struct inode *inode, int flags)
 	 * dirty the inode itself
 	 */
 	if (flags & (I_DIRTY_SYNC | I_DIRTY_DATASYNC)) {
+		trace_writeback_dirty_inode_start(inode, flags);
+
 		if (sb->s_op->dirty_inode)
 			sb->s_op->dirty_inode(inode, flags);
+
+		trace_writeback_dirty_inode(inode, flags);
 	}
 
 	/*
@@ -1334,47 +1344,43 @@ void writeback_inodes_sb(struct super_block *sb, enum wb_reason reason)
 EXPORT_SYMBOL(writeback_inodes_sb);
 
 /**
- * writeback_inodes_sb_if_idle	-	start writeback if none underway
- * @sb: the superblock
- * @reason: reason why some writeback work was initiated
- *
- * Invoke writeback_inodes_sb if no writeback is currently underway.
- * Returns 1 if writeback was started, 0 if not.
- */
-int writeback_inodes_sb_if_idle(struct super_block *sb, enum wb_reason reason)
-{
-	if (!writeback_in_progress(sb->s_bdi)) {
-		down_read(&sb->s_umount);
-		writeback_inodes_sb(sb, reason);
-		up_read(&sb->s_umount);
-		return 1;
-	} else
-		return 0;
-}
-EXPORT_SYMBOL(writeback_inodes_sb_if_idle);
-
-/**
- * writeback_inodes_sb_nr_if_idle	-	start writeback if none underway
+ * try_to_writeback_inodes_sb_nr - try to start writeback if none underway
  * @sb: the superblock
  * @nr: the number of pages to write
- * @reason: reason why some writeback work was initiated
+ * @reason: the reason of writeback
  *
- * Invoke writeback_inodes_sb if no writeback is currently underway.
+ * Invoke writeback_inodes_sb_nr if no writeback is currently underway.
  * Returns 1 if writeback was started, 0 if not.
  */
-int writeback_inodes_sb_nr_if_idle(struct super_block *sb,
-				   unsigned long nr,
-				   enum wb_reason reason)
+int try_to_writeback_inodes_sb_nr(struct super_block *sb,
+				  unsigned long nr,
+				  enum wb_reason reason)
 {
-	if (!writeback_in_progress(sb->s_bdi)) {
-		down_read(&sb->s_umount);
-		writeback_inodes_sb_nr(sb, nr, reason);
-		up_read(&sb->s_umount);
+	if (writeback_in_progress(sb->s_bdi))
 		return 1;
-	} else
+
+	if (!down_read_trylock(&sb->s_umount))
 		return 0;
+
+	writeback_inodes_sb_nr(sb, nr, reason);
+	up_read(&sb->s_umount);
+	return 1;
 }
-EXPORT_SYMBOL(writeback_inodes_sb_nr_if_idle);
+EXPORT_SYMBOL(try_to_writeback_inodes_sb_nr);
+
+/**
+ * try_to_writeback_inodes_sb - try to start writeback if none underway
+ * @sb: the superblock
+ * @reason: reason why some writeback work was initiated
+ *
+ * Implement by try_to_writeback_inodes_sb_nr()
+ * Returns 1 if writeback was started, 0 if not.
+ */
+int try_to_writeback_inodes_sb(struct super_block *sb, enum wb_reason reason)
+{
+	return try_to_writeback_inodes_sb_nr(sb, get_nr_dirty_pages(), reason);
+}
+EXPORT_SYMBOL(try_to_writeback_inodes_sb);
 
 /**
  * sync_inodes_sb	-	sync sb inode pages

@@ -15,13 +15,12 @@
 
 #include <linux/amba/pl022.h>
 #include <linux/clk.h>
+#include <linux/clocksource.h>
 #include <linux/dw_dmac.h>
 #include <linux/err.h>
-#include <linux/of_irq.h>
+#include <linux/of.h>
 #include <asm/hardware/cache-l2x0.h>
-#include <asm/hardware/gic.h>
 #include <asm/mach/map.h>
-#include <asm/smp_twd.h>
 #include <mach/dma.h>
 #include <mach/generic.h>
 #include <mach/spear.h>
@@ -57,12 +56,10 @@ static struct dw_dma_slave ssp_dma_param[] = {
 };
 
 struct pl022_ssp_controller pl022_plat_data = {
-	.bus_id = 0,
 	.enable_dma = 1,
 	.dma_filter = dw_dma_filter,
 	.dma_rx_param = &ssp_dma_param[1],
 	.dma_tx_param = &ssp_dma_param[0],
-	.num_chipselect = 3,
 };
 
 /* CF device registration */
@@ -78,6 +75,9 @@ struct dw_dma_platform_data dmac_plat_data = {
 	.nr_channels = 8,
 	.chan_allocation_order = CHAN_ALLOCATION_DESCENDING,
 	.chan_priority = CHAN_PRIORITY_DESCENDING,
+	.block_size = 4095U,
+	.nr_masters = 2,
+	.data_width = { 3, 3, 0, 0 },
 };
 
 void __init spear13xx_l2x0_init(void)
@@ -114,17 +114,17 @@ void __init spear13xx_l2x0_init(void)
  */
 struct map_desc spear13xx_io_desc[] __initdata = {
 	{
-		.virtual	= VA_PERIP_GRP2_BASE,
+		.virtual	= (unsigned long)VA_PERIP_GRP2_BASE,
 		.pfn		= __phys_to_pfn(PERIP_GRP2_BASE),
 		.length		= SZ_16M,
 		.type		= MT_DEVICE
 	}, {
-		.virtual	= VA_PERIP_GRP1_BASE,
+		.virtual	= (unsigned long)VA_PERIP_GRP1_BASE,
 		.pfn		= __phys_to_pfn(PERIP_GRP1_BASE),
 		.length		= SZ_16M,
 		.type		= MT_DEVICE
 	}, {
-		.virtual	= VA_A9SM_AND_MPMC_BASE,
+		.virtual	= (unsigned long)VA_A9SM_AND_MPMC_BASE,
 		.pfn		= __phys_to_pfn(A9SM_AND_MPMC_BASE),
 		.length		= SZ_16M,
 		.type		= MT_DEVICE
@@ -152,7 +152,7 @@ static void __init spear13xx_clk_init(void)
 		pr_err("%s: Unknown machine\n", __func__);
 }
 
-static void __init spear13xx_timer_init(void)
+void __init spear13xx_timer_init(void)
 {
 	char pclk_name[] = "osc_24m_clk";
 	struct clk *gpt_clk, *pclk;
@@ -179,19 +179,5 @@ static void __init spear13xx_timer_init(void)
 	clk_put(pclk);
 
 	spear_setup_of_timer();
-	twd_local_timer_of_register();
-}
-
-struct sys_timer spear13xx_timer = {
-	.init = spear13xx_timer_init,
-};
-
-static const struct of_device_id gic_of_match[] __initconst = {
-	{ .compatible = "arm,cortex-a9-gic", .data = gic_of_init },
-	{ /* Sentinel */ }
-};
-
-void __init spear13xx_dt_init_irq(void)
-{
-	of_irq_init(gic_of_match);
+	clocksource_of_init();
 }

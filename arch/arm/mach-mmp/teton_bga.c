@@ -17,7 +17,7 @@
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
-#include <plat/pxa27x_keypad.h>
+#include <linux/platform_data/keypad-pxa27x.h>
 #include <linux/i2c.h>
 
 #include <asm/mach-types.h>
@@ -86,7 +86,7 @@ MACHINE_START(TETON_BGA, "PXA168-based Teton BGA Development Platform")
 	.map_io		= mmp_map_io,
 	.nr_irqs	= MMP_NR_IRQS,
 	.init_irq       = pxa168_init_irq,
-	.timer          = &pxa168_timer,
+	.init_time	= pxa168_timer_init,
 	.init_machine   = teton_bga_init,
 	.restart	= pxa168_restart,
 MACHINE_END

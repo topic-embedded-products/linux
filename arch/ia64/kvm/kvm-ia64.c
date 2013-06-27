@@ -1,5 +1,5 @@
 /*
- * kvm_ia64.c: Basic KVM suppport On Itanium series processors
+ * kvm_ia64.c: Basic KVM support On Itanium series processors
  *
  *
  * 	Copyright (C) 2007, Intel Corporation.
@@ -924,6 +924,16 @@ int kvm_arch_vcpu_ioctl_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	return 0;
 }
 
+int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_event)
+{
+	if (!irqchip_in_kernel(kvm))
+		return -ENXIO;
+
+	irq_event->status = kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID,
+					irq_event->irq, irq_event->level);
+	return 0;
+}
+
 long kvm_arch_vm_ioctl(struct file *filp,
 		unsigned int ioctl, unsigned long arg)
 {
@@ -945,7 +955,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 					kvm_mem.guest_phys_addr;
 		kvm_userspace_mem.memory_size = kvm_mem.memory_size;
 		r = kvm_vm_ioctl_set_memory_region(kvm,
-					&kvm_userspace_mem, 0);
+					&kvm_userspace_mem, false);
 		if (r)
 			goto out;
 		break;
@@ -963,29 +973,6 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			goto out;
 		}
 		break;
-	case KVM_IRQ_LINE_STATUS:
-	case KVM_IRQ_LINE: {
-		struct kvm_irq_level irq_event;
-
-		r = -EFAULT;
-		if (copy_from_user(&irq_event, argp, sizeof irq_event))
-			goto out;
-		r = -ENXIO;
-		if (irqchip_in_kernel(kvm)) {
-			__s32 status;
-			status = kvm_set_irq(kvm, KVM_USERSPACE_IRQ_SOURCE_ID,
-				    irq_event.irq, irq_event.level);
-			if (ioctl == KVM_IRQ_LINE_STATUS) {
-				r = -EFAULT;
-				irq_event.status = status;
-				if (copy_to_user(argp, &irq_event,
-							sizeof irq_event))
-					goto out;
-			}
-			r = 0;
-		}
-		break;
-		}
 	case KVM_GET_IRQCHIP: {
 		/* 0: PIC master, 1: PIC slave, 2: IOAPIC */
 		struct kvm_irqchip chip;
@@ -1343,6 +1330,11 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 	return 0;
 }
 
+int kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
+{
+	return 0;
+}
+
 int kvm_arch_vcpu_ioctl_get_fpu(struct kvm_vcpu *vcpu, struct kvm_fpu *fpu)
 {
 	return -EINVAL;
@@ -1375,11 +1367,9 @@ static void kvm_release_vm_pages(struct kvm *kvm)
 	struct kvm_memslots *slots;
 	struct kvm_memory_slot *memslot;
 	int j;
-	unsigned long base_gfn;
 
 	slots = kvm_memslots(kvm);
 	kvm_for_each_memslot(memslot, slots) {
-		base_gfn = memslot->base_gfn;
 		for (j = 0; j < memslot->npages; j++) {
 			if (memslot->rmap[j])
 				put_page((struct page *)memslot->rmap[j]);
@@ -1590,7 +1580,7 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 		struct kvm_memory_slot *memslot,
 		struct kvm_memory_slot old,
 		struct kvm_userspace_memory_region *mem,
-		int user_alloc)
+		bool user_alloc)
 {
 	unsigned long i;
 	unsigned long pfn;
@@ -1621,14 +1611,20 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
 void kvm_arch_commit_memory_region(struct kvm *kvm,
 		struct kvm_userspace_memory_region *mem,
 		struct kvm_memory_slot old,
-		int user_alloc)
+		bool user_alloc)
 {
 	return;
 }
 
-void kvm_arch_flush_shadow(struct kvm *kvm)
+void kvm_arch_flush_shadow_all(struct kvm *kvm)
 {
 	kvm_flush_remote_tlbs(kvm);
+}
+
+void kvm_arch_flush_shadow_memslot(struct kvm *kvm,
+				   struct kvm_memory_slot *slot)
+{
+	kvm_arch_flush_shadow_all();
 }
 
 long kvm_arch_dev_ioctl(struct file *filp,
@@ -1838,7 +1834,7 @@ int kvm_vm_ioctl_get_dirty_log(struct kvm *kvm,
 	mutex_lock(&kvm->slots_lock);
 
 	r = -EINVAL;
-	if (log->slot >= KVM_MEMORY_SLOTS)
+	if (log->slot >= KVM_USER_MEM_SLOTS)
 		goto out;
 
 	memslot = id_to_memslot(kvm->memslots, log->slot);

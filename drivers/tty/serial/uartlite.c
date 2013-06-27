@@ -28,7 +28,7 @@
 #define ULITE_NAME		"ttyUL"
 #define ULITE_MAJOR		204
 #define ULITE_MINOR		187
-#define ULITE_NR_UARTS		10
+#define ULITE_NR_UARTS		4
 
 /* ---------------------------------------------------------------------
  * Register definitions
@@ -114,7 +114,7 @@ static struct uart_port ulite_ports[ULITE_NR_UARTS];
 
 static int ulite_receive(struct uart_port *port, int stat)
 {
-	struct tty_struct *tty = port->state->port.tty;
+	struct tty_port *tport = &port->state->port;
 	unsigned char ch = 0;
 	char flag = TTY_NORMAL;
 
@@ -151,13 +151,13 @@ static int ulite_receive(struct uart_port *port, int stat)
 	stat &= ~port->ignore_status_mask;
 
 	if (stat & ULITE_STATUS_RXVALID)
-		tty_insert_flip_char(tty, ch, flag);
+		tty_insert_flip_char(tport, ch, flag);
 
 	if (stat & ULITE_STATUS_FRAME)
-		tty_insert_flip_char(tty, 0, TTY_FRAME);
+		tty_insert_flip_char(tport, 0, TTY_FRAME);
 
 	if (stat & ULITE_STATUS_OVERRUN)
-		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
+		tty_insert_flip_char(tport, 0, TTY_OVERRUN);
 
 	return 1;
 }
@@ -204,7 +204,7 @@ static irqreturn_t ulite_isr(int irq, void *dev_id)
 
 	/* work done? */
 	if (n > 1) {
-		tty_flip_buffer_push(port->state->port.tty);
+		tty_flip_buffer_push(&port->state->port);
 		return IRQ_HANDLED;
 	} else {
 		return IRQ_NONE;
@@ -465,7 +465,7 @@ static void ulite_console_write(struct console *co, const char *s,
 		spin_unlock_irqrestore(&port->lock, flags);
 }
 
-static int __devinit ulite_console_setup(struct console *co, char *options)
+static int ulite_console_setup(struct console *co, char *options)
 {
 	struct uart_port *port;
 	int baud = 9600;
@@ -543,7 +543,7 @@ static struct uart_driver ulite_uart_driver = {
  *
  * Returns: 0 on success, <0 otherwise
  */
-static int __devinit ulite_assign(struct device *dev, int id, u32 base, int irq)
+static int ulite_assign(struct device *dev, int id, u32 base, int irq)
 {
 	struct uart_port *port;
 	int rc;
@@ -599,7 +599,7 @@ static int __devinit ulite_assign(struct device *dev, int id, u32 base, int irq)
  *
  * @dev: pointer to device structure
  */
-static int __devexit ulite_release(struct device *dev)
+static int ulite_release(struct device *dev)
 {
 	struct uart_port *port = dev_get_drvdata(dev);
 	int rc = 0;
@@ -619,7 +619,7 @@ static int __devexit ulite_release(struct device *dev)
 
 #if defined(CONFIG_OF)
 /* Match table for of_platform binding */
-static struct of_device_id ulite_of_match[] __devinitdata = {
+static struct of_device_id ulite_of_match[] = {
 	{ .compatible = "xlnx,opb-uartlite-1.00.b", },
 	{ .compatible = "xlnx,xps-uartlite-1.00.a", },
 	{}
@@ -627,33 +627,16 @@ static struct of_device_id ulite_of_match[] __devinitdata = {
 MODULE_DEVICE_TABLE(of, ulite_of_match);
 #endif /* CONFIG_OF */
 
-static int __devinit ulite_probe(struct platform_device *pdev)
+static int ulite_probe(struct platform_device *pdev)
 {
 	struct resource *res, *res2;
 	int id = pdev->id;
 #ifdef CONFIG_OF
 	const __be32 *prop;
 
-	/* Look for a serialN alias */
-	id = of_alias_get_id(pdev->dev.of_node, "serial");
-	if (id < 0) {
-		dev_warn(&pdev->dev, "failed to get alias id, errno %d\n", id);
-		/* Fall back to old port-number property */
-		prop = of_get_property(pdev->dev.of_node, "port-number", NULL);
-		if (!prop) {
-			dev_warn(&pdev->dev, "failed to get port-number\n");
-			id = -1;
-		} else
-			id = be32_to_cpup(prop);
-	}
-
-	/* we can't register ids which are greater than number of uartlites */
-	if (id >= ULITE_NR_UARTS) {
-		dev_warn(&pdev->dev,
-			"Extern number of allocated uartlite entries "
-			"ULITE_NR_UARTS, id %d\n", id);
-		return -ENODEV;
-	}
+	prop = of_get_property(pdev->dev.of_node, "port-number", NULL);
+	if (prop)
+		id = be32_to_cpup(prop);
 #endif
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -667,7 +650,7 @@ static int __devinit ulite_probe(struct platform_device *pdev)
 	return ulite_assign(&pdev->dev, id, res->start, res2->start);
 }
 
-static int __devexit ulite_remove(struct platform_device *pdev)
+static int ulite_remove(struct platform_device *pdev)
 {
 	return ulite_release(&pdev->dev);
 }
@@ -677,7 +660,7 @@ MODULE_ALIAS("platform:uartlite");
 
 static struct platform_driver ulite_platform_driver = {
 	.probe = ulite_probe,
-	.remove = __devexit_p(ulite_remove),
+	.remove = ulite_remove,
 	.driver = {
 		.owner = THIS_MODULE,
 		.name  = "uartlite",

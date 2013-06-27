@@ -372,7 +372,7 @@ int btrfs_submit_compressed_write(struct inode *inode, u64 start,
 		page = compressed_pages[pg_index];
 		page->mapping = inode->i_mapping;
 		if (bio->bi_size)
-			ret = io_tree->ops->merge_bio_hook(page, 0,
+			ret = io_tree->ops->merge_bio_hook(WRITE, page, 0,
 							   PAGE_CACHE_SIZE,
 							   bio, 0);
 		else
@@ -577,6 +577,7 @@ int btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 	u64 em_start;
 	struct extent_map *em;
 	int ret = -ENOMEM;
+	int faili = 0;
 	u32 *sums;
 
 	tree = &BTRFS_I(inode)->io_tree;
@@ -626,9 +627,13 @@ int btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 	for (pg_index = 0; pg_index < nr_pages; pg_index++) {
 		cb->compressed_pages[pg_index] = alloc_page(GFP_NOFS |
 							      __GFP_HIGHMEM);
-		if (!cb->compressed_pages[pg_index])
+		if (!cb->compressed_pages[pg_index]) {
+			faili = pg_index - 1;
+			ret = -ENOMEM;
 			goto fail2;
+		}
 	}
+	faili = nr_pages - 1;
 	cb->nr_pages = nr_pages;
 
 	add_ra_bio_pages(inode, em_start + em_len, cb);
@@ -650,7 +655,7 @@ int btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 		page->index = em_start >> PAGE_CACHE_SHIFT;
 
 		if (comp_bio->bi_size)
-			ret = tree->ops->merge_bio_hook(page, 0,
+			ret = tree->ops->merge_bio_hook(READ, page, 0,
 							PAGE_CACHE_SIZE,
 							comp_bio, 0);
 		else
@@ -682,7 +687,8 @@ int btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 
 			ret = btrfs_map_bio(root, READ, comp_bio,
 					    mirror_num, 0);
-			BUG_ON(ret); /* -ENOMEM */
+			if (ret)
+				bio_endio(comp_bio, ret);
 
 			bio_put(comp_bio);
 
@@ -707,14 +713,17 @@ int btrfs_submit_compressed_read(struct inode *inode, struct bio *bio,
 	}
 
 	ret = btrfs_map_bio(root, READ, comp_bio, mirror_num, 0);
-	BUG_ON(ret); /* -ENOMEM */
+	if (ret)
+		bio_endio(comp_bio, ret);
 
 	bio_put(comp_bio);
 	return 0;
 
 fail2:
-	for (pg_index = 0; pg_index < nr_pages; pg_index++)
-		free_page((unsigned long)cb->compressed_pages[pg_index]);
+	while (faili >= 0) {
+		__free_page(cb->compressed_pages[faili]);
+		faili--;
+	}
 
 	kfree(cb->compressed_pages);
 fail1:

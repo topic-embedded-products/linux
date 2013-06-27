@@ -22,6 +22,7 @@
 
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
+#include <linux/notifier.h>
 
 #define DA9030_FAULT_LOG		0x0a
 #define DA9030_FAULT_LOG_OVER_TEMP	(1 << 7)
@@ -187,8 +188,8 @@ static const struct file_operations bat_debug_fops = {
 
 static struct dentry *da9030_bat_create_debugfs(struct da9030_charger *charger)
 {
-	charger->debug_file = debugfs_create_file("charger", 0666, 0, charger,
-						 &bat_debug_fops);
+	charger->debug_file = debugfs_create_file("charger", 0666, NULL,
+						  charger, &bat_debug_fops);
 	return charger->debug_file;
 }
 
