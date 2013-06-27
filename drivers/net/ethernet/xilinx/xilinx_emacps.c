@@ -2785,14 +2785,19 @@ static int __exit xemacps_remove(struct platform_device *pdev)
 		unregister_netdev(ndev);
 		free_irq(ndev->irq, ndev);
 		iounmap(lp->baseaddr);
-		free_netdev(ndev);
-		platform_set_drvdata(pdev, NULL);
 
 		clk_notifier_unregister(lp->devclk, &lp->clk_rate_change_nb);
-		clk_disable_unprepare(lp->devclk);
+		if (!pm_runtime_suspended(&pdev->dev)) {
+			clk_disable_unprepare(lp->devclk);
+			clk_disable_unprepare(lp->aperclk);
+		} else {
+			clk_unprepare(lp->devclk);
+			clk_unprepare(lp->aperclk);
+		}
 		clk_put(lp->devclk);
-		clk_disable_unprepare(lp->aperclk);
 		clk_put(lp->aperclk);
+
+		free_netdev(ndev);
 	}
 
 	return 0;
