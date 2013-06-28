@@ -13,7 +13,7 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait quiet";
+		bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait";
 		linux,stdout-path = "/amba@0/uart@E0001000";
 	};
 };
@@ -34,5 +34,10 @@
    kernel failing to mount rootfs.
 */
 &sdcard {
-	clock-frequency = <33000000>;
+	clock-frequency = <33333000>;
+};
+
+/* Specify flash chip to expect */
+&primary_flash {
+	compatible = "s25fl256s1";
 };
