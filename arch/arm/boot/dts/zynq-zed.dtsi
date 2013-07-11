@@ -40,4 +40,9 @@
 /* Specify flash chip to expect */
 &primary_flash {
 	compatible = "s25fl256s1";
+	/* Flash chip is 32MB, so add 16MB to the rootfs partition */
+	partition@qspi-rootfs {
+		label = "qspi-rootfs";
+		reg = <0x480000 0x1b80000>;
+	};
 };
