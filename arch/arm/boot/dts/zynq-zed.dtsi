@@ -2,11 +2,6 @@
 
 / {
 	model = "Xilinx Zynq ZED";
-	compatible = "xlnx,zynq-zc702";
-	#address-cells = <0x1>;
-	#size-cells = <0x1>;
-	interrupt-parent = <0x1>;
-
 	memory {
 		device_type = "memory";
 		reg = <0x000000000 0x20000000>;
@@ -28,13 +23,6 @@
 		reg = <0x0>;
 		marvell,reg-init=<3 16 0xff00 0x1e 3 17 0xfff0 0x0a>;
 	};
-};
-
-/* Lower the SD card frequency, 50MHz doesn't work on the Zed resulting in
-   kernel failing to mount rootfs.
-*/
-&sdcard {
-	clock-frequency = <33333000>;
 };
 
 /* Specify flash chip to expect */
