@@ -1937,17 +1937,12 @@ static int xusbps_otg_remove(struct platform_device *pdev)
 	/* disable OTGSC interrupt as OTGSC doesn't change in reset */
 	writel(0, xotg->base + CI_OTGSC);
 
-	if (xotg->irq)
-		free_irq(xotg->irq, xotg);
-
 	usb_remove_phy(&xotg->otg);
 	sysfs_remove_group(&pdev->dev.kobj, &debug_dev_attr_group);
 	device_remove_file(&pdev->dev, &dev_attr_hsm);
 	device_remove_file(&pdev->dev, &dev_attr_registers);
 	clk_notifier_unregister(xotg->clk, &xotg->clk_rate_change_nb);
 	clk_disable_unprepare(xotg->clk);
-	clk_put(xotg->clk);
-	kfree(xotg);
 
 	return 0;
 }
@@ -1966,7 +1961,7 @@ static int xusbps_otg_probe(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "\notg controller is detected.\n");
 
-	xotg = kzalloc(sizeof *xotg, GFP_KERNEL);
+	xotg = devm_kzalloc(&pdev->dev, sizeof *xotg, GFP_KERNEL);
 	if (xotg == NULL)
 		return -ENOMEM;
 
@@ -1975,11 +1970,9 @@ static int xusbps_otg_probe(struct platform_device *pdev)
 	/* Setup ulpi phy for OTG */
 	xotg->ulpi = pdata->ulpi;
 
-	xotg->otg.otg = kzalloc(sizeof(struct usb_otg), GFP_KERNEL);
-	if (!xotg->otg.otg) {
-		kfree(xotg);
+	xotg->otg.otg = devm_kzalloc(&pdev->dev, sizeof(struct usb_otg), GFP_KERNEL);
+	if (!xotg->otg.otg)
 		return -ENOMEM;
-	}
 
 	xotg->base = pdata->regs;
 	xotg->irq = pdata->irq;
@@ -1996,17 +1989,11 @@ static int xusbps_otg_probe(struct platform_device *pdev)
 	}
 	INIT_WORK(&xotg->work, xusbps_otg_work);
 
-	xotg->clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(xotg->clk)) {
-		dev_err(&pdev->dev, "input clock not found.\n");
-		retval = PTR_ERR(xotg->clk);
-		goto err;
-	}
-
+	xotg->clk = pdata->clk;
 	retval = clk_prepare_enable(xotg->clk);
 	if (retval) {
 		dev_err(&pdev->dev, "Unable to enable APER clock.\n");
-		goto err_out_clk_put;
+		goto err;
 	}
 
 	xotg->clk_rate_change_nb.notifier_call = xusbps_otg_clk_notifier_cb;
@@ -2051,8 +2038,9 @@ static int xusbps_otg_probe(struct platform_device *pdev)
 	usb_register_notify((struct notifier_block *)
 					&xotg->xotg_notifier.notifier_call);
 
-	if (request_irq(xotg->irq, otg_irq, IRQF_SHARED,
-				driver_name, xotg) != 0) {
+	retval = devm_request_irq(&pdev->dev, xotg->irq, otg_irq, IRQF_SHARED,
+				driver_name, xotg);
+	if (retval) {
 		dev_dbg(xotg->dev, "request interrupt %d failed\n", xotg->irq);
 		retval = -EBUSY;
 		goto err_out_clk_disable;
@@ -2091,8 +2079,6 @@ static int xusbps_otg_probe(struct platform_device *pdev)
 err_out_clk_disable:
 	clk_notifier_unregister(xotg->clk, &xotg->clk_rate_change_nb);
 	clk_disable_unprepare(xotg->clk);
-err_out_clk_put:
-	clk_put(xotg->clk);
 err:
 	xusbps_otg_remove(pdev);
 
@@ -2295,7 +2281,11 @@ static const struct dev_pm_ops xusbps_otg_dev_pm_ops = {
 #define XUSBPS_OTG_PM	NULL
 #endif /* ! CONFIG_PM_SLEEP */
 
+#ifndef CONFIG_USB_XUSBPS_DR_OF
 static struct platform_driver xusbps_otg_driver = {
+#else
+struct platform_driver xusbps_otg_driver = {
+#endif
 	.probe		= xusbps_otg_probe,
 	.remove		= xusbps_otg_remove,
 	.driver		= {
@@ -2305,7 +2295,9 @@ static struct platform_driver xusbps_otg_driver = {
 	},
 };
 
+#ifndef CONFIG_USB_XUSBPS_DR_OF
 module_platform_driver(xusbps_otg_driver);
+#endif
 
 MODULE_AUTHOR("Xilinx, Inc.");
 MODULE_DESCRIPTION("Xilinx PS USB OTG driver");

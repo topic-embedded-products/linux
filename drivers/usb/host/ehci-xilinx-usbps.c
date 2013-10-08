@@ -79,7 +79,7 @@ static int ehci_xusbps_otg_start_host(struct usb_phy *otg)
 	struct xusbps_otg *xotg =
 			xceiv_to_xotg(hcd->phy);
 
-	usb_add_hcd(hcd, xotg->irq, IRQF_SHARED | IRQF_DISABLED);
+	usb_add_hcd(hcd, xotg->irq, IRQF_SHARED);
 	return 0;
 }
 
@@ -168,17 +168,10 @@ static int usb_hcd_xusbps_probe(const struct hc_driver *driver,
 		goto err2;
 	}
 
-	pdata->clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(pdata->clk)) {
-		dev_err(&pdev->dev, "input clock not found.\n");
-		retval = PTR_ERR(pdata->clk);
-		goto err2;
-	}
-
 	retval = clk_prepare_enable(pdata->clk);
 	if (retval) {
 		dev_err(&pdev->dev, "Unable to enable APER clock.\n");
-		goto err_out_clk_put;
+		goto err2;
 	}
 
 	pdata->clk_rate_change_nb.notifier_call = xusbps_ehci_clk_notifier_cb;
@@ -213,7 +206,7 @@ static int usb_hcd_xusbps_probe(const struct hc_driver *driver,
 		/* inform otg driver about host driver */
 		xusbps_update_transceiver();
 	} else {
-		retval = usb_add_hcd(hcd, irq, IRQF_DISABLED | IRQF_SHARED);
+		retval = usb_add_hcd(hcd, irq, IRQF_SHARED);
 		if (retval)
 			goto err_out_clk_unreg_notif;
 
@@ -226,7 +219,7 @@ static int usb_hcd_xusbps_probe(const struct hc_driver *driver,
 	}
 #else
 	/* Don't need to set host mode here. It will be done by tdi_reset() */
-	retval = usb_add_hcd(hcd, irq, IRQF_DISABLED | IRQF_SHARED);
+	retval = usb_add_hcd(hcd, irq, IRQF_SHARED);
 	if (retval)
 		goto err_out_clk_unreg_notif;
 #endif
@@ -235,8 +228,6 @@ static int usb_hcd_xusbps_probe(const struct hc_driver *driver,
 err_out_clk_unreg_notif:
 	clk_notifier_unregister(pdata->clk, &pdata->clk_rate_change_nb);
 	clk_disable_unprepare(pdata->clk);
-err_out_clk_put:
-	clk_put(pdata->clk);
 err2:
 	usb_put_hcd(hcd);
 err1:
@@ -274,7 +265,6 @@ static void usb_hcd_xusbps_remove(struct usb_hcd *hcd,
 	usb_put_hcd(hcd);
 	clk_notifier_unregister(pdata->clk, &pdata->clk_rate_change_nb);
 	clk_disable_unprepare(pdata->clk);
-	clk_put(pdata->clk);
 }
 
 static void ehci_xusbps_setup_phy(struct ehci_hcd *ehci,

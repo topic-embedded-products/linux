@@ -215,7 +215,7 @@ static int xspips_setup_transfer(struct spi_device *spi,
 	u32 ctrl_reg;
 	u32 req_hz;
 	u32 baud_rate_val;
-	unsigned long flags;
+	unsigned long flags, frequency;
 
 	bits_per_word = (transfer) ?
 			transfer->bits_per_word : spi->bits_per_word;
@@ -226,6 +226,8 @@ static int xspips_setup_transfer(struct spi_device *spi,
 			__func__, spi->bits_per_word);
 		return -EINVAL;
 	}
+
+	frequency = clk_get_rate(xspi->devclk);
 
 	spin_lock_irqsave(&xspi->ctrl_reg_lock, flags);
 
@@ -242,15 +244,14 @@ static int xspips_setup_transfer(struct spi_device *spi,
 	/* Set the clock frequency */
 	if (xspi->speed_hz != req_hz) {
 		baud_rate_val = 0;
-		while ((baud_rate_val < 8) && (clk_get_rate(xspi->devclk) /
+		while ((baud_rate_val < 8) && (frequency /
 					(2 << baud_rate_val)) > req_hz)
 			baud_rate_val++;
 
 		ctrl_reg &= 0xFFFFFFC7;
 		ctrl_reg |= (baud_rate_val << 3);
 
-		xspi->speed_hz =
-			(clk_get_rate(xspi->devclk) / (2 << baud_rate_val));
+		xspi->speed_hz = (frequency / (2 << baud_rate_val));
 	}
 
 	xspips_write(xspi->regs + XSPIPS_CR_OFFSET, ctrl_reg);
@@ -393,6 +394,7 @@ static int xspips_start_transfer(struct spi_device *spi,
 	struct xspips *xspi = spi_master_get_devdata(spi->master);
 	u32 ctrl_reg;
 	unsigned long flags;
+	int ret;
 
 	xspi->txbuf = transfer->tx_buf;
 	xspi->rxbuf = transfer->rx_buf;
@@ -412,7 +414,9 @@ static int xspips_start_transfer(struct spi_device *spi,
 
 	spin_unlock_irqrestore(&xspi->ctrl_reg_lock, flags);
 
-	wait_for_completion(&xspi->done);
+	ret = wait_for_completion_timeout(&xspi->done, 5 * HZ);
+	if (ret == 0)
+		return -EIO;
 
 	return (transfer->len) - (xspi->remaining_bytes);
 }
@@ -449,7 +453,8 @@ static void xspips_work_queue(struct work_struct *work)
 		spi = msg->spi;
 
 		list_for_each_entry(transfer, &msg->transfers, transfer_list) {
-			if (transfer->bits_per_word || transfer->speed_hz) {
+			if ((transfer->bits_per_word || transfer->speed_hz) &&
+								cs_change) {
 				status = xspips_setup_transfer(spi, transfer);
 				if (status < 0)
 					break;
@@ -490,8 +495,6 @@ static void xspips_work_queue(struct work_struct *work)
 
 		msg->status = status;
 		msg->complete(msg->context);
-
-		xspips_setup_transfer(spi, NULL);
 
 		if (!(status == 0 && cs_change))
 			xspips_chipselect(spi, 0);
@@ -655,6 +658,7 @@ static int xspips_probe(struct platform_device *pdev)
 	struct spi_master *master;
 	struct xspips *xspi;
 	struct resource *res;
+	unsigned long aper_clk_rate;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(*xspi));
 	if (master == NULL)
@@ -732,6 +736,10 @@ static int xspips_probe(struct platform_device *pdev)
 	master->setup = xspips_setup;
 	master->transfer = xspips_transfer;
 	master->mode_bits = SPI_CPOL | SPI_CPHA;
+
+	aper_clk_rate = clk_get_rate(xspi->aperclk);
+	if (aper_clk_rate > clk_get_rate(xspi->devclk))
+		clk_set_rate(xspi->devclk, aper_clk_rate);
 
 	xspi->speed_hz = clk_get_rate(xspi->devclk) / 2;
 
