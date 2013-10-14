@@ -166,7 +166,6 @@
 			compatible = "adv7511-hdmi-snd";
 			audio-codec = <&adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
-			pcm = <&xilinx_pcm_audio>;
 		};
 
 		leds {
