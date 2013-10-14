@@ -18,6 +18,7 @@
 		ds12 {
 			label = "ds12:green";
 			gpios = <&gpio 8 0>;
+			linux,default-trigger = "mmc0";
 		};
 
 		ds15 {
@@ -63,6 +64,7 @@
 		ds23 {
 			label = "ds23:green";
 			gpios = <&gpio 10 0>;
+			linux,default-trigger = "heartbeat";
 		};
 	};
 
