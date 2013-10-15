@@ -138,7 +138,7 @@
 			clocks = <&clkc 17>;
 		};
 
-		axi_hdmi@70e00000 {
+		axi_hdmi_0: axi_hdmi@70e00000 {
 			compatible = "adi,axi-hdmi-1.00.a";
 			reg = <0x70e00000 0x10000>;
 			encoder-slave = <&adv7511>;
