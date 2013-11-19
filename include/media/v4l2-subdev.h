@@ -24,6 +24,7 @@
 #include <linux/types.h>
 #include <linux/v4l2-subdev.h>
 #include <media/media-entity.h>
+#include <media/v4l2-async.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-dev.h>
 #include <media/v4l2-fh.h>
@@ -585,6 +586,14 @@ struct v4l2_subdev {
 	void *host_priv;
 	/* subdev device node */
 	struct video_device *devnode;
+	/* pointer to the physical device, if any */
+	struct device *dev;
+	/* Links this subdev to a global subdev_list or @notifier->done list. */
+	struct list_head async_list;
+	/* Pointer to respective struct v4l2_async_subdev. */
+	struct v4l2_async_subdev *asd;
+	/* Pointer to the managing notifier. */
+	struct v4l2_async_notifier *notifier;
 };
 
 #define media_entity_to_v4l2_subdev(ent) \
