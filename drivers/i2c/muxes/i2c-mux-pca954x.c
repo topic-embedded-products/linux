@@ -47,6 +47,8 @@
 
 #define PCA954X_MAX_NCHANS 8
 
+#define PCA954X_DESELECT_TIMEOUT	msecs_to_jiffies(100)
+
 enum pca_type {
 	pca_9540,
 	pca_9542,
@@ -179,15 +181,17 @@ static void pca954x_deselect_work(struct work_struct *work)
 	 * the lock will assure that at least that transaction will
 	 * complete. */
 	i2c_lock_adapter(data->client->adapter);
-	if (data->last_chan != 0)
-	{
+	if (data->last_chan != 0) {
 		int res;
 		/* Disable mux */
-		pr_debug("%s deselecting mux\n", __func__);
+		dev_dbg(&client->dev, "deselecting mux\n");
 		data->last_chan = 0;
-		res = pca954x_reg_write(data->client->adapter, data->client, data->last_chan);
+		res = pca954x_reg_write(data->client->adapter,
+				data->client, data->last_chan);
 		if (res < 0)
-			printk(KERN_ERR "%s: pca954x_reg_write failed: %d\n", __func__, res);
+			dev_err(&client->dev,
+				"%s: pca954x_reg_write failed: %d\n",
+				__func__, res);
 	}
 	i2c_unlock_adapter(data->client->adapter);
 }
@@ -197,17 +201,8 @@ static int pca954x_deselect_mux_delayed(struct i2c_adapter *adap,
 {
 	struct pca954x *data = i2c_get_clientdata(client);
 	/* Setup timer to disable at a later interval */
-	schedule_delayed_work(&data->deselect_work, msecs_to_jiffies(200));
+	schedule_delayed_work(&data->deselect_work, PCA954X_DESELECT_TIMEOUT);
 	return 0;
-}
-
-static int pca954x_deselect_mux_immediate(struct i2c_adapter *adap,
-				void *client, u32 chan)
-{
-	struct pca954x *data = i2c_get_clientdata(client);
-	/* Deselect active channel */
-	data->last_chan = 0;
-	return pca954x_reg_write(adap, client, data->last_chan);
 }
 
 /*
@@ -265,7 +260,8 @@ static int pca954x_probe(struct i2c_client *client,
 			i2c_add_mux_adapter(adap, &client->dev, client,
 				force, num, class, pca954x_select_chan,
 				(pdata && pdata->modes[num].deselect_on_exit)
-					? pca954x_deselect_mux_immediate : pca954x_deselect_mux_delayed);
+					? pca954x_deselect_mux_delayed
+					: NULL);
 
 		if (data->virt_adaps[num] == NULL) {
 			ret = -ENODEV;
