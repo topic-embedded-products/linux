@@ -184,12 +184,12 @@ static void pca954x_deselect_work(struct work_struct *work)
 	if (data->last_chan != 0) {
 		int res;
 		/* Disable mux */
-		dev_dbg(&client->dev, "deselecting mux\n");
+		dev_dbg(&data->client->dev, "deselecting mux\n");
 		data->last_chan = 0;
 		res = pca954x_reg_write(data->client->adapter,
 				data->client, data->last_chan);
 		if (res < 0)
-			dev_err(&client->dev,
+			dev_err(&data->client->dev,
 				"%s: pca954x_reg_write failed: %d\n",
 				__func__, res);
 	}
