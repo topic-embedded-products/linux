@@ -25,9 +25,11 @@
 	};
 };
 
-/* Specify flash chip to expect */
 &primary_flash {
+	/* Specify flash chip to expect */
 	compatible = "s25fl256s1";
+	/* Max frequency for quad read is 104MHz according to data sheet */
+	spi-max-frequency = <104000000>;
 	/* Flash chip is 32MB, so add 16MB to the rootfs partition */
 	partition@qspi-rootfs {
 		label = "qspi-rootfs";
