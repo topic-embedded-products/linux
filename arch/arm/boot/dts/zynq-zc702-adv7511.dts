@@ -23,6 +23,19 @@
 				reg = <0x74>;
 				#address-cells = <1>;
 				#size-cells = <0>;
+
+				i2c@0 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <0>;
+					osc@5d {
+						compatible = "si570";
+						reg = <0x5d>;
+						factory-fout = <156250000>;
+						initial-fout = <148500000>;
+					};
+				};
+
 				i2c@1 {
 					#size-cells = <0>;
 					#address-cells = <1>;
@@ -46,6 +59,28 @@
 					};
 				};
 
+				i2c@2 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <2>;
+					eeprom@54 {
+						compatible = "at,24c08";
+						reg = <0x54>;
+					};
+				};
+
+				i2c@3 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <3>;
+					gpio@21 {
+						compatible = "ti,tca6416";
+						reg = <0x21>;
+						gpio-controller;
+						#gpio-cells = <2>;
+					};
+				};
+
 				i2c@4 {
 					#size-cells = <0>;
 					#address-cells = <1>;
@@ -55,6 +90,26 @@
 						reg = <0x51>;
 					};
 				};
+
+/* leads to "i2c i2c-0: sendbytes: NAK bailout." messages
+				i2c@7 {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <7>;
+					hwmon@52{
+						compatible = "pmbus,ucd9248";
+						reg = <52>;
+					};
+					hwmon@53{
+						compatible = "pmbus,ucd9248";
+						reg = <53>;
+					};
+					hwmon@54{
+						compatible = "pmbus,ucd9248";
+						reg = <54>;
+					};
+				};
+*/
 			};
 
 		};
@@ -83,7 +138,7 @@
 			clocks = <&clkc 17>;
 		};
 
-		axi_hdmi@70e00000 {
+		axi_hdmi_0: axi_hdmi@70e00000 {
 			compatible = "adi,axi-hdmi-tx-1.00.a";
 			reg = <0x70e00000 0x10000>;
 			encoder-slave = <&adv7511>;

@@ -8,8 +8,7 @@
 	};
 
 	chosen {
-//		bootargs = "console=ttyPS0,115200 root=/dev/ram rw initrd=0x1100000,33M ip=:::::eth0:dhcp earlyprintk";
-		bootargs = "console=ttyPS0,115200 root=/dev/mmcblk0p2 rw earlyprintk rootfstype=ext4 rootwait devtmpfs.mount=0";
+		bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait";
 		linux,stdout-path = "/amba@0/uart@E0001000";
 	};
 };
@@ -23,6 +22,18 @@
 		device_type = "ethernet-phy";
 		reg = <0x0>;
 		marvell,reg-init=<3 16 0xff00 0x1e 3 17 0xfff0 0x0a>;
+	};
+};
+
+&primary_flash {
+	/* Specify flash chip to expect */
+	compatible = "s25fl256s1";
+	/* Max frequency for quad read is 104MHz according to data sheet */
+	spi-max-frequency = <104000000>;
+	/* Flash chip is 32MB, so add 16MB to the rootfs partition */
+	partition@qspi-rootfs {
+		label = "qspi-rootfs";
+		reg = <0x480000 0x1b80000>;
 	};
 };
 

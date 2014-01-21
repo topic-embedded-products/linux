@@ -9,8 +9,7 @@
 	};
 
 	chosen {
-//		bootargs = "console=ttyPS0,115200 root=/dev/ram rw initrd=0x1100000,33M ip=:::::eth0:dhcp earlyprintk";
-		bootargs = "console=ttyPS0,115200 root=/dev/mmcblk0p2 rw earlyprintk rootfstype=ext4 rootwait devtmpfs.mount=0";
+		bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait quiet";
 		linux,stdout-path = "/amba@0/uart@E0001000";
 	};
 
@@ -19,6 +18,7 @@
 		ds12 {
 			label = "ds12:green";
 			gpios = <&gpio 8 0>;
+			linux,default-trigger = "mmc0";
 		};
 
 		ds15 {
@@ -64,6 +64,7 @@
 		ds23 {
 			label = "ds23:green";
 			gpios = <&gpio 10 0>;
+			linux,default-trigger = "heartbeat";
 		};
 	};
 
