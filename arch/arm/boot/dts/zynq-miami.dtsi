@@ -1,0 +1,161 @@
+/include/ "zynq.dtsi"
+
+/ {
+	model = "Topic Zynq Miami";
+	memory {
+		device_type = "memory";
+		reg = <0x000000000 0x20000000>;
+	};
+
+	chosen {
+		bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait";
+		linux,stdout-path = "/amba@0/uart@E0001000";
+	};
+};
+
+&primary_flash {
+	/* Specify flash chip to expect */
+	compatible = "s25fl512s";
+	spi-max-frequency = <104000000>;
+	partition@qspi-rootfs {
+		label = "qspi-rootfs";
+		reg = <0x480000 0x3b80000>;
+	};
+};
+
+&usb {
+	xlnx,phy-reset-gpio = <&gpio 49 0>;
+};
+
+/ {
+	fpga_axi: fpga_axi@0 {
+		compatible = "simple-bus";
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+
+		ps7_i2c_0: ps7-i2c@e0004000 {
+			bus-id = <0>;
+			clocks = <&clkc 38>;
+			compatible = "xlnx,ps7-i2c-1.00.a";
+			i2c-clk = <400000>;
+			interrupt-parent = <&gic>;
+			interrupts = <0 25 4>;
+			reg = <0xe0004000 0x1000>;
+			xlnx,has-interrupt = <0x0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* IO Voltage controller */
+			ltc3562: ltc3562@65 {
+				compatible = "ltc3562";
+				reg = <0x65>; /* 0b1100101 */
+				regulators {
+					R400B_reg: R400B {
+						regulator-name = "R400B";
+						regulator-min-microvolt = <600000>;
+						regulator-max-microvolt = <3300000>;
+					};
+					R600B_reg: R600B {
+						regulator-name = "R600B";
+						regulator-min-microvolt = <600000>;
+						regulator-max-microvolt = <3300000>;
+					};
+					R400A_reg: R400A {
+						regulator-name = "R400A";
+						regulator-min-microvolt = <425000>;
+						regulator-max-microvolt = <8000000>;
+						ltc3562-A-r1 = <1>;
+						ltc3562-A-r2 = <1>;
+					};
+					R600A_reg: R600A {
+						regulator-name = "R600A";
+						regulator-min-microvolt = <425000>;
+						regulator-max-microvolt = <1800000>;
+						ltc3562-A-r1 = <316>;
+						ltc3562-A-r2 = <100>;
+					};
+				};
+			};
+			/* Clock generator */
+			idt5p49ee502: idt5p49ee502@6A {
+				compatible = "idt5p49ee502";
+				reg = <0x6A>; /* 7'b1101010 */
+				clock-parent-name = "ps_clk"; /* Will be 32MHz ps clock */
+				configuration = <2>;
+				plls {
+					A {
+						/* 400 MHz */
+						pll = <0>;
+						d = <4>;
+						m = <50>;
+						xdiv = <1>;
+						icp = <18>;
+						rz = <10>;
+					};
+					B {
+						/* 400 MHz */
+						pll = <1>;
+						d = <8>;
+						xdiv = <4>; /* Fixed for PLL B, must be 4 */
+						m = <25>;
+						icp = <3>;
+						rz = <30>;
+					};
+					C {
+						/* 409.6 MHz */
+						pll = <2>;
+						d = <5>;
+						m = <8>;
+						xdiv = <8>;
+						icp = <18>;
+						rz = <10>;
+					}; 
+					D {
+						/* 416 MHz */
+						pll = <3>;
+						d = <4>;
+						xdiv = <4>;
+						m = <13>;
+						icp = <18>;
+						rz = <10>;
+					};
+				};
+				outputs {
+					clk_pl0: 0 {
+						output = <0>;
+						#clock-cells = <0>;
+						clock-frequency = <2048000>;
+					};
+					clk_pl1: 1 {
+						output = <1>;
+						#clock-cells = <0>;
+						clock-frequency = <50000000>;
+					};
+					/* Output 2 is unused */
+					clk_usb: 3 {
+						output = <3>;
+						#clock-cells = <0>;
+						clock-frequency = <26000000>;
+						clock-enabled;
+					};
+					clk_eth: 4 {
+						output = <4>;
+						#clock-cells = <0>;
+						clock-frequency = <25000000>;
+						clock-enabled;
+					};
+				};
+			};
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		alive {
+			label = "alive:green";
+			gpios = <&gpio 0 0>;
+			linux,default-trigger = "heartbeat";
+		};
+	};
+};
