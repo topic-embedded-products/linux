@@ -1635,7 +1635,8 @@ static int sdhci_check_ro(struct sdhci_host *host)
 
 	spin_lock_irqsave(&host->lock, flags);
 
-	if (host->flags & SDHCI_DEVICE_DEAD)
+	if ((host->flags & SDHCI_DEVICE_DEAD) ||
+		(host->quirks2 & SDHCI_QUIRK2_DISABLE_WP))
 		is_readonly = 0;
 	else if (host->ops->get_ro)
 		is_readonly = host->ops->get_ro(host);
