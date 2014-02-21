@@ -8,23 +8,61 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait";
+		/* bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait"; */
+		/* Flash support not ready yet, so default to rootfs on SD first */
+		bootargs = "console=ttyPS0,115200 root=/dev/mmcblk0p2 rw rootfstype=ext4 rootwait";
 		linux,stdout-path = "/amba@0/uart@E0001000";
 	};
+};
+
+&qspi0 {
+	xlnx,fb-clk = <0x0>;
+};
+
+&sdhci0 {
+	disable-wp; /* We don't have a write-protect detection */
 };
 
 &primary_flash {
 	/* Specify flash chip to expect */
 	compatible = "s25fl512s";
-	spi-max-frequency = <104000000>;
+	/* Partition for 256k erase size */
+	partition@qspi-u-boot-spl {
+		label = "qspi-u-boot-spl";
+		reg = <0x0 0x40000>;
+	};
+	partition@qspi-u-boot-img {
+		label = "qspi-u-boot-img";
+		reg = <0x40000 0xC0000>;
+	};
+	partition@qspi-u-boot-env {
+		label = "qspi-u-boot-env";
+		reg = <0x100000 0x40000>;
+	};
+	partition@qspi-device-tree {
+		label = "qspi-device-tree";
+		reg = <0x140000 0x40000>;
+	};
+	partition@qspi-linux {
+		label = "qspi-linux";
+		reg = <0x180000 0x400000>;
+	};
 	partition@qspi-rootfs {
 		label = "qspi-rootfs";
-		reg = <0x480000 0x3b80000>;
+		reg = <0x580000 0x3a80000>;
 	};
 };
 
 &usb {
 	xlnx,phy-reset-gpio = <&gpio 49 0>;
+};
+
+&clkc {
+	ps-clk-frequency = <32000000>;
+};
+
+&eth {
+	xlnx,enet-reset = "MIO 50";
 };
 
 / {
@@ -38,7 +76,7 @@
 			bus-id = <0>;
 			clocks = <&clkc 38>;
 			compatible = "xlnx,ps7-i2c-1.00.a";
-			i2c-clk = <400000>;
+			i2c-clk = <100000>;
 			interrupt-parent = <&gic>;
 			interrupts = <0 25 4>;
 			reg = <0xe0004000 0x1000>;
@@ -60,6 +98,8 @@
 						regulator-name = "R600B";
 						regulator-min-microvolt = <600000>;
 						regulator-max-microvolt = <3300000>;
+						regulator-boot-on;
+						ltc3562-default-voltage = <3300000>;
 					};
 					R400A_reg: R400A {
 						regulator-name = "R400A";
@@ -74,6 +114,8 @@
 						regulator-max-microvolt = <1800000>;
 						ltc3562-A-r1 = <316>;
 						ltc3562-A-r2 = <100>;
+						ltc3562-default-voltage = <1800000>;
+						regulator-boot-on;
 					};
 				};
 			};
@@ -154,7 +196,7 @@
 		compatible = "gpio-leds";
 		alive {
 			label = "alive:green";
-			gpios = <&gpio 0 0>;
+			gpios = <&gpio 0 1>; /* Active low */
 			linux,default-trigger = "heartbeat";
 		};
 	};
