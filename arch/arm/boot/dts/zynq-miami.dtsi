@@ -63,6 +63,13 @@
 
 &eth {
 	xlnx,enet-reset = "MIO 50";
+	phy-mode = "rgmii-id";
+	phy-handle = <&phy3>;
+	phy3: phy@3 {
+		/* compatible = "micrel,..."; */
+		device_type = "ethernet-phy";
+		reg = <0x3>;
+	};
 };
 
 / {
