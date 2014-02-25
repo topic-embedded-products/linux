@@ -1,7 +1,7 @@
 /*
  * AD9361
  *
- * Copyright 2013 Analog Devices Inc.
+ * Copyright 2013-2014 Analog Devices Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -430,6 +430,8 @@
 #define REG_RX_FRACT_BYTE_0			 0x233 /* RX Fractional Byte 0 */
 #define REG_RX_FRACT_BYTE_1			 0x234 /* RX Fractional Byte 1 */
 #define REG_RX_FRACT_BYTE_2			 0x235 /* RX Fractional Byte 2 */
+#define REG_RX_FORCE_ALC				 0x236 /* RX Force ALC */
+#define REG_RX_FORCE_VCO_TUNE_0			 0x237 /* RX Force VCO Tune 0 */
 #define REG_RX_FORCE_VCO_TUNE_1			 0x238 /* RX Force VCO Tune 1 */
 #define REG_RX_ALC_VARACTOR			 0x239 /* RX ALC/Varactor */
 #define REG_RX_VCO_OUTPUT			 0x23A /* RX VCO Output */
@@ -740,14 +742,15 @@
 #define COMP_CTRL_1			     (1 << 5) /* Comp Ctrl 1 */
 #define AUXDAC1_STP_FACTOR		     (1 << 4) /* AuxDAC1 Step Factor */
 #define AUXDAC_1_VREF(x)		     (((x) & 0x3) << 2) /* AuxDAC 1 Vref<1:0> */
-#define AUXDAC_2_WORD_LSB(x)		     (((x) & 0x3) << 0) /* AuxDAC 2 Word <1:0> */
+#define AUXDAC_1_WORD_LSB(x)		     (((x) & 0x3) << 0) /* AuxDAC 2 Word <1:0> */
 
 /*
  *	REG_AUXDAC_2_CONFIG
  */
 #define COMP_CTRL_2			     (1 << 5) /* Comp Ctrl 2 */
 #define AUXDAC2_STP_FACTOR		     (1 << 4) /* AuxDAC2 Step Factor */
-#define AUXDAC_2_VREF(x)		     (((x) & 0xF) << 0) /* AuxDAC 2 Vref<1:0> */
+#define AUXDAC_2_VREF(x)		     (((x) & 0xF) << 2) /* AuxDAC 2 Vref<1:0> */
+#define AUXDAC_2_WORD_LSB(x)		     (((x) & 0x3) << 0) /* AuxDAC 2 Word <1:0> */
 
 /*
  *	REG_AUXADC_CLOCK_DIVIDER
@@ -2359,10 +2362,19 @@
 #define RX_FAST_LOCK_PROFILE(x)		     (((x) & 0x7) << 5) /* Rx Fast Lock Profile<2:0> */
 
 /*
+ *	REG_RX_FAST_LOCK_PROGRAM_ADDR
+ */
+#define RX_FAST_LOCK_PROFILE_ADDR(x)	     (((x) & 0x7) << 4) /* Rx Fast Lock Profile<2:0> */
+#define RX_FAST_LOCK_PROFILE_WORD(x)	     (((x) & 0xF) << 0) /* Configuration Word <3:0> */
+
+
+/*
  *	REG_RX_FAST_LOCK_PROGRAM_CTRL
  */
 #define RX_FAST_LOCK_PROGRAM_WRITE	     (1 << 1) /* Rx Fast Lock Program Write */
 #define RX_FAST_LOCK_PROGRAM_CLOCK_ENABLE     (1 << 0) /* Rx Fast Lock Program Clock Enable */
+
+#define RX_FAST_LOCK_CONFIG_WORD_NUM	     16
 
 /*
  *	REG_RX_LO_GEN_POWER_MODE
@@ -2888,6 +2900,7 @@ struct gain_control {
 	/*
 	 * Fast AGC
 	 */
+	u32 f_agc_dec_pow_measuremnt_duration;  /* Samples, 0x15C */
 	u32 f_agc_state_wait_time_ns; /* 0x117 0..31 RX samples -> time_ns */
 	/* Fast AGC - Low Power */
 	bool f_agc_allow_agc_gain_increase; /* 0x110:1 */
@@ -2925,7 +2938,25 @@ struct gain_control {
 
 };
 
+struct auxdac_control {
+	u16 dac1_default_value;
+	u16 dac2_default_value;
 
+	bool auxdac_manual_mode_en;
+
+	bool dac1_in_rx_en;
+	bool dac1_in_tx_en;
+	bool dac1_in_alert_en;
+
+	bool dac2_in_rx_en;
+	bool dac2_in_tx_en;
+	bool dac2_in_alert_en;
+
+	u8 dac1_rx_delay_us;
+	u8 dac1_tx_delay_us;
+	u8 dac2_rx_delay_us;
+	u8 dac2_tx_delay_us;
+};
 
 enum rssi_restart_mode {
 	AGC_IN_FAST_ATTACK_MODE_LOCKS_THE_GAIN,
@@ -3045,6 +3076,8 @@ struct ad9361_phy_platform_data {
 	int			tx_atten;
 	bool			update_tx_gain_via_alert;
 	int 			gpio_resetb;
+	u32			rx_fastlock_delay_ns;
+	u32			tx_fastlock_delay_ns;
 	enum ad9361_clkout	ad9361_clkout_mode;
 
 	struct gain_control	gain_ctrl;
@@ -3053,6 +3086,8 @@ struct ad9361_phy_platform_data {
 	struct ctrl_outs_control	ctrl_outs_ctrl;
 	struct elna_control	elna_ctrl;
 	struct auxadc_control	auxadc_ctrl;
+	struct auxdac_control	auxdac_ctrl;
+
 };
 
 struct rf_rx_gain {

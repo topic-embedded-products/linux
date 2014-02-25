@@ -20,7 +20,6 @@
 
 #include <linux/clk/zynq.h>
 #include <linux/clk-provider.h>
-#include <linux/clkdev.h>
 #include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -47,6 +46,7 @@ static void __iomem *zynq_slcr_base_priv;
 #define SLCR_CAN_MIOCLK_CTRL		(zynq_slcr_base_priv + 0x160)
 #define SLCR_DBG_CLK_CTRL		(zynq_slcr_base_priv + 0x164)
 #define SLCR_PCAP_CLK_CTRL		(zynq_slcr_base_priv + 0x168)
+#define SLCR_TOPSW_CLK_CTRL		(zynq_slcr_base_priv + 0x16c)
 #define SLCR_FPGA0_CLK_CTRL		(zynq_slcr_base_priv + 0x170)
 #define SLCR_621_TRUE			(zynq_slcr_base_priv + 0x1c4)
 #define SLCR_SWDT_CLK_SEL		(zynq_slcr_base_priv + 0x304)
@@ -106,6 +106,8 @@ unsigned int zynq_clk_suspended;
 static struct clk *armpll_save_parent;
 static struct clk *iopll_save_parent;
 
+#define TOPSW_CLK_CTRL_DIS_MASK	BIT(0)
+
 int zynq_clk_suspend_early(void)
 {
 	int ret;
@@ -133,6 +135,24 @@ void zynq_clk_resume_late(void)
 
 	zynq_clk_suspended = 0;
 }
+
+void zynq_clk_topswitch_enable(void)
+{
+	u32 reg;
+
+	reg = readl(SLCR_TOPSW_CLK_CTRL);
+	reg &= ~TOPSW_CLK_CTRL_DIS_MASK;
+	writel(reg, SLCR_TOPSW_CLK_CTRL);
+}
+
+void zynq_clk_topswitch_disable(void)
+{
+	u32 reg;
+
+	reg = readl(SLCR_TOPSW_CLK_CTRL);
+	reg |= TOPSW_CLK_CTRL_DIS_MASK;
+	writel(reg, SLCR_TOPSW_CLK_CTRL);
+}
 #endif
 
 static void __init zynq_clk_register_fclk(enum zynq_clk fclk,
@@ -140,6 +160,7 @@ static void __init zynq_clk_register_fclk(enum zynq_clk fclk,
 		const char **parents, int enable)
 {
 	struct clk *clk;
+	u32 enable_reg;
 	char *mux_name;
 	char *div0_name;
 	char *div1_name;
@@ -152,13 +173,19 @@ static void __init zynq_clk_register_fclk(enum zynq_clk fclk,
 		goto err;
 	fclk_gate_lock = kmalloc(sizeof(*fclk_gate_lock), GFP_KERNEL);
 	if (!fclk_gate_lock)
-		goto err;
+		goto err_fclk_gate_lock;
 	spin_lock_init(fclk_lock);
 	spin_lock_init(fclk_gate_lock);
 
 	mux_name = kasprintf(GFP_KERNEL, "%s_mux", clk_name);
+	if (!mux_name)
+		goto err_mux_name;
 	div0_name = kasprintf(GFP_KERNEL, "%s_div0", clk_name);
+	if (!div0_name)
+		goto err_div0_name;
 	div1_name = kasprintf(GFP_KERNEL, "%s_div1", clk_name);
+	if (!div1_name)
+		goto err_div1_name;
 
 	clk = clk_register_mux(NULL, mux_name, parents, 4,
 			CLK_SET_RATE_NO_REPARENT, fclk_ctrl_reg, 4, 2, 0,
@@ -176,7 +203,8 @@ static void __init zynq_clk_register_fclk(enum zynq_clk fclk,
 	clks[fclk] = clk_register_gate(NULL, clk_name,
 			div1_name, CLK_SET_RATE_PARENT, fclk_gate_reg,
 			0, CLK_GATE_SET_TO_DISABLE, fclk_gate_lock);
-	if (!(enable & readl(fclk_gate_reg))) {
+	enable_reg = readl(fclk_gate_reg) & 1;
+	if (enable && !enable_reg) {
 		if (clk_prepare_enable(clks[fclk]))
 			pr_warn("%s: FCLK%u enable failed\n", __func__,
 					fclk - fclk0);
@@ -187,6 +215,14 @@ static void __init zynq_clk_register_fclk(enum zynq_clk fclk,
 
 	return;
 
+err_div1_name:
+	kfree(div0_name);
+err_div0_name:
+	kfree(mux_name);
+err_mux_name:
+	kfree(fclk_gate_lock);
+err_fclk_gate_lock:
+	kfree(fclk_lock);
 err:
 	clks[fclk] = ERR_PTR(-ENOMEM);
 }
@@ -309,7 +345,6 @@ static void __init zynq_clk_setup(struct device_node *np)
 	clks[cpu_6or4x] = clk_register_gate(NULL, clk_output_name[cpu_6or4x],
 			"cpu_div", CLK_SET_RATE_PARENT | CLK_IGNORE_UNUSED,
 			SLCR_ARM_CLK_CTRL, 24, 0, &armclk_lock);
-	clk_register_clkdev(clks[cpu_6or4x], "cpufreq_clk", NULL);
 
 	clk = clk_register_fixed_factor(NULL, "cpu_3or2x_div", "cpu_div", 0,
 			1, 2);

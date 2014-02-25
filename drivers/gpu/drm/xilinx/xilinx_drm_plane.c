@@ -27,13 +27,14 @@
 #include <linux/platform_device.h>
 
 #include "xilinx_drm_drv.h"
+#include "xilinx_drm_plane.h"
 
 #include "xilinx_cresample.h"
 #include "xilinx_osd.h"
 #include "xilinx_rgb2yuv.h"
 
 /**
- * struct xilinx_drm_plane_vdma: Xilinx drm plane VDMA object
+ * struct xilinx_drm_plane_vdma - Xilinx drm plane VDMA object
  *
  * @chan: dma channel
  * @dma_config: vdma config
@@ -44,7 +45,7 @@ struct xilinx_drm_plane_vdma {
 };
 
 /**
- * struct xilinx_drm_plane: Xilinx drm plane object
+ * struct xilinx_drm_plane - Xilinx drm plane object
  *
  * @base: base drm plane object
  * @id: plane id
@@ -81,7 +82,7 @@ struct xilinx_drm_plane {
 #define MAX_PLANES 8
 
 /**
- * struct xilinx_drm_plane_manager: Xilinx drm plane manager object
+ * struct xilinx_drm_plane_manager - Xilinx drm plane manager object
  *
  * @drm: drm device
  * @node: plane device node
@@ -373,6 +374,13 @@ bool xilinx_drm_plane_check_format(struct xilinx_drm_plane_manager *manager,
 	return false;
 }
 
+/* get the plane format */
+uint32_t xilinx_drm_plane_get_format(struct drm_plane *base_plane)
+{
+	struct xilinx_drm_plane *plane = to_xilinx_plane(base_plane);
+	return plane->format;
+}
+
 /* create a plane */
 static struct xilinx_drm_plane *
 xilinx_drm_plane_create(struct xilinx_drm_plane_manager *manager,
@@ -498,9 +506,9 @@ xilinx_drm_plane_create(struct xilinx_drm_plane_manager *manager,
 			plane->format = manager->format;
 	}
 
-	/* If there's no IP other than VDMA, choose XRGB8888 */
+	/* If there's no IP other than VDMA, pick the manager's format */
 	if (plane->format == -1)
-		plane->format = DRM_FORMAT_XRGB8888;
+		plane->format = manager->format;
 
 	/* initialize drm plane */
 	ret = drm_plane_init(manager->drm, &plane->base, possible_crtcs,
@@ -610,8 +618,8 @@ xilinx_drm_plane_init_manager(struct xilinx_drm_plane_manager *manager)
 	} else {
 		/* without osd, only one plane is supported */
 		manager->num_planes = 1;
-		/* XRGB based on the current pipeline design without osd */
-		manager->format = DRM_FORMAT_XRGB8888;
+		/* YUV422 based on the current pipeline design without osd */
+		manager->format = DRM_FORMAT_YUV422;
 		manager->max_width = 4096;
 	}
 

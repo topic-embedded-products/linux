@@ -86,7 +86,7 @@
 					controller */
 /* Define max times to check status register before we give up. */
 #define	MAX_READY_WAIT_JIFFIES	(480 * HZ) /* N25Q specs 480s max chip erase */
-#define	MAX_CMD_SIZE		5
+#define	MAX_CMD_SIZE		6
 
 #define JEDEC_MFR(_jedec_id)	((_jedec_id) >> 16)
 
@@ -497,10 +497,6 @@ static int m25p80_read(struct mtd_info *mtd, loff_t from, size_t len,
 	spi_message_init(&m);
 	memset(t, 0, (sizeof t));
 
-	/* NOTE:
-	 * OPCODE_FAST_READ (if available) is faster.
-	 * Should add 1 byte DUMMY_BYTE.
-	 */
 	t[0].tx_buf = flash->command;
 	t[0].len = m25p_cmdsz(flash) + flash->dummycount;
 	spi_message_add_tail(&t[0], &m);
@@ -514,10 +510,6 @@ static int m25p80_read(struct mtd_info *mtd, loff_t from, size_t len,
 		/* REVISIT status return?? */
 		return 1;
 
-	/* FIXME switch to OPCODE_FAST_READ.  It's required for higher
-	 * clocks; and at this writing, every chip this driver handles
-	 * supports that opcode.
-	 */
 
 	/* Set up the write data buffer. */
 	opcode = flash->read_opcode;
@@ -979,6 +971,7 @@ static const struct spi_device_id m25p_ids[] = {
 	{ "en25qh256", INFO(0x1c7019, 0, 64 * 1024, 512, 0) },
 
 	/* Everspin */
+	{ "f25l32pa", INFO(0x8c2016, 0, 64 * 1024, 64, SECT_4K) },
 	{ "mr25h256", CAT25_INFO(  32 * 1024, 1, 256, 2, M25P_NO_ERASE | M25P_NO_FR) },
 	{ "mr25h10", CAT25_INFO(128 * 1024, 1, 256, 3, M25P_NO_ERASE | M25P_NO_FR) },
 
@@ -997,6 +990,7 @@ static const struct spi_device_id m25p_ids[] = {
 	{ "mx25l8005",   INFO(0xc22014, 0, 64 * 1024,  16, 0) },
 	{ "mx25l1606e",  INFO(0xc22015, 0, 64 * 1024,  32, SECT_4K) },
 	{ "mx25l3205d",  INFO(0xc22016, 0, 64 * 1024,  64, 0) },
+	{ "mx25l3255e",  INFO(0xc29e16, 0, 64 * 1024,  64, SECT_4K) },
 	{ "mx25l6405d",  INFO(0xc22017, 0, 64 * 1024, 128, 0) },
 	{ "mx25l12805d", INFO(0xc22018, 0, 64 * 1024, 256, 0) },
 	{ "mx25l12855e", INFO(0xc22618, 0, 64 * 1024, 256, 0) },
@@ -1181,12 +1175,7 @@ static int m25p_probe(struct spi_device *spi)
 	struct flash_info		*info;
 	unsigned			i;
 	struct mtd_part_parser_data	ppdata;
-	struct device_node __maybe_unused *np = spi->dev.of_node;
-
-#ifdef CONFIG_MTD_OF_PARTS
-	if (!of_device_is_available(np))
-		return -ENODEV;
-#endif
+	struct device_node *np = spi->dev.of_node;
 
 	/* Platform data helps sort out which chip type we have, as
 	 * well as how this board partitions it.  If we don't have
@@ -1233,15 +1222,12 @@ static int m25p_probe(struct spi_device *spi)
 		}
 	}
 
-	flash = kzalloc(sizeof *flash, GFP_KERNEL);
+	flash = devm_kzalloc(&spi->dev, sizeof(*flash), GFP_KERNEL);
 	if (!flash)
 		return -ENOMEM;
-	flash->command = kmalloc(MAX_CMD_SIZE + (flash->fast_read ? 1 : 0),
-					GFP_KERNEL);
-	if (!flash->command) {
-		kfree(flash);
+	flash->command = devm_kzalloc(&spi->dev, MAX_CMD_SIZE, GFP_KERNEL);
+	if (!flash->command)
 		return -ENOMEM;
-	}
 
 	flash->spi = spi;
 	mutex_init(&flash->lock);
@@ -1275,7 +1261,7 @@ static int m25p_probe(struct spi_device *spi)
 		u32 is_dual;
 		np = of_get_next_parent(spi->dev.of_node);
 		of_property_read_string(np, "compatible", &comp_str);
-		if (!strcmp(comp_str, "xlnx,ps7-qspi-1.00.a")) {
+		if (!strcmp(comp_str, "xlnx,zynq-qspi-1.00.a")) {
 			if (of_property_read_u32(np, "is-dual", &is_dual) < 0) {
 				/* Default to single if prop not defined */
 				flash->shift = 0;
@@ -1360,13 +1346,12 @@ static int m25p_probe(struct spi_device *spi)
 	flash->page_size = info->page_size;
 	flash->mtd.writebufsize = flash->page_size;
 
-	flash->fast_read = false;
-	if (np && of_property_read_bool(np, "m25p,fast-read"))
+	if (np)
+		/* If we were instantiated by DT, use it */
+		flash->fast_read = of_property_read_bool(np, "m25p,fast-read");
+	else
 		flash->fast_read = true;
 
-#ifdef CONFIG_M25PXX_USE_FAST_READ
-	flash->fast_read = true;
-#endif
 	if (info->flags & M25P_NO_FR)
 		flash->fast_read = false;
 
@@ -1392,25 +1377,26 @@ static int m25p_probe(struct spi_device *spi)
 		const char *comp_str;
 		np = of_get_next_parent(spi->dev.of_node);
 		of_property_read_string(np, "compatible", &comp_str);
-		if (!strcmp(comp_str, "xlnx,ps7-qspi-1.00.a")) {
+		if (!strcmp(comp_str, "xlnx,zynq-qspi-1.00.a")) {
 			flash->addr_width = 3;
 			set_4byte(flash, info->jedec_id, 0);
 		} else {
 #endif
-			flash->addr_width = 4;
-			if (JEDEC_MFR(info->jedec_id) == CFI_MFR_AMD) {
-				/* Dedicated 4-byte command set */
-				flash->read_opcode = flash->fast_read ?
-					OPCODE_FAST_READ_4B :
-					OPCODE_NORM_READ_4B;
-				flash->program_opcode = OPCODE_PP_4B;
+		flash->addr_width = 4;
+		if (JEDEC_MFR(info->jedec_id) == CFI_MFR_AMD) {
+			/* Dedicated 4-byte command set */
+			flash->read_opcode = flash->fast_read ?
+				OPCODE_FAST_READ_4B :
+				OPCODE_NORM_READ_4B;
+			flash->program_opcode = OPCODE_PP_4B;
+			/* No small sector erase for 4-byte command set */
 				/* No small sector erase for 4-byte
 				 * command set
 				 */
-				flash->erase_opcode = OPCODE_SE_4B;
-				flash->mtd.erasesize = info->sector_size;
-			} else
-				set_4byte(flash, info->jedec_id, 1);
+			flash->erase_opcode = OPCODE_SE_4B;
+			flash->mtd.erasesize = info->sector_size;
+		} else
+			set_4byte(flash, info->jedec_id, 1);
 #ifdef CONFIG_OF
 		}
 #endif
@@ -1451,15 +1437,9 @@ static int m25p_probe(struct spi_device *spi)
 static int m25p_remove(struct spi_device *spi)
 {
 	struct m25p	*flash = spi_get_drvdata(spi);
-	int		status;
 
 	/* Clean up MTD stuff. */
-	status = mtd_device_unregister(&flash->mtd);
-	if (status == 0) {
-		kfree(flash->command);
-		kfree(flash);
-	}
-	return 0;
+	return mtd_device_unregister(&flash->mtd);
 }
 
 

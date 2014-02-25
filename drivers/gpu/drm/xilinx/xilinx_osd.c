@@ -27,6 +27,8 @@
 
 #include "xilinx_drm_drv.h"
 
+#include "xilinx_osd.h"
+
 /* registers */
 #define OSD_CTL	0x000	/* control */
 #define OSD_SS	0x020	/* screen size */
@@ -89,7 +91,7 @@
 #define OSD_RST_RESET	(1 << 31)
 
 /**
- * struct xilinx_osd_layer: Xilinx OSD layer object
+ * struct xilinx_osd_layer - Xilinx OSD layer object
  *
  * @base: base address
  * @id: id
@@ -104,7 +106,7 @@ struct xilinx_osd_layer {
 };
 
 /**
- * struct xilinx_osd: Xilinx OSD object
+ * struct xilinx_osd - Xilinx OSD object
  *
  * @base: base address
  * @layers: layers
