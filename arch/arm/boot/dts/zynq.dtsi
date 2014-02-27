@@ -214,7 +214,7 @@
 			num-chip-select = <1>;
 			reg = <0xe000d000 0x1000>;
 			xlnx,fb-clk = <0x1>;
-			xlnx,qspi-clk-freq-hz = <0xbebc200>;
+			xlnx,qspi-clk-freq-hz = <200000000>;
 			xlnx,qspi-mode = <0x0>;
 			primary_flash: ps7-qspi@0 {
 				#address-cells = <1>;
