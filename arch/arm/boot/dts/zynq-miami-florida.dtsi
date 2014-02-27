@@ -112,4 +112,60 @@
 			audio-codec = <&adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
 		};
+
+		/* SD 1 for WiFi card */
+		reg_sd1: regulator_sd1 {
+			compatible = "regulator-fixed";
+			regulator-name = "wl-wifi";
+			regulator-min-microvolt = <3300000>; /* Actually 1.8V, but this keeps the driver happy */
+			regulator-max-microvolt = <3300000>;
+			vin-supply = <&R600A_reg>; /* Bank IO power from LTC */
+			gpio = <&gpio 58 0>;
+			enable-active-high;
+			startup-delay-us = <70000>;
+		};
+		reg_bt: regulator_bt {
+			compatible = "regulator-fixed";
+			regulator-name = "wl-bt";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			vin-supply = <&R600A_reg>; /* Bank IO power from LTC */
+			gpio = <&gpio 59 0>;
+			enable-active-high;
+			startup-delay-us = <70000>; /* TODO: Check datasheet */
+		};
+/* Commented out, causing trouble
+		sdhci1: sdhci@e0101000 {
+			compatible = "xlnx,ps7-sdio-1.00.a", "arasan,sdhci-8.9a";
+			reg = <0xe0101000 0x1000>;
+			interrupts = <0 47 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "clk_xin", "clk_ahb";
+			clocks = <&clkc 22>, <&clkc 33>;
+			clock-frequency = <50000000>;
+			disable-wp;
+			non-removable;
+			vmmc-supply = <&reg_sd1>;
+			bus-width = <4>;
+			cap-power-off-card;
+		};
+*/
+};
+
+&leds {
+		led0 {
+			label = "led0:green";
+			gpios = <&gpio 61 1>; /* Active low */
+			linux,default-trigger = "mmc0";
+		};
+		led1 {
+			label = "led1:green";
+			gpios = <&gpio 62 1>;
+			linux,default-trigger = "mmc1";
+		};
+		led2 {
+			label = "led2:green";
+			gpios = <&gpio 63 1>; /* Active low */
+			linux,default-trigger = "none";
+		};
 };
