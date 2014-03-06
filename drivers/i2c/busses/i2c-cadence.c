@@ -83,7 +83,7 @@
 #define CDNS_I2C_IXR_COMP		BIT(0)
 
 #define CDNS_I2C_FIFO_DEPTH	16		/* FIFO Depth */
-#define CDNS_I2C_TIMEOUT	(50 * HZ)	/* Timeout for bus busy check */
+#define CDNS_I2C_TIMEOUT	(2 * HZ)	/* Timeout for bus busy check */
 #define CDNS_I2C_ENABLED_INTR	0x2EF		/* Enabled Interrupts */
 
 /* FIFO depth at which the DATA interrupt occurs */
@@ -173,12 +173,14 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 	unsigned int isr_status, avail_bytes;
 	unsigned int bytes_to_recv, bytes_to_send;
 	struct cdns_i2c *id = ptr;
+	/* Signal completion only after everything is updated */
+	int done_flag = 0;
 
 	isr_status = cdns_i2c_readreg(CDNS_I2C_ISR_OFFSET);
 
 	/* Handling nack and arbitration lost interrupt */
 	if (isr_status & (CDNS_I2C_IXR_NACK | CDNS_I2C_IXR_ARB_LOST))
-		complete(&id->xfer_done);
+		done_flag = 1;
 
 	/* Handling Data interrupt */
 	if ((isr_status & CDNS_I2C_IXR_DATA) &&
@@ -240,7 +242,7 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 				 * clear the hold bus bit if there are no
 				 * further messages to be processed.
 				 */
-				complete(&id->xfer_done);
+				done_flag = 1;
 			}
 			if (!id->send_count && !id->bus_hold_flag)
 				cdns_i2c_clear_bus_hold(id);
@@ -259,13 +261,16 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 					cdns_i2c_readreg(CDNS_I2C_DATA_OFFSET);
 				id->recv_count--;
 			}
-			complete(&id->xfer_done);
+			done_flag = 1;
 		}
 	}
 
 	/* Update the status for errors */
 	id->err_status = isr_status & CDNS_I2C_IXR_ERR_INTR_MASK;
 	cdns_i2c_writereg(isr_status, CDNS_I2C_ISR_OFFSET);
+
+	if (done_flag)
+		complete(&id->xfer_done);
 	return IRQ_HANDLED;
 }
 
@@ -301,9 +306,6 @@ static void cdns_i2c_mrecv(struct cdns_i2c *id)
 	isr_status = cdns_i2c_readreg(CDNS_I2C_ISR_OFFSET);
 	cdns_i2c_writereg(isr_status, CDNS_I2C_ISR_OFFSET);
 
-	/* Set the slave address in address register */
-	cdns_i2c_writereg(id->p_msg->addr & CDNS_I2C_ADDR_MASK,
-						CDNS_I2C_ADDR_OFFSET);
 	/*
 	 * The no. of bytes to receive is checked against the limit of
 	 * max transfer size. Set transfer size register with no of bytes
@@ -320,6 +322,9 @@ static void cdns_i2c_mrecv(struct cdns_i2c *id)
 		((id->p_msg->flags & I2C_M_RECV_LEN) != I2C_M_RECV_LEN) &&
 		(id->recv_count <= CDNS_I2C_FIFO_DEPTH))
 			cdns_i2c_clear_bus_hold(id);
+	/* Set the slave address in address register - triggers operation */
+	cdns_i2c_writereg(id->p_msg->addr & CDNS_I2C_ADDR_MASK,
+						CDNS_I2C_ADDR_OFFSET);
 	cdns_i2c_writereg(CDNS_I2C_ENABLED_INTR, CDNS_I2C_IER_OFFSET);
 }
 
@@ -373,16 +378,16 @@ static void cdns_i2c_msend(struct cdns_i2c *id)
 		id->send_count--;
 	}
 
-	/* Set the slave address in address register. */
-	cdns_i2c_writereg(id->p_msg->addr & CDNS_I2C_ADDR_MASK,
-						CDNS_I2C_ADDR_OFFSET);
-
 	/*
 	 * Clear the bus hold flag if there is no more data
 	 * and if it is the last message.
 	 */
 	if (!id->bus_hold_flag && !id->send_count)
 		cdns_i2c_clear_bus_hold(id);
+	/* Set the slave address in address register - triggers operation. */
+	cdns_i2c_writereg(id->p_msg->addr & CDNS_I2C_ADDR_MASK,
+						CDNS_I2C_ADDR_OFFSET);
+
 	cdns_i2c_writereg(CDNS_I2C_ENABLED_INTR, CDNS_I2C_IER_OFFSET);
 }
 
@@ -449,11 +454,14 @@ static int cdns_i2c_process_msg(struct cdns_i2c *id, struct i2c_msg *msg,
 		/* Wait for the signal of completion */
 		ret = wait_for_completion_interruptible_timeout(
 							&id->xfer_done, HZ);
-		if (!ret) {
-			dev_err(id->adap.dev.parent,
-				 "timeout waiting on completion\n");
+		if (ret < 1) {
 			cdns_i2c_master_reset(adap);
-			return -ETIMEDOUT;
+			if (!ret) {
+				dev_err(id->adap.dev.parent,
+					"timeout waiting on completion\n");
+				return -ETIMEDOUT;
+			}
+			return ret;
 		}
 		cdns_i2c_writereg(CDNS_I2C_IXR_ALL_INTR_MASK,
 				  CDNS_I2C_IDR_OFFSET);
@@ -694,8 +702,11 @@ static int cdns_i2c_clk_notifier_cb(struct notifier_block *nb, unsigned long
 		int ret;
 
 		ret = cdns_i2c_calc_divs(&fscl, input_clk, &div_a, &div_b);
-		if (ret)
+		if (ret) {
+			dev_warn(id->adap.dev.parent,
+					"clock rate change rejected\n");
 			return NOTIFY_STOP;
+		}
 
 		/* scale up */
 		if (ndata->new_rate > ndata->old_rate)

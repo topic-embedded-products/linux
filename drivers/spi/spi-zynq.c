@@ -94,7 +94,6 @@
  * @regs:		Virtual address of the SPI controller registers
  * @devclk:		Pointer to the peripheral clock
  * @aperclk:		Pointer to the APER clock
- * @clk_rate_change_nb:	Notifier block for clock frequency change callback
  * @irq:		IRQ number
  * @speed_hz:		Current SPI bus clock speed in Hz
  * @trans_queue_lock:	Lock used for accessing transfer queue
@@ -113,8 +112,6 @@ struct zynq_spi {
 	void __iomem *regs;
 	struct clk *devclk;
 	struct clk *aperclk;
-	unsigned int clk_rate;
-	struct notifier_block clk_rate_change_nb;
 	int irq;
 	u32 speed_hz;
 	spinlock_t trans_queue_lock;
@@ -209,7 +206,7 @@ static int zynq_spi_setup_transfer(struct spi_device *spi,
 	u32 ctrl_reg;
 	u32 req_hz;
 	u32 baud_rate_val;
-	unsigned long flags;
+	unsigned long flags, frequency;
 
 	bits_per_word = (transfer) ?
 			transfer->bits_per_word : spi->bits_per_word;
@@ -220,6 +217,8 @@ static int zynq_spi_setup_transfer(struct spi_device *spi,
 			__func__, spi->bits_per_word);
 		return -EINVAL;
 	}
+
+	frequency = clk_get_rate(xspi->devclk);
 
 	spin_lock_irqsave(&xspi->ctrl_reg_lock, flags);
 
@@ -236,16 +235,15 @@ static int zynq_spi_setup_transfer(struct spi_device *spi,
 
 	/* Set the clock frequency */
 	if (xspi->speed_hz != req_hz) {
-		baud_rate_val = 1;
-		while ((baud_rate_val < 8) && (xspi->clk_rate /
+		baud_rate_val = 1;	/* first valid value is 1 */
+		while ((baud_rate_val < 8) && (frequency /
 					(2 << baud_rate_val)) > req_hz)
 			baud_rate_val++;
 
 		ctrl_reg &= 0xFFFFFFC7;
 		ctrl_reg |= (baud_rate_val << 3);
 
-		xspi->speed_hz =
-			(xspi->clk_rate / (2 << baud_rate_val));
+		xspi->speed_hz = (frequency / (2 << baud_rate_val));
 	}
 
 	zynq_spi_write(xspi->regs + ZYNQ_SPI_CR_OFFSET, ctrl_reg);
@@ -626,25 +624,6 @@ static inline int zynq_spi_destroy_queue(struct zynq_spi *xspi)
 	return 0;
 }
 
-static int zynq_spi_clk_notifier_cb(struct notifier_block *nb,
-		unsigned long event, void *data)
-{
-	switch (event) {
-	case PRE_RATE_CHANGE:
-		/* if a rate change is announced we need to check whether we can
-		 * maintain the current frequency by changing the clock
-		 * dividers. And we may have to suspend operation and return
-		 * after the rate change or its abort
-		 */
-		return NOTIFY_OK;
-	case POST_RATE_CHANGE:
-		return NOTIFY_OK;
-	case ABORT_RATE_CHANGE:
-	default:
-		return NOTIFY_DONE;
-	}
-}
-
 /**
  * zynq_spi_probe - Probe method for the SPI driver
  * @pdev:	Pointer to the platform_device structure
@@ -659,7 +638,6 @@ static int zynq_spi_probe(struct platform_device *pdev)
 	struct spi_master *master;
 	struct zynq_spi *xspi;
 	struct resource *res;
-	unsigned long aper_clk_rate;
 
 	master = spi_alloc_master(&pdev->dev, sizeof(*xspi));
 	if (master == NULL)
@@ -717,11 +695,6 @@ static int zynq_spi_probe(struct platform_device *pdev)
 		goto clk_dis_aper;
 	}
 
-	xspi->clk_rate_change_nb.notifier_call = zynq_spi_clk_notifier_cb;
-	xspi->clk_rate_change_nb.next = NULL;
-	if (clk_notifier_register(xspi->devclk, &xspi->clk_rate_change_nb))
-		dev_warn(&pdev->dev, "Unable to register clock notifier.\n");
-
 	/* SPI controller initializations */
 	zynq_spi_init_hw(xspi->regs);
 
@@ -731,18 +704,13 @@ static int zynq_spi_probe(struct platform_device *pdev)
 				   (u32 *)&master->num_chipselect);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "couldn't determine num-chip-select\n");
-		goto clk_notif_unreg;
+		goto clk_dis_all;
 	}
 	master->setup = zynq_spi_setup;
 	master->transfer = zynq_spi_transfer;
 	master->mode_bits = SPI_CPOL | SPI_CPHA;
 
-	aper_clk_rate = clk_get_rate(xspi->aperclk) / 2 * 3;
-	if (aper_clk_rate > clk_get_rate(xspi->devclk))
-		clk_set_rate(xspi->devclk, aper_clk_rate);
-
 	xspi->speed_hz = clk_get_rate(xspi->devclk) / 2;
-	xspi->clk_rate = clk_get_rate(xspi->devclk);
 
 	xspi->dev_busy = 0;
 
@@ -759,7 +727,7 @@ static int zynq_spi_probe(struct platform_device *pdev)
 	if (!xspi->workqueue) {
 		ret = -ENOMEM;
 		dev_err(&pdev->dev, "problem initializing queue\n");
-		goto clk_notif_unreg;
+		goto clk_dis_all;
 	}
 
 	ret = zynq_spi_start_queue(xspi);
@@ -781,8 +749,7 @@ static int zynq_spi_probe(struct platform_device *pdev)
 
 remove_queue:
 	(void)zynq_spi_destroy_queue(xspi);
-clk_notif_unreg:
-	clk_notifier_unregister(xspi->devclk, &xspi->clk_rate_change_nb);
+clk_dis_all:
 	clk_disable_unprepare(xspi->devclk);
 clk_dis_aper:
 	clk_disable_unprepare(xspi->aperclk);
@@ -814,7 +781,6 @@ static int zynq_spi_remove(struct platform_device *pdev)
 	zynq_spi_write(xspi->regs + ZYNQ_SPI_ER_OFFSET,
 		       ~ZYNQ_SPI_ER_ENABLE_MASK);
 
-	clk_notifier_unregister(xspi->devclk, &xspi->clk_rate_change_nb);
 	clk_disable_unprepare(xspi->devclk);
 	clk_disable_unprepare(xspi->aperclk);
 
