@@ -118,8 +118,9 @@
 						regulator-name = "R600B";
 						regulator-min-microvolt = <600000>;
 						regulator-max-microvolt = <3300000>;
-						regulator-boot-on;
 						ltc3562-default-voltage = <3300000>;
+						regulator-boot-on;
+						regulator-always-on;
 					};
 					R400A_reg: R400A {
 						regulator-name = "R400A";
@@ -136,6 +137,7 @@
 						ltc3562-A-r2 = <100>;
 						ltc3562-default-voltage = <1800000>;
 						regulator-boot-on;
+						regulator-always-on;
 					};
 				};
 			};
