@@ -2972,6 +2972,8 @@ int sdhci_add_host(struct sdhci_host *host)
 	host->vqmmc = regulator_get_optional(mmc_dev(mmc), "vqmmc");
 	if (IS_ERR_OR_NULL(host->vqmmc)) {
 		if (PTR_ERR(host->vqmmc) < 0) {
+			if (PTR_ERR(host->vqmmc) == -EPROBE_DEFER)
+				return -EPROBE_DEFER;
 			pr_info("%s: no vqmmc regulator found\n",
 				mmc_hostname(mmc));
 			host->vqmmc = NULL;
@@ -3048,8 +3050,10 @@ int sdhci_add_host(struct sdhci_host *host)
 	host->vmmc = regulator_get_optional(mmc_dev(mmc), "vmmc");
 	if (IS_ERR_OR_NULL(host->vmmc)) {
 		if (PTR_ERR(host->vmmc) < 0) {
-			pr_info("%s: no vmmc regulator found\n",
-				mmc_hostname(mmc));
+			if (PTR_ERR(host->vmmc) == -EPROBE_DEFER)
+				return -EPROBE_DEFER;
+			pr_info("%s: no vmmc regulator found (%d)\n",
+				mmc_hostname(mmc), PTR_ERR(host->vmmc));
 			host->vmmc = NULL;
 		}
 	}
