@@ -55,7 +55,7 @@
 
 &usb {
 	xlnx,phy-reset-gpio = <&gpio 49 0>;
-	dr_mode = "otg";
+	dr_mode = "host";
 };
 
 &clkc {

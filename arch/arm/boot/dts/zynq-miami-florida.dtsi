@@ -143,24 +143,26 @@
 		reg_sd1: regulator_sd1 {
 			compatible = "regulator-fixed";
 			regulator-name = "wl-wifi";
-			regulator-min-microvolt = <3300000>; /* Actually 1.8V, but this keeps the driver happy */
+			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
-			vin-supply = <&R600A_reg>; /* Bank IO power from LTC */
+			vin-supply = <&R600A_reg>;
 			gpio = <&gpio 58 0>;
 			enable-active-high;
 			startup-delay-us = <70000>;
 		};
+		/* Bluetooth power (set to always on for now) */
 		reg_bt: regulator_bt {
 			compatible = "regulator-fixed";
 			regulator-name = "wl-bt";
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
-			vin-supply = <&R600A_reg>; /* Bank IO power from LTC */
+			vin-supply = <&R600A_reg>;
 			gpio = <&gpio 59 0>;
 			enable-active-high;
-			startup-delay-us = <70000>; /* TODO: Check datasheet */
+			startup-delay-us = <10000>; /* TODO: Check actual value */
+			regulator-always-on;
+			regulator-boot-on;
 		};
-/* Commented out, causing trouble
 		sdhci1: sdhci@e0101000 {
 			compatible = "xlnx,ps7-sdio-1.00.a", "arasan,sdhci-8.9a";
 			reg = <0xe0101000 0x1000>;
@@ -168,14 +170,42 @@
 			interrupt-parent = <&gic>;
 			clock-names = "clk_xin", "clk_ahb";
 			clocks = <&clkc 22>, <&clkc 33>;
-			clock-frequency = <50000000>;
+			clock-frequency = <25000000>;
 			disable-wp;
 			non-removable;
 			vmmc-supply = <&reg_sd1>;
+			/* vqmmc-supply = <&R600B_reg>; */
 			bus-width = <4>;
 			cap-power-off-card;
 		};
-*/
+		/* UART for bluetooth */
+		uart0: uart@e0000000 {
+			compatible = "xlnx,xuartps";
+			reg = <0xE0000000 0x1000>;
+			interrupts = <0 27 4>;
+			interrupt-parent = <&gic>;
+			clocks = <&clkc 23>, <&clkc 40>;
+			clock-names = "ref_clk", "aper_clk";
+			port-number = <1>;
+			current-speed = <115200>;
+			device_type = "serial";
+		};
+};
+
+/ {
+	/* Does not actually work, but was worth a try */
+	wlan {
+		compatible = "ti,wilink6";
+		interrupt-parent = <&gic>;
+		interrupts = <0 55 0x4>;	/* IRQ 87 level triggered */
+		clocks = <&refclock>;
+		clock-names = "refclock";
+		refclock: refclock {
+			compatible = "ti,wilink-clock";
+			#clock-cells = <0>;
+			clock-frequency = <38400000>;
+		};
+	 };
 };
 
 &leds {
