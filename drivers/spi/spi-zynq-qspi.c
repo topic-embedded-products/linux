@@ -452,12 +452,6 @@ static int zynq_qspi_setup_transfer(struct spi_device *qspi,
 
 	req_hz = (transfer) ? transfer->speed_hz : qspi->max_speed_hz;
 
-	if (qspi->mode & ~MODEBITS) {
-		dev_err(&qspi->dev, "%s, unsupported mode bits %x\n",
-			__func__, qspi->mode & ~MODEBITS);
-		return -EINVAL;
-	}
-
 	if (transfer && (transfer->speed_hz == 0))
 		req_hz = qspi->max_speed_hz;
 
@@ -1122,6 +1116,7 @@ static int zynq_qspi_probe(struct platform_device *pdev)
 
 	master->setup = zynq_qspi_setup;
 	master->transfer = zynq_qspi_transfer;
+	master->mode_bits = MODEBITS;
 	master->flags = SPI_MASTER_QUAD_MODE;
 
 	xqspi->speed_hz = clk_get_rate(xqspi->devclk) / 2;
