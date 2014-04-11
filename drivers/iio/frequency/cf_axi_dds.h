@@ -9,6 +9,8 @@
 #ifndef ADI_AXI_DDS_H_
 #define ADI_AXI_DDS_H_
 
+#include <linux/spi/spi.h>
+
 #define ADI_REG_VERSION		0x0000				/*Version and Scratch Registers */
 #define ADI_VERSION(x)		(((x) & 0xffffffff) << 0)	/* RO, Version number. */
 #define VERSION_IS(x,y,z)	((x) << 16 | (y) << 8 | (z))
@@ -94,8 +96,8 @@ enum {
 /* DAC CHANNEL */
 
 #define ADI_REG_CHAN_CNTRL_1_IIOCHAN(x)	(0x0400 + ((x) >> 1) * 0x40 + ((x) & 1) * 0x8)
-#define ADI_DDS_SCALE(x)			(((x) & 0xF) << 0)
-#define ADI_TO_DDS_SCALE(x)		(((x) >> 0) & 0xF)
+#define ADI_DDS_SCALE(x)			(((x) & 0xFFFF) << 0)
+#define ADI_TO_DDS_SCALE(x)		(((x) >> 0) & 0xFFFF)
 
 #define ADI_REG_CHAN_CNTRL_2_IIOCHAN(x)	(0x0404 + ((x) >> 1) * 0x40 + ((x) & 1) * 0x8)
 #define ADI_DDS_INIT(x)			(((x) & 0xFFFF) << 16)
@@ -104,8 +106,8 @@ enum {
 #define ADI_TO_DDS_INCR(x)		(((x) >> 0) & 0xFFFF)
 
 #define ADI_REG_CHAN_CNTRL_1(c)		(0x0400 + (c) * 0x40)
-#define ADI_DDS_SCALE_1(x)		(((x) & 0xF) << 0)
-#define ADI_TO_DDS_SCALE_1(x)		(((x) >> 0) & 0xF)
+#define ADI_DDS_SCALE_1(x)		(((x) & 0xFFFF) << 0)
+#define ADI_TO_DDS_SCALE_1(x)		(((x) >> 0) & 0xFFFF)
 
 #define ADI_REG_CHAN_CNTRL_2(c)		(0x0404 + (c) * 0x40)
 #define ADI_DDS_INIT_1(x)		(((x) & 0x1FFFF) << 15)
@@ -114,8 +116,8 @@ enum {
 #define ADI_TO_DDS_INCR_1(x)		(((x) >> 0) & 0xFFFF)
 
 #define ADI_REG_CHAN_CNTRL_3(c)		(0x0408 + (c) * 0x40)
-#define ADI_DDS_SCALE_2(x)		(((x) & 0xF) << 0)
-#define ADI_TO_DDS_SCALE_2(x)		(((x) >> 0) & 0xF)
+#define ADI_DDS_SCALE_2(x)		(((x) & 0xFFFF) << 0)
+#define ADI_TO_DDS_SCALE_2(x)		(((x) >> 0) & 0xFFFF)
 
 #define ADI_REG_CHAN_CNTRL_4(c)		(0x040C + (c) * 0x40)
 #define ADI_DDS_INIT_2(x)		(((x) & 0x1FFFF) << 15)
@@ -158,43 +160,33 @@ enum {
 enum {
 	ID_AD9122,
 	ID_AD9739A,
+	ID_AD9144,
 };
 
 struct cf_axi_dds_chip_info {
-	char 				name[8];
-	struct iio_chan_spec		channel[9];
-	struct iio_chan_spec		buf_channel[4];
-	unsigned			num_channels;
-	unsigned			num_buf_channels;
-	unsigned			num_dp_disable_channels;
+	const char *name;
+	unsigned int num_channels;
+	unsigned int num_dds_channels;
+	unsigned int num_dp_disable_channels;
+	struct iio_chan_spec channel[13];
 };
 
-#include <linux/amba/xilinx_dma.h>
-
 struct cf_axi_dds_state {
-	struct list_head		list;
 	struct device 		*dev_spi;
 	struct clk 		*clk;
-	struct iio_dev 		*indio_dev;
-	struct resource 		r_mem; /* IO mem resources */
 	const struct cf_axi_dds_chip_info	*chip_info;
+
 	bool			has_fifo_interface;
+	bool			standalone;
 	bool			dp_disable;
-	struct iio_info		iio_info;
-	void			*buf_virt;
-	dma_addr_t		buf_phys;
-	struct dma_chan		*tx_chan;
-	struct xilinx_dma_config	dma_config;
-	u16			int_vref_mv;
-	int 			irq;
-	void __iomem		*regs;
-	unsigned int		flags;
-	u32			dac_clk;
-	unsigned			buffer_length;
-	unsigned			txcount;
-	unsigned 		ddr_dds_interp_en;
-	unsigned			cached_freq[8];
 	bool			enable;
+
+	struct iio_info		iio_info;
+	void __iomem		*regs;
+	u32			dac_clk;
+	unsigned 		ddr_dds_interp_en;
+	unsigned		cached_freq[8];
+	unsigned			version;
 	struct notifier_block   clk_nb;
 };
 
@@ -208,6 +200,9 @@ enum {
 struct cf_axi_converter {
 	struct spi_device 	*spi;
 	struct clk 	*clk[CLK_NUM];
+	struct gpio_desc			*pwrdown_gpio;
+	struct gpio_desc			*reset_gpio;
+	struct gpio_desc			*txen_gpio;
 	unsigned		id;
 	unsigned		interp_factor;
 	unsigned		fcenter_shift;
@@ -269,4 +264,5 @@ static inline unsigned int dds_read(struct cf_axi_dds_state *st, unsigned reg)
 {
 	return ioread32(st->regs + reg);
 }
+
 #endif /* ADI_AXI_DDS_H_ */

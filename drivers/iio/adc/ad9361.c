@@ -1218,7 +1218,7 @@ static int ad9361_init_gain_tables(struct ad9361_rf_phy *phy)
 
 static int ad9361_en_dis_tx(struct ad9361_rf_phy *phy, u32 tx_if, u32 enable)
 {
-	if (tx_if == 2 && !phy->pdata->rx2tx2)
+	if (tx_if == 2 && !phy->pdata->rx2tx2 && enable)
 		return -EINVAL;
 
 	return ad9361_spi_writef(phy->spi, REG_TX_ENABLE_FILTER_CTRL,
@@ -1227,7 +1227,7 @@ static int ad9361_en_dis_tx(struct ad9361_rf_phy *phy, u32 tx_if, u32 enable)
 
 static int ad9361_en_dis_rx(struct ad9361_rf_phy *phy, u32 rx_if, u32 enable)
 {
-	if (rx_if == 2 && !phy->pdata->rx2tx2)
+	if (rx_if == 2 && !phy->pdata->rx2tx2 && enable)
 		return -EINVAL;
 
 	return ad9361_spi_writef(phy->spi, REG_RX_ENABLE_FILTER_CTRL,
@@ -1957,18 +1957,50 @@ static int ad9361_trx_vco_cal_control(struct ad9361_rf_phy *phy,
 }
 
 static int ad9361_trx_ext_lo_control(struct ad9361_rf_phy *phy,
-				      bool rx, bool enable)
+				      bool tx, bool enable)
 {
 	unsigned val = enable ? ~0 : 0;
 
 	dev_dbg(&phy->spi->dev, "%s : state %d",
 		__func__, enable);
-	if (rx)
-		return ad9361_spi_write(phy->spi, REG_RX_LO_GEN_POWER_MODE,
-					RX_LO_GEN_POWER_MODE(val));
-	else
+
+	if (tx) {
+		ad9361_spi_writef(phy->spi, REG_ENSM_CONFIG_2,
+				  POWER_DOWN_TX_SYNTH, enable);
+
+		ad9361_spi_writef(phy->spi, REG_RFPLL_DIVIDERS,
+				  TX_VCO_DIVIDER(~0), 0x7);
+
+		ad9361_spi_write(phy->spi, REG_TX_SYNTH_POWER_DOWN_OVERRIDE,
+				enable ? TX_SYNTH_VCO_ALC_POWER_DOWN |
+				TX_SYNTH_PTAT_POWER_DOWN |
+				TX_SYNTH_VCO_POWER_DOWN |
+				TX_SYNTH_VCO_LDO_POWER_DOWN : 0);
+
+		ad9361_spi_writef(phy->spi, REG_ANALOG_POWER_DOWN_OVERRIDE,
+				  TX_EXT_VCO_BUFFER_POWER_DOWN, !enable);
+
 		return ad9361_spi_write(phy->spi, REG_TX_LO_GEN_POWER_MODE,
 					TX_LO_GEN_POWER_MODE(val));
+	} else {
+		ad9361_spi_writef(phy->spi, REG_ENSM_CONFIG_2,
+				  POWER_DOWN_RX_SYNTH, enable);
+
+		ad9361_spi_writef(phy->spi, REG_RFPLL_DIVIDERS,
+				  RX_VCO_DIVIDER(~0), 0x7);
+
+		ad9361_spi_write(phy->spi, REG_RX_SYNTH_POWER_DOWN_OVERRIDE,
+				enable ? RX_SYNTH_VCO_ALC_POWER_DOWN |
+				RX_SYNTH_PTAT_POWER_DOWN |
+				RX_SYNTH_VCO_POWER_DOWN |
+				RX_SYNTH_VCO_LDO_POWER_DOWN : 0);
+
+		ad9361_spi_writef(phy->spi, REG_ANALOG_POWER_DOWN_OVERRIDE,
+				  RX_EXT_VCO_BUFFER_POWER_DOWN, !enable);
+
+		return ad9361_spi_write(phy->spi, REG_RX_LO_GEN_POWER_MODE,
+					RX_LO_GEN_POWER_MODE(val));
+	}
 }
 
 /* REFERENCE CLOCK DELAY UNIT COUNTER REGISTER */
@@ -2602,7 +2634,7 @@ static int ad9361_get_temp(struct ad9361_rf_phy *phy)
 	val = ad9361_spi_read(phy->spi, REG_TEMPERATURE);
 	ad9361_spi_writef(phy->spi, REG_AUXADC_CONFIG, AUXADC_POWER_DOWN, 0);
 
-	return DIV_ROUND_CLOSEST(val * 1000, 1140);
+	return DIV_ROUND_CLOSEST(val * 1000000, 1140);
 }
 
 static int ad9361_get_auxadc(struct ad9361_rf_phy *phy)
@@ -2954,8 +2986,9 @@ static int ad9361_calculate_rf_clock_chain(struct ad9361_rf_phy *phy,
 	for (i = rate_gov; i < 7; i++) {
 		adc_rate = clkrf * clk_dividers[i][0];
 		dac_rate = clktf * clk_dividers[i][0];
+
 		if ((adc_rate <= MAX_ADC_CLK) && (adc_rate >= MIN_ADC_CLK)) {
-			tmp = adc_rate / dac_rate;
+
 
 			if (dac_rate > adc_rate)
 				tmp = (dac_rate / adc_rate) * -1;
@@ -2969,8 +3002,14 @@ static int ad9361_calculate_rf_clock_chain(struct ad9361_rf_phy *phy,
 				break;
 			} else {
 				dac_rate = adc_rate / 2;  /* ADC_CLK/2 */
-				index_tx = i + 2 - ((tmp == 1) ? 0 : tmp);
 				index_rx = i;
+
+				if (i == 4 && tmp >= 0)
+					index_tx = 7; /* STOP: 3/2 != 1 */
+				else
+					index_tx = i + ((i == 5 && tmp >= 0) ? 1 : 2) -
+						((tmp == 1) ? 0 : tmp);
+
 				break;
 			}
 		}
@@ -3390,10 +3429,8 @@ static int ad9361_setup(struct ad9361_rf_phy *phy)
 	ad9361_en_dis_tx(phy, 1, TX_ENABLE);
 	ad9361_en_dis_rx(phy, 1, RX_ENABLE);
 
-	if (pd->rx2tx2) {
-		ad9361_en_dis_tx(phy, 2, TX_ENABLE);
-		ad9361_en_dis_rx(phy, 2, RX_ENABLE);
-	}
+	ad9361_en_dis_tx(phy, 2, pd->rx2tx2);
+	ad9361_en_dis_rx(phy, 2, pd->rx2tx2);
 
 	ret = ad9361_rf_port_setup(phy, pd->rf_rx_input_sel,
 				   pd->rf_tx_output_sel);
@@ -3450,47 +3487,48 @@ static int ad9361_setup(struct ad9361_rf_phy *phy)
 	if (ret < 0)
 		return ret;
 
-	if (pd->use_ext_rx_lo) {
-		ad9361_trx_ext_lo_control(phy, true, pd->use_ext_rx_lo);
-	} else {
-		ret = clk_set_rate(phy->clks[RX_RFPLL], ad9361_to_clk(pd->rx_synth_freq));
-		if (ret < 0) {
-			dev_err(dev, "Failed to set RX Synth rate (%d)\n",
-				ret);
-			return ret;
-		}
-
-		ret = clk_prepare_enable(phy->clks[RX_REFCLK]);
-		if (ret < 0) {
-			dev_err(dev, "Failed to enable RX Synth ref clock (%d)\n", ret);
-			return ret;
-		}
-
-		ret = clk_prepare_enable(phy->clks[RX_RFPLL]);
-		if (ret < 0)
-			return ret;
+	ret = clk_set_rate(phy->clks[RX_RFPLL], ad9361_to_clk(pd->rx_synth_freq));
+	if (ret < 0) {
+		dev_err(dev, "Failed to set RX Synth rate (%d)\n",
+			ret);
+		return ret;
 	}
 
-	if (pd->use_ext_tx_lo) {
-		ad9361_trx_ext_lo_control(phy, false, pd->use_ext_tx_lo);
-	} else {
-		ret = clk_set_rate(phy->clks[TX_RFPLL], ad9361_to_clk(pd->tx_synth_freq));
-		if (ret < 0) {
-			dev_err(dev, "Failed to set TX Synth rate (%d)\n",
-				ret);
-			return ret;
-		}
-
-		ret = clk_prepare_enable(phy->clks[TX_REFCLK]);
-		if (ret < 0) {
-			dev_err(dev, "Failed to enable TX Synth ref clock (%d)\n", ret);
-			return ret;
-		}
-
-		ret = clk_prepare_enable(phy->clks[TX_RFPLL]);
-		if (ret < 0)
-			return ret;
+	ret = clk_prepare_enable(phy->clks[RX_REFCLK]);
+	if (ret < 0) {
+		dev_err(dev, "Failed to enable RX Synth ref clock (%d)\n", ret);
+		return ret;
 	}
+
+	ret = clk_prepare_enable(phy->clks[RX_RFPLL]);
+	if (ret < 0)
+		return ret;
+
+	/* REVISIT : add EXT LO clock */
+	if (pd->use_ext_rx_lo)
+		ad9361_trx_ext_lo_control(phy, false, pd->use_ext_rx_lo);
+
+
+	ret = clk_set_rate(phy->clks[TX_RFPLL], ad9361_to_clk(pd->tx_synth_freq));
+	if (ret < 0) {
+		dev_err(dev, "Failed to set TX Synth rate (%d)\n",
+			ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(phy->clks[TX_REFCLK]);
+	if (ret < 0) {
+		dev_err(dev, "Failed to enable TX Synth ref clock (%d)\n", ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(phy->clks[TX_RFPLL]);
+	if (ret < 0)
+		return ret;
+
+	/* REVISIT : add EXT LO clock */
+	if (pd->use_ext_tx_lo)
+		ad9361_trx_ext_lo_control(phy, true, pd->use_ext_tx_lo);
 
 	ret = ad9361_load_mixer_gm_subtable(phy);
 	if (ret < 0)
@@ -4053,7 +4091,8 @@ static int ad9361_set_clk_scaler(struct clk_hw *hw, bool set)
 		if (ret < 0)
 			return ret;
 		if (set)
-			return ad9361_spi_writef(spi, REG_CLOCK_CTRL, 0x3, ret);
+			return ad9361_spi_writef(spi, REG_CLOCK_CTRL,
+						REF_FREQ_SCALER(~0), ret);
 		break;
 
 	case RX_REFCLK:
