@@ -1,5 +1,25 @@
 /include/ "zynq-miami.dtsi"
 
+/ {
+		/* SD 1 for WiFi card */
+		reg_sd1: regulator_sd1 {
+			compatible = "regulator-fixed";
+			regulator-name = "wl-wifi";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			vin-supply = <&R600A_reg>;
+			gpio = <&gpio 58 0>;
+			enable-active-high;
+			/* regulator-always-on;
+			   regulator-boot-on; */
+			startup-delay-us = <70000>;
+		};
+};
+
+&usb {
+	dr_mode = "otg";
+};
+
 &fpga_axi {
 		i2c@41600000 {
 			compatible = "xlnx,axi-iic-1.01.b", "xlnx,xps-iic-2.00.a";
@@ -55,17 +75,15 @@
 				reg = <0>;
 				spi-cpha;
 				spi-max-frequency = <2048000>;
-
 				/* GPIO Setup */
 				clksel-gpio = <&gpio 57 0>;
 				/* drdy-gpio = <&gpio 12 0>; */
 				pwdn-gpio = <&gpio 55 0>;
 				reset-gpio = <&gpio 54 0>;
 				start-gpio = <&gpio 56 0>;
-
 				rdy-irq {
-						interrupt-parent = <&gic>;
-						interrupts = <0 56 0x1>;
+					interrupt-parent = <&gic>;
+					interrupts = <0 56 0x1>;
 				};
 			};
 
@@ -136,6 +154,50 @@
 			audio-codec = <&adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
 		};
+
+		sdhci1: sdhci@e0101000 {
+			compatible = "arasan,sdhci-8.9a";
+			reg = <0xe0101000 0x1000>;
+			interrupts = <0 47 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "clk_xin", "clk_ahb";
+			clocks = <&clkc 22>, <&clkc 33>;
+			disable-wp;
+			broken-cd;
+			non-removable;
+			vmmc-supply = <&reg_sd1>;
+			/* vqmmc-supply = <&R600B_reg>; */
+			bus-width = <4>;
+			cap-power-off-card;
+		};
+		/* UART for bluetooth */
+		uart0: uart@e0000000 {
+			compatible = "xlnx,xuartps";
+			reg = <0xE0000000 0x1000>;
+			interrupts = <0 27 4>;
+			interrupt-parent = <&gic>;
+			clocks = <&clkc 23>, <&clkc 40>;
+			clock-names = "ref_clk", "aper_clk";
+			port-number = <1>;
+			current-speed = <115200>;
+			device_type = "serial";
+		};
+};
+
+/ {
+	/* Does not actually work, but was worth a try */
+	wlan {
+		compatible = "ti,wilink6";
+		interrupt-parent = <&gic>;
+		interrupts = <0 55 0x4>;	/* IRQ 87 level triggered */
+		clocks = <&refclock>;
+		clock-names = "refclock";
+		refclock: refclock {
+			compatible = "ti,wilink-clock";
+			#clock-cells = <0>;
+			clock-frequency = <38400000>;
+		};
+	 };
 };
 
 &leds {
@@ -147,11 +209,8 @@
 		led1: led1 {
 			label = "led1:green";
 			gpios = <&gpio 62 1>;
-			linux,default-trigger = "none";
+			linux,default-trigger = "mmc1";
 		};
-		led2: led2 {
-			label = "led2:green";
-			gpios = <&gpio 63 1>; /* Active low */
-			linux,default-trigger = "none";
-		};
+	/* LED2 connected to PL in the current design, EMIO9 is connected to
+	   WLAN IRQ instead. */
 };
