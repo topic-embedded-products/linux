@@ -50,10 +50,10 @@
 
 		fmc_spi: spi@e0006000 {
 			bus-num = <1>;
-			compatible = "xlnx,zynq-spi-1.00.a";
+			compatible = "cdns,spi-r1p6";
 			interrupt-parent = <&gic>;
 			interrupts = <0 26 4>;
-			clock-names = "ref_clk", "aper_clk";
+			clock-names = "ref_clk", "pclk";
 			clocks = <&clkc 25>, <&clkc 34>;
 			num-chip-select = <4>;
 			reg = <0xe0006000 0x1000>;
