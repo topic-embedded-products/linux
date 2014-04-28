@@ -28,26 +28,23 @@
  * Based on:
  *	i2c-virtual_cb.c from Brian Kuschak <bkuschak@yahoo.com>
  * and
- *	pca9540.c from Jean Delvare <khali@linux-fr.org>.
+ *	pca9540.c from Jean Delvare <jdelvare@suse.de>.
  *
  * This file is licensed under the terms of the GNU General Public
  * License version 2. This program is licensed "as is" without any
  * warranty of any kind, whether express or implied.
  */
 
-#include <linux/module.h>
-#include <linux/init.h>
-#include <linux/slab.h>
 #include <linux/device.h>
+#include <linux/gpio.h>
 #include <linux/i2c.h>
 #include <linux/i2c-mux.h>
-#include <linux/workqueue.h>
-
 #include <linux/i2c/pca954x.h>
+#include <linux/module.h>
+#include <linux/of_gpio.h>
+#include <linux/slab.h>
 
 #define PCA954X_MAX_NCHANS 8
-
-#define PCA954X_DESELECT_TIMEOUT	msecs_to_jiffies(100)
 
 enum pca_type {
 	pca_9540,
@@ -63,8 +60,7 @@ enum pca_type {
 struct pca954x {
 	enum pca_type type;
 	struct i2c_adapter *virt_adaps[PCA954X_MAX_NCHANS];
-	struct i2c_client *client;
-	struct delayed_work deselect_work;
+
 	u8 last_chan;		/* last register value */
 };
 
@@ -172,37 +168,14 @@ static int pca954x_select_chan(struct i2c_adapter *adap,
 	return ret;
 }
 
-static void pca954x_deselect_work(struct work_struct *work)
-{
-	struct pca954x *data = container_of(
-				work, struct pca954x, deselect_work.work);
-	/* Use the adapter lock as a mutex because any method that changes
-	 * the mux state will also hold this mutex. If the bus is in use,
-	 * the lock will assure that at least that transaction will
-	 * complete. */
-	i2c_lock_adapter(data->client->adapter);
-	if (data->last_chan != 0) {
-		int res;
-		/* Disable mux */
-		dev_dbg(&data->client->dev, "deselecting mux\n");
-		data->last_chan = 0;
-		res = pca954x_reg_write(data->client->adapter,
-				data->client, data->last_chan);
-		if (res < 0)
-			dev_err(&data->client->dev,
-				"%s: pca954x_reg_write failed: %d\n",
-				__func__, res);
-	}
-	i2c_unlock_adapter(data->client->adapter);
-}
-
-static int pca954x_deselect_mux_delayed(struct i2c_adapter *adap,
+static int pca954x_deselect_mux(struct i2c_adapter *adap,
 				void *client, u32 chan)
 {
 	struct pca954x *data = i2c_get_clientdata(client);
-	/* Setup timer to disable at a later interval */
-	schedule_delayed_work(&data->deselect_work, PCA954X_DESELECT_TIMEOUT);
-	return 0;
+
+	/* Deselect active channel */
+	data->last_chan = 0;
+	return pca954x_reg_write(adap, client, data->last_chan);
 }
 
 /*
@@ -213,20 +186,35 @@ static int pca954x_probe(struct i2c_client *client,
 {
 	struct i2c_adapter *adap = to_i2c_adapter(client->dev.parent);
 	struct pca954x_platform_data *pdata = dev_get_platdata(&client->dev);
+	struct device_node *np = client->dev.of_node;
 	int num, force, class;
 	struct pca954x *data;
-	int ret = -ENODEV;
+	int ret;
 
 	if (!i2c_check_functionality(adap, I2C_FUNC_SMBUS_BYTE))
-		goto err;
+		return -ENODEV;
 
-	data = kzalloc(sizeof(struct pca954x), GFP_KERNEL);
-	if (!data) {
-		ret = -ENOMEM;
-		goto err;
-	}
+	data = devm_kzalloc(&client->dev, sizeof(struct pca954x), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
 
 	i2c_set_clientdata(client, data);
+
+	if (IS_ENABLED(CONFIG_OF) && np) {
+		enum of_gpio_flags flags;
+		int gpio;
+
+		/* Get the mux out of reset if a reset GPIO is specified. */
+		gpio = of_get_named_gpio_flags(np, "reset-gpio", 0, &flags);
+		if (gpio_is_valid(gpio)) {
+			ret = devm_gpio_request_one(&client->dev, gpio,
+					flags & OF_GPIO_ACTIVE_LOW ?
+					GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW,
+					"pca954x reset");
+			if (ret < 0)
+				return ret;
+		}
+	}
 
 	/* Write the mux register at addr to verify
 	 * that the mux is in fact present. This also
@@ -234,13 +222,11 @@ static int pca954x_probe(struct i2c_client *client,
 	 */
 	if (i2c_smbus_write_byte(client, 0) < 0) {
 		dev_warn(&client->dev, "probe failed\n");
-		goto exit_free;
+		return -ENODEV;
 	}
 
 	data->type = id->driver_data;
 	data->last_chan = 0;		   /* force the first selection */
-	data->client = client;
-	INIT_DELAYED_WORK(&data->deselect_work, pca954x_deselect_work);
 
 	/* Now create an adapter for each channel */
 	for (num = 0; num < chips[data->type].nchans; num++) {
@@ -260,8 +246,7 @@ static int pca954x_probe(struct i2c_client *client,
 			i2c_add_mux_adapter(adap, &client->dev, client,
 				force, num, class, pca954x_select_chan,
 				(pdata && pdata->modes[num].deselect_on_exit)
-					? pca954x_deselect_mux_delayed
-					: NULL);
+					? pca954x_deselect_mux : NULL);
 
 		if (data->virt_adaps[num] == NULL) {
 			ret = -ENODEV;
@@ -282,9 +267,6 @@ static int pca954x_probe(struct i2c_client *client,
 virt_reg_failed:
 	for (num--; num >= 0; num--)
 		i2c_del_mux_adapter(data->virt_adaps[num]);
-exit_free:
-	kfree(data);
-err:
 	return ret;
 }
 
@@ -294,15 +276,12 @@ static int pca954x_remove(struct i2c_client *client)
 	const struct chip_desc *chip = &chips[data->type];
 	int i;
 
-	cancel_delayed_work_sync(&data->deselect_work);
-
 	for (i = 0; i < chip->nchans; ++i)
 		if (data->virt_adaps[i]) {
 			i2c_del_mux_adapter(data->virt_adaps[i]);
 			data->virt_adaps[i] = NULL;
 		}
 
-	kfree(data);
 	return 0;
 }
 
