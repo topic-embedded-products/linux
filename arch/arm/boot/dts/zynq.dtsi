@@ -230,7 +230,7 @@
 			compatible = "xlnx,zynq-qspi-1.0";
 			interrupt-parent = <&gic>;
 			interrupts = <0 19 4>;
-			clock-names = "ref_clk", "aper_clk";
+			clock-names = "ref_clk", "pclk";
 			clocks = <&clkc 10>, <&clkc 43>;
 			is-dual = <0>;
 			num-chip-select = <1>;
