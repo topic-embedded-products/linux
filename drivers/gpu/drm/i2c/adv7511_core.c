@@ -19,7 +19,9 @@
 #include <drm/drm_edid.h>
 #include <drm/drm_encoder_slave.h>
 
-#include "adv7511.h"
+#include <drm/i2c/adv7511.h>
+
+#define MAX_CLOCK	165000
 
 static const uint8_t adv7511_register_defaults[] = {
 	0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 00 */
@@ -69,6 +71,11 @@ static const struct reg_default adv7511_fixed_registers[] = {
 	{ 0x55, 0x02 },
 };
 
+static const uint16_t adv7511_csc_ycbcr_to_rgb[] = {
+	0x0734, 0x04ad, 0x0000, 0x1c1b,
+	0x1ddc, 0x04ad, 0x1f24, 0x0135,
+	0x0000, 0x04ad, 0x087c, 0x1b77,
+};
 static struct adv7511 *encoder_to_adv7511(struct drm_encoder *encoder)
 {
 	return to_encoder_slave(encoder)->slave_priv;
@@ -216,6 +223,7 @@ static void adv7511_set_link_config(struct adv7511 *adv7511,
 
 	adv7511->hsync_polarity = config->hsync_polarity;
 	adv7511->vsync_polarity = config->vsync_polarity;
+	adv7511->rgb = config->rgb;
 }
 
 int adv7511_packet_enable(struct adv7511 *adv7511, unsigned int packet)
@@ -438,6 +446,52 @@ static int adv7511_get_edid_block(void *data, unsigned char *buf, int block,
 	return 0;
 }
 
+/**
+ * adv7511_set_default_config - Set adv7511 with default config
+ * @encoder: drm encoder
+ * @connector: drm connector
+ * @edid: edid from the connected display device
+ *
+ * Configure adv7511 with default values. This configuration is overwritten
+ * when client driver re-configures the adv7511 using adv7511_set_config().
+ */
+static void adv7511_set_default_config(struct drm_encoder *encoder,
+				       struct drm_connector *connector,
+				       struct edid *edid)
+{
+	struct adv7511 *adv7511 = encoder_to_adv7511(encoder);
+	struct adv7511_video_config config;
+
+	if (edid)
+		config.hdmi_mode = drm_detect_hdmi_monitor(edid);
+	else
+		config.hdmi_mode = false;
+
+	hdmi_avi_infoframe_init(&config.avi_infoframe);
+
+	config.avi_infoframe.scan_mode = HDMI_SCAN_MODE_UNDERSCAN;
+
+	if (adv7511->rgb) {
+		config.csc_enable = false;
+		config.avi_infoframe.colorspace = HDMI_COLORSPACE_RGB;
+	} else {
+		config.csc_scaling_factor = ADV7511_CSC_SCALING_4;
+		config.csc_coefficents = adv7511_csc_ycbcr_to_rgb;
+
+		if ((connector->display_info.color_formats &
+		     DRM_COLOR_FORMAT_YCRCB422) &&
+		    config.hdmi_mode) {
+			config.csc_enable = false;
+			config.avi_infoframe.colorspace =
+				HDMI_COLORSPACE_YUV422;
+		} else {
+			config.csc_enable = true;
+			config.avi_infoframe.colorspace = HDMI_COLORSPACE_RGB;
+		}
+	}
+
+	adv7511_set_config(encoder, &config);
+}
 static int adv7511_get_modes(struct drm_encoder *encoder,
 			     struct drm_connector *connector)
 {
@@ -468,6 +522,8 @@ static int adv7511_get_modes(struct drm_encoder *encoder,
 
 	drm_mode_connector_update_edid_property(connector, edid);
 	count = drm_add_edid_modes(connector, edid);
+
+	adv7511_set_default_config(encoder, connector, edid);
 
 	return count;
 }
@@ -556,7 +612,7 @@ adv7511_encoder_detect(struct drm_encoder *encoder,
 		adv7511_encoder_dpms(encoder, adv7511->dpms_mode);
 		adv7511_get_modes(encoder, connector);
 		if (adv7511->status == connector_status_connected)
-			status = connector_status_disconnected;
+		status = connector_status_disconnected;
 	} else {
 		/* Renable HDP sensing */
 		regmap_update_bits(adv7511->regmap, ADV7511_REG_POWER2,
@@ -568,6 +624,17 @@ adv7511_encoder_detect(struct drm_encoder *encoder,
 	return status;
 }
 
+static int adv7511_encoder_mode_valid(struct drm_encoder *encoder,
+				      struct drm_display_mode *mode)
+{
+	if (mode->clock > MAX_CLOCK)
+		return MODE_CLOCK_HIGH;
+
+	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
+		return MODE_NO_INTERLACE;
+
+	return MODE_OK;
+}
 static void adv7511_encoder_mode_set(struct drm_encoder *encoder,
 				     struct drm_display_mode *mode,
 				     struct drm_display_mode *adj_mode)
@@ -662,6 +729,7 @@ static struct drm_encoder_slave_funcs adv7511_encoder_funcs = {
 	.set_config = adv7511_set_config,
 	.dpms = adv7511_encoder_dpms,
 	/* .destroy = adv7511_encoder_destroy,*/
+	.mode_valid = adv7511_encoder_mode_valid,
 	.mode_set = adv7511_encoder_mode_set,
 	.detect = adv7511_encoder_detect,
 	.get_modes = adv7511_get_modes,
@@ -680,8 +748,8 @@ static const struct regmap_config adv7511_regmap_config = {
 };
 
 /*
-	adi,input-id - 
-		0x00: 
+	adi,input-id -
+		0x00:
 		0x01:
 		0x02:
 		0x03:
@@ -696,7 +764,7 @@ static const struct regmap_config adv7511_regmap_config = {
 		0x00: Evently
 		0x01: Right
 		0x02: Left
-	adi,up-conversion - 
+	adi,up-conversion -
 		0x00: zero-order up conversion
 		0x01: first-order up conversion
 	adi,timing-generation-sequence -
@@ -725,7 +793,7 @@ static const struct regmap_config adv7511_regmap_config = {
 		0x02: Use input style 1
 		0x01: Use input style 2
 		0x03: Use Input style 3
-	adi,input-color-depth - Selects the input format color depth 
+	adi,input-color-depth - Selects the input format color depth
 		0x03: 8-bit per channel
 		0x01: 10-bit per channel
 		0x02: 12-bit per channel
@@ -790,6 +858,7 @@ static int adv7511_parse_dt(struct device_node *np,
 	if (config->gpio_pd == -EPROBE_DEFER)
 		return -EPROBE_DEFER;
 
+	config->rgb = of_property_read_bool(np, "adi,is-rgb");
 	return 0;
 }
 
@@ -821,7 +890,6 @@ static int adv7511_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 
 	adv7511->dpms_mode = DRM_MODE_DPMS_OFF;
 	adv7511->status = connector_status_disconnected;
-
 	adv7511->gpio_pd = link_config.gpio_pd;
 
 	if (gpio_is_valid(adv7511->gpio_pd)) {
@@ -876,6 +944,7 @@ static int adv7511_probe(struct i2c_client *i2c, const struct i2c_device_id *id)
 	regmap_update_bits(adv7511->regmap, ADV7511_REG_POWER,
 			   ADV7511_POWER_POWER_DOWN, ADV7511_POWER_POWER_DOWN);
 
+	adv7511->dpms_mode = DRM_MODE_DPMS_OFF;
 	adv7511->current_edid_segment = -1;
 
 	i2c_set_clientdata(i2c, adv7511);
@@ -936,13 +1005,13 @@ static struct drm_i2c_encoder_driver adv7511_driver = {
 	.encoder_init = adv7511_encoder_init,
 };
 
-static int __init adv7511_init(void)
+static int adv7511_init(void)
 {
 	return drm_i2c_encoder_register(THIS_MODULE, &adv7511_driver);
 }
 module_init(adv7511_init);
 
-static void __exit adv7511_exit(void)
+static void adv7511_exit(void)
 {
 	drm_i2c_encoder_unregister(&adv7511_driver);
 }

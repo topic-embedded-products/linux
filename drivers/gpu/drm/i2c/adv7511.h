@@ -317,8 +317,8 @@ enum adv7511_sync_polarity {
  * active.
  **/
 enum adv7511_timing_gen_seq {
-    ADV7511_TIMING_GEN_SEQ_SYN_ADJ_FIRST = 0,
-    ADV7511_TIMING_GEN_SEQ_DE_GEN_FIRST = 1,
+	ADV7511_TIMING_GEN_SEQ_SYN_ADJ_FIRST = 0,
+	ADV7511_TIMING_GEN_SEQ_DE_GEN_FIRST = 1,
 };
 
 /**
@@ -329,8 +329,8 @@ enum adv7511_timing_gen_seq {
  * This used when converting from a 4:2:2 format to a 4:4:4 format.
  **/
 enum adv7511_up_conversion {
-    ADV7511_UP_CONVERSION_ZERO_ORDER = 0,
-    ADV7511_UP_CONVERSION_FIRST_ORDER = 1,
+	ADV7511_UP_CONVERSION_ZERO_ORDER = 0,
+	ADV7511_UP_CONVERSION_FIRST_ORDER = 1,
 };
 
 /**
@@ -348,6 +348,7 @@ enum adv7511_up_conversion {
  * @hsync_polartity:		hsync input signal configuration
  * @timing_gen_seq:		Selects the order in which sync DE generation
  *				and sync adjustment are performt.
+ * @rgb:			Whether rgb format is configured
  * @gpio_pd:			GPIO controlling the PD (powerdown) pin
  **/
 struct adv7511_link_config {
@@ -361,6 +362,7 @@ struct adv7511_link_config {
 	enum adv7511_input_color_depth input_color_depth;
 	bool tmds_clock_inversion;
 	enum adv7511_timing_gen_seq timing_gen_seq;
+	bool rgb;
 
 	enum adv7511_sync_polarity vsync_polarity;
 	enum adv7511_sync_polarity hsync_polarity;
@@ -387,7 +389,7 @@ struct adv7511_link_config {
 	adi,vsync-polarity = "low"|"high"|"passthrough"
 	adi,hsync-polarity = "low"|"high"|"passtrhough"
 	adi,timing-gen-seq = "sync-adjustment-first"|"de-generation-first"
-*/
+ */
 
 /**
  * enum adv7511_csc_scaling - Scaling factor for the ADV7511 CSC
@@ -443,6 +445,7 @@ struct adv7511 {
 	bool embedded_sync;
 	enum adv7511_sync_polarity vsync_polarity;
 	enum adv7511_sync_polarity hsync_polarity;
+	bool rgb;
 
 	struct edid *edid;
 
@@ -451,4 +454,4 @@ struct adv7511 {
 
 struct edid *adv7511_get_edid(struct drm_encoder *encoder);
 
-#endif
+#endif /* __DRM_I2C_ADV7511_H__ */
