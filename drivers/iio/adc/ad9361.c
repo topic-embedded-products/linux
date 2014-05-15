@@ -21,6 +21,7 @@
 
 #include <linux/of.h>
 #include <linux/of_gpio.h>
+#include <linux/gpio/consumer.h>
 
 #include <asm/unaligned.h>
 
@@ -63,6 +64,7 @@ enum debugfs_cmd {
 	DBGFS_BIST_DT_ANALYSIS,
 	DBGFS_RXGAIN_1,
 	DBGFS_RXGAIN_2,
+	DBGFS_MCS,
 };
 
 enum ad9361_bist_mode {
@@ -104,7 +106,7 @@ struct ad9361_rf_phy {
 	struct clk 		*clks[NUM_AD9361_CLKS];
 	struct clk_onecell_data	clk_data;
 	struct ad9361_phy_platform_data *pdata;
-	struct ad9361_debugfs_entry debugfs_entry[143];
+	struct ad9361_debugfs_entry debugfs_entry[145];
 	struct bin_attribute 	bin;
 	struct iio_dev 		*indio_dev;
 	struct work_struct 	work;
@@ -301,10 +303,10 @@ static int ad9361_spi_writem(struct spi_device *spi,
 
 static int ad9361_reset(struct ad9361_rf_phy *phy)
 {
-	if (gpio_is_valid(phy->pdata->gpio_resetb)) {
-		gpio_set_value(phy->pdata->gpio_resetb, 0);
+	if (!IS_ERR(phy->pdata->reset_gpio)) {
+		gpiod_set_value(phy->pdata->reset_gpio, 0);
 		mdelay(1);
-		gpio_set_value(phy->pdata->gpio_resetb, 1);
+		gpiod_set_value(phy->pdata->reset_gpio, 1);
 		mdelay(1);
 		dev_dbg(&phy->spi->dev, "%s: by GPIO", __func__);
 		return 0;
@@ -2074,6 +2076,51 @@ static int ad9361_txmon_control(struct ad9361_rf_phy *phy,
 			TX1_MONITOR_ENABLE | TX2_MONITOR_ENABLE, en_mask);
 }
 
+static int ad9361_mcs(struct ad9361_rf_phy *phy, unsigned step)
+{
+	unsigned mcs_mask = MCS_BBPLL_ENABLE | MCS_DIGITAL_CLK_ENABLE | MCS_BB_ENABLE;
+
+	dev_dbg(&phy->spi->dev, "%s: MCS step %d", __func__, step);
+
+
+	switch (step) {
+	case 1:
+		ad9361_spi_writef(phy->spi, REG_CP_BLEED_CURRENT,
+			MCS_REFCLK_SCALE_EN, 1);
+		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
+			mcs_mask, MCS_BB_ENABLE | MCS_BBPLL_ENABLE);
+		break;
+	case 2:
+		if (IS_ERR(phy->pdata->sync_gpio))
+			break;
+		/*
+		 * NOTE: This is not a regular GPIO -
+		 * HDL ensures Multi-chip Synchronization SYNC_IN Pulse Timing
+		 * relative to rising and falling edge of REF_CLK
+		 */
+		gpiod_set_value(phy->pdata->sync_gpio, 1);
+		gpiod_set_value(phy->pdata->sync_gpio, 0);
+		break;
+	case 3:
+		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
+			mcs_mask, MCS_BB_ENABLE | MCS_DIGITAL_CLK_ENABLE);
+		break;
+	case 4:
+		if (IS_ERR(phy->pdata->sync_gpio))
+			break;
+		gpiod_set_value(phy->pdata->sync_gpio, 1);
+		gpiod_set_value(phy->pdata->sync_gpio, 0);
+		break;
+	case 0:
+	case 5:
+		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
+			mcs_mask, 0);
+		break;
+	}
+
+	return 0;
+}
+
 /* val
  * 0	(RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced
  * 1	(RX1B_N &  RX1B_P) and (RX2B_N & RX2B_P) enabled; balanced
@@ -2147,6 +2194,15 @@ static int ad9361_pp_port_setup(struct ad9361_rf_phy *phy, bool restore_c3)
 //	ad9361_spi_write(spi, REG_DIGITAL_IO_CTRL, pd->port_ctrl.digital_io_ctrl);
 	ad9361_spi_write(spi, REG_LVDS_INVERT_CTRL1, pd->port_ctrl.lvds_invert[0]);
 	ad9361_spi_write(spi, REG_LVDS_INVERT_CTRL2, pd->port_ctrl.lvds_invert[1]);
+
+	if (pd->rx1rx2_phase_inversion_en ||
+		(pd->port_ctrl.pp_conf[1] & INVERT_RX2)) {
+
+		ad9361_spi_writef(spi, REG_PARALLEL_PORT_CONF_2, INVERT_RX2, 1);
+		ad9361_spi_writef(spi, REG_INVERT_BITS,
+				  INVERT_RX2_RF_DC_CGOUT_WORD, 1);
+	}
+
 
 	return 0;
 }
@@ -3954,7 +4010,7 @@ static int ad9361_validate_enable_fir(struct ad9361_rf_phy *phy)
 	}
 
 	if (!phy->bypass_tx_fir) {
-		max = ((rx[ADC_FREQ] / 2) / tx[TX_SAMPL_FREQ]) * 16;
+		max = (tx[DAC_FREQ] / tx[TX_SAMPL_FREQ]) * 16;
 		if (phy->tx_fir_ntaps > max) {
 			dev_err(dev,
 				"%s: Invalid: ratio ADC/2 / TX_SAMPL * 16 > TAPS"
@@ -3965,7 +4021,8 @@ static int ad9361_validate_enable_fir(struct ad9361_rf_phy *phy)
 	}
 
 	if (!phy->bypass_rx_fir) {
-		max = ((rx[ADC_FREQ] / 2) / rx[RX_SAMPL_FREQ]) * 16;
+		max = ((rx[ADC_FREQ] / ((rx[ADC_FREQ] == rx[R2_FREQ]) ? 1 : 2)) /
+			rx[RX_SAMPL_FREQ]) * 16;
 		if (phy->rx_fir_ntaps > max) {
 			dev_err(dev,
 				"%s: Invalid: ratio ADC/2 / RX_SAMPL * 16 > TAPS (max %d)",
@@ -6275,6 +6332,15 @@ static ssize_t ad9361_debugfs_write(struct file *file,
 
 		entry->val = val;
 		return count;
+	case DBGFS_MCS:
+		if (ret != 1)
+			return -EINVAL;
+		ret = ad9361_mcs(phy, val);
+		if (ret < 0)
+			return ret;
+
+		entry->val = val;
+		return count;
 	default:
 		break;
 	}
@@ -6340,6 +6406,7 @@ static int ad9361_register_debugfs(struct iio_dev *indio_dev)
 		DBGFS_BIST_DT_ANALYSIS);
 	ad9361_add_debugfs_entry(phy, "gaininfo_rx1", DBGFS_RXGAIN_1);
 	ad9361_add_debugfs_entry(phy, "gaininfo_rx2", DBGFS_RXGAIN_2);
+	ad9361_add_debugfs_entry(phy, "multichip_sync", DBGFS_MCS);
 
 	for (i = 0; i < phy->ad9361_debugfs_entry_index; i++)
 		d = debugfs_create_file(
@@ -6538,6 +6605,10 @@ static struct ad9361_phy_platform_data
 			  &pdata->rf_rx_input_sel);
 	ad9361_of_get_u32(iodev, np, "adi,tx-rf-port-input-select", 0,
 			  &pdata->rf_tx_output_sel);
+
+	ad9361_of_get_bool(iodev, np, "adi,rx1-rx2-phase-inversion-enable",
+			   &pdata->rx1rx2_phase_inversion_en);
+
 
 	tmpl = 2400000000ULL;
 	of_property_read_u64(np, "adi,rx-synthesizer-frequency-hz", &tmpl);
@@ -6793,12 +6864,6 @@ static struct ad9361_phy_platform_data
 	ad9361_of_get_bool(iodev, np, "adi,elna-rx2-gpo1-control-enable",
 			   &pdata->elna_ctrl.elna_2_control_en);
 
-	ret = of_get_gpio(np, 0);
-	if (ret < 0)
-		pdata->gpio_resetb = -1;
-	else
-		pdata->gpio_resetb = ret;
-
 	/* AuxADC Temp Sense Control */
 
 	ad9361_of_get_u32(iodev, np, "adi,temp-sense-measurement-interval-ms", 1000,
@@ -6939,18 +7004,14 @@ static int ad9361_probe(struct spi_device *spi)
 	if (phy->pdata == NULL)
 		return -EINVAL;
 
-	if (gpio_is_valid(phy->pdata->gpio_resetb)) {
-		ret = devm_gpio_request_one(&spi->dev, phy->pdata->gpio_resetb,
-			GPIOF_OUT_INIT_HIGH, "AD9361 RESETB");
-	} /*else {
-		ret = -ENODEV;
-	}*/
+	phy->pdata->reset_gpio = devm_gpiod_get(&spi->dev, "reset");
+	if (!IS_ERR(phy->pdata->reset_gpio)) {
+		ret = gpiod_direction_output(phy->pdata->reset_gpio, 1);
+	}
 
-	if (ret) {
-		dev_err(&spi->dev, "fail to request RESET GPIO-%d",
-			phy->pdata->gpio_resetb);
-		ret = -ENODEV;
-		goto out;
+	phy->pdata->sync_gpio = devm_gpiod_get(&spi->dev, "sync");
+	if (!IS_ERR(phy->pdata->sync_gpio)) {
+		ret = gpiod_direction_output(phy->pdata->sync_gpio, 0);
 	}
 
 	phy->spi = spi;

@@ -102,7 +102,7 @@
 			#size-cells = <1>;
 			compatible = "xlnx,zynq-slcr", "syscon";
 			reg = <0xF8000000 0x1000>;
-			ranges;
+			ranges ;
 			clkc: clkc@100 {
 				#clock-cells = <1>;
 				compatible = "xlnx,ps7-clkc";
@@ -293,7 +293,7 @@
 			compatible = "xlnx,zynq-ddrc-1.0";
 			reg = <0xf8006000 0x1000>;
 			xlnx,has-ecc = <0x0>;
-		};
+		} ;
 
 		ps7_ocmc_0: ps7-ocmc@f800c000 {
 			compatible = "xlnx,zynq-ocmc-1.0";
