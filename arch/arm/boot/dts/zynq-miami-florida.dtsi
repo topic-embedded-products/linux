@@ -55,7 +55,7 @@
 			interrupts = <0 26 4>;
 			clock-names = "ref_clk", "pclk";
 			clocks = <&clkc 25>, <&clkc 34>;
-			num-chip-select = <4>;
+			num-cs = <4>;
 			reg = <0xe0006000 0x1000>;
 			speed-hz = <100000000>;
 			xlnx,has-ss0 = <0x1>;

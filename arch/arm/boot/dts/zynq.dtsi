@@ -74,11 +74,11 @@
 		};
 
 		uart: uart@e0001000 {
-			compatible = "xlnx,xuartps";
+			compatible = "xlnx,xuartps", "cdns,uart-r1p8";
 			reg = <0xe0001000 0x1000>;
 			interrupts = < 0 50 4>;
 			interrupt-parent = <&gic>;
-			clock-names = "ref_clk", "aper_clk";
+			clock-names = "uart_clk", "pclk";
 			clocks = <&clkc 24>, <&clkc 41>;
 			port-number = <0>;
 			current-speed = <115200>;
@@ -233,7 +233,7 @@
 			clock-names = "ref_clk", "pclk";
 			clocks = <&clkc 10>, <&clkc 43>;
 			is-dual = <0>;
-			num-chip-select = <1>;
+			num-cs = <1>;
 			reg = <0xe000d000 0x1000>;
 			xlnx,fb-clk = <0x1>;
 			xlnx,qspi-clk-freq-hz = <200000000>;
@@ -245,6 +245,8 @@
 				m25p,fast-read;
 				reg = <0x0>;
 				spi-max-frequency = <50000000>;
+				spi-tx-bus-width = <1>;
+				spi-rx-bus-width = <4>;
 				partition@qspi-u-boot-spl {
 					label = "qspi-u-boot-spl";
 					reg = <0x00000 0x10000>;
