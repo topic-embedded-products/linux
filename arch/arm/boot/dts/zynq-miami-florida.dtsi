@@ -1,7 +1,8 @@
 /include/ "zynq-miami.dtsi"
 
 / {
-		/* SD 1 for WiFi card */
+		/* SD 1 for WiFi card (not used, this entry is to keep the line
+		 * in a "low" state */
 		reg_sd1: regulator_sd1 {
 			compatible = "regulator-fixed";
 			regulator-name = "wl-wifi";
@@ -10,14 +11,12 @@
 			vin-supply = <&R600A_reg>;
 			gpio = <&gpio 58 0>;
 			enable-active-high;
-			/* regulator-always-on;
-			   regulator-boot-on; */
 			startup-delay-us = <70000>;
 		};
 };
 
 &usb {
-	dr_mode = "otg";
+	dr_mode = "host";
 };
 
 &fpga_axi {
@@ -61,7 +60,7 @@
 			xlnx,has-ss0 = <0x1>;
 			xlnx,has-ss1 = <0x1>;
 			xlnx,has-ss2 = <0x1>;
-			xlnx,spi-clk-freq-hz = <100000000>;
+			xlnx,spi-clk-freq-hz = <172000000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
 
@@ -118,24 +117,6 @@
 			};
 		};
 
-		axi_vdma_1: axivdma@43010000 {
-			compatible = "xlnx,axi-vdma";
-			#address-cells = <1>;
-			#size-cells = <1>;
-			#dma-cells = <1>;
-			#dma-channels = <1>;
-			reg = <0x43010000 0x1000>;
-			xlnx,include-sg = <0x0>;
-			xlnx,num-fstores = <0x3>;
-			dma-channel@43000000 {
-				compatible = "xlnx,axi-vdma-mm2s-channel";
-				interrupts = <0 55 0x4>;
-				xlnx,datawidth = <0x40>;
-				xlnx,genlock-mode = <0x0>;
-				xlnx,include-dre = <0x0>;
-			};
-		};
-
 		hdmi_clock: axi-clkgen@79000000 {
 			compatible = "adi,axi-clkgen-2.00.a";
 			reg = <0x79000000 0x10000>;
@@ -172,15 +153,6 @@
 			audio-codec = <&adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
 		};
-
-		axi_vdma_vga: axi_vdma_vga@7e000000 {
-			compatible = "topic,vdma-fb";
-			reg = <0x7e000000 0x10000>;
-			dmas = <&axi_vdma_1 0>;
-			dma-names = "video";
-			width = <1024>;
-			height = <768>;
-		};
 };
 
 
@@ -194,6 +166,8 @@
 			label = "led1:green";
 			gpios = <&gpio 62 1>;
 		};
-	/* LED2 connected to PL in the current design, EMIO9 is connected to
-	   WLAN IRQ instead. */
+		led2: led2 {
+			label = "led2:green";
+			gpios = <&gpio 63 1>;
+		};
 };
