@@ -65,6 +65,7 @@ enum debugfs_cmd {
 	DBGFS_RXGAIN_1,
 	DBGFS_RXGAIN_2,
 	DBGFS_MCS,
+	DBGFS_CAL_SW_CTRL,
 };
 
 enum ad9361_bist_mode {
@@ -76,6 +77,7 @@ enum ad9361_bist_mode {
 enum {
 	ID_AD9361,
 	ID_AD9364,
+	ID_AD9361_2,
 };
 
 struct ad9361_rf_phy phy;
@@ -106,7 +108,7 @@ struct ad9361_rf_phy {
 	struct clk 		*clks[NUM_AD9361_CLKS];
 	struct clk_onecell_data	clk_data;
 	struct ad9361_phy_platform_data *pdata;
-	struct ad9361_debugfs_entry debugfs_entry[145];
+	struct ad9361_debugfs_entry debugfs_entry[146];
 	struct bin_attribute 	bin;
 	struct iio_dev 		*indio_dev;
 	struct work_struct 	work;
@@ -1794,9 +1796,16 @@ static int ad9361_rf_dc_offset_calib(struct ad9361_rf_phy *phy,
 			 USE_WAIT_COUNTER_FOR_RF_DC_INIT_CAL |
 			 DC_OFFSET_UPDATE(3));
 
-	ad9361_spi_write(spi, REG_INVERT_BITS,
-			 INVERT_RX1_RF_DC_CGOUT_WORD |
-			 INVERT_RX2_RF_DC_CGOUT_WORD);
+
+	if (phy->pdata->rx1rx2_phase_inversion_en ||
+		(phy->pdata->port_ctrl.pp_conf[1] & INVERT_RX2)) {
+		ad9361_spi_write(spi, REG_INVERT_BITS,
+				INVERT_RX1_RF_DC_CGOUT_WORD);
+	} else {
+		ad9361_spi_write(spi, REG_INVERT_BITS,
+				INVERT_RX1_RF_DC_CGOUT_WORD |
+				INVERT_RX2_RF_DC_CGOUT_WORD);
+	}
 
 	return ad9361_run_calibration(phy, RFDC_CAL);
 }
@@ -2076,51 +2085,6 @@ static int ad9361_txmon_control(struct ad9361_rf_phy *phy,
 			TX1_MONITOR_ENABLE | TX2_MONITOR_ENABLE, en_mask);
 }
 
-static int ad9361_mcs(struct ad9361_rf_phy *phy, unsigned step)
-{
-	unsigned mcs_mask = MCS_BBPLL_ENABLE | MCS_DIGITAL_CLK_ENABLE | MCS_BB_ENABLE;
-
-	dev_dbg(&phy->spi->dev, "%s: MCS step %d", __func__, step);
-
-
-	switch (step) {
-	case 1:
-		ad9361_spi_writef(phy->spi, REG_CP_BLEED_CURRENT,
-			MCS_REFCLK_SCALE_EN, 1);
-		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
-			mcs_mask, MCS_BB_ENABLE | MCS_BBPLL_ENABLE);
-		break;
-	case 2:
-		if (IS_ERR(phy->pdata->sync_gpio))
-			break;
-		/*
-		 * NOTE: This is not a regular GPIO -
-		 * HDL ensures Multi-chip Synchronization SYNC_IN Pulse Timing
-		 * relative to rising and falling edge of REF_CLK
-		 */
-		gpiod_set_value(phy->pdata->sync_gpio, 1);
-		gpiod_set_value(phy->pdata->sync_gpio, 0);
-		break;
-	case 3:
-		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
-			mcs_mask, MCS_BB_ENABLE | MCS_DIGITAL_CLK_ENABLE);
-		break;
-	case 4:
-		if (IS_ERR(phy->pdata->sync_gpio))
-			break;
-		gpiod_set_value(phy->pdata->sync_gpio, 1);
-		gpiod_set_value(phy->pdata->sync_gpio, 0);
-		break;
-	case 0:
-	case 5:
-		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
-			mcs_mask, 0);
-		break;
-	}
-
-	return 0;
-}
-
 /* val
  * 0	(RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced
  * 1	(RX1B_N &  RX1B_P) and (RX2B_N & RX2B_P) enabled; balanced
@@ -2200,7 +2164,7 @@ static int ad9361_pp_port_setup(struct ad9361_rf_phy *phy, bool restore_c3)
 
 		ad9361_spi_writef(spi, REG_PARALLEL_PORT_CONF_2, INVERT_RX2, 1);
 		ad9361_spi_writef(spi, REG_INVERT_BITS,
-				  INVERT_RX2_RF_DC_CGOUT_WORD, 1);
+				  INVERT_RX2_RF_DC_CGOUT_WORD, 0);
 	}
 
 
@@ -3444,6 +3408,50 @@ static int ad9361_fastlock_save(struct ad9361_rf_phy *phy, bool tx,
 
 	return 0;
 
+}
+
+static int ad9361_mcs(struct ad9361_rf_phy *phy, unsigned step)
+{
+	unsigned mcs_mask = MCS_BBPLL_ENABLE | MCS_DIGITAL_CLK_ENABLE | MCS_BB_ENABLE;
+
+	dev_dbg(&phy->spi->dev, "%s: MCS step %d", __func__, step);
+
+	switch (step) {
+	case 1:
+		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
+			mcs_mask, MCS_BB_ENABLE | MCS_BBPLL_ENABLE);
+		ad9361_spi_writef(phy->spi, REG_CP_BLEED_CURRENT,
+			MCS_REFCLK_SCALE_EN, 1);
+		break;
+	case 2:
+		if (IS_ERR(phy->pdata->sync_gpio))
+			break;
+		/*
+		 * NOTE: This is not a regular GPIO -
+		 * HDL ensures Multi-chip Synchronization SYNC_IN Pulse Timing
+		 * relative to rising and falling edge of REF_CLK
+		 */
+		gpiod_set_value(phy->pdata->sync_gpio, 1);
+		gpiod_set_value(phy->pdata->sync_gpio, 0);
+		break;
+	case 3:
+		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
+			mcs_mask, MCS_BB_ENABLE | MCS_DIGITAL_CLK_ENABLE);
+		break;
+	case 4:
+		if (IS_ERR(phy->pdata->sync_gpio))
+			break;
+		gpiod_set_value(phy->pdata->sync_gpio, 1);
+		gpiod_set_value(phy->pdata->sync_gpio, 0);
+		break;
+	case 0:
+	case 5:
+		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
+			mcs_mask, 0);
+		break;
+	}
+
+	return 0;
 }
 
 static void ad9361_clear_state(struct ad9361_rf_phy *phy)
@@ -4705,13 +4713,31 @@ static const struct clk_ops rfpll_clk_ops = {
 	.recalc_rate = ad9361_rfpll_recalc_rate,
 };
 
-static struct clk *ad9361_clk_register(struct ad9361_rf_phy *phy, const char *name,
-		const char *parent_name, unsigned long flags,
+#define AD9361_MAX_CLK_NAME 79
+
+static char *ad9361_clk_set_dev_name(struct ad9361_rf_phy *phy,
+					 char *dest, char *name)
+{
+	size_t len = 0;
+
+	if (*name == '-')
+		len = strlcpy(dest, dev_name(&phy->spi->dev),
+			      AD9361_MAX_CLK_NAME);
+	else
+		*dest = '\0';
+
+	return strncat(dest, name, AD9361_MAX_CLK_NAME - len);
+}
+
+static struct clk *ad9361_clk_register(struct ad9361_rf_phy *phy,
+		char *name, char *parent_name, unsigned long flags,
 		u32 source)
 {
 	struct refclk_scale *clk_priv;
 	struct clk_init_data init;
 	struct clk *clk;
+	char c_name[AD9361_MAX_CLK_NAME + 1], p_name[AD9361_MAX_CLK_NAME + 1];
+	const char *_parent_name;
 
 	clk_priv = kmalloc(sizeof(*clk_priv), GFP_KERNEL);
 	if (!clk_priv) {
@@ -4725,8 +4751,6 @@ static struct clk *ad9361_clk_register(struct ad9361_rf_phy *phy, const char *na
 	clk_priv->spi = phy->spi;
 	clk_priv->phy = phy;
 
-	init.name = name;
-
 	switch (source) {
 	case BBPLL_CLK:
 		init.ops = &bbpll_clk_ops;
@@ -4739,8 +4763,11 @@ static struct clk *ad9361_clk_register(struct ad9361_rf_phy *phy, const char *na
 		init.ops = &refclk_scale_ops;
 	}
 
+	_parent_name = ad9361_clk_set_dev_name(phy, p_name, parent_name);
+
+	init.name = ad9361_clk_set_dev_name(phy, c_name, name);;
 	init.flags = flags;
-	init.parent_names = &parent_name;
+	init.parent_names = &_parent_name;
 	init.num_parents = 1;
 
 	clk = clk_register(&phy->spi->dev, &clk_priv->hw);
@@ -4790,90 +4817,95 @@ static int register_clocks(struct ad9361_rf_phy *phy)
 
 	/* Scaled Reference Clocks */
 	phy->clks[TX_REFCLK] = ad9361_clk_register(phy,
-					"tx_refclk", "ad9361_ext_refclk",
+					"-tx_refclk", "ad9361_ext_refclk",
 					flags | CLK_IGNORE_UNUSED,
 					TX_REFCLK);
 
 	phy->clks[RX_REFCLK] = ad9361_clk_register(phy,
-					"rx_refclk", "ad9361_ext_refclk",
+					"-rx_refclk", "ad9361_ext_refclk",
 					flags | CLK_IGNORE_UNUSED,
 					RX_REFCLK);
 
 	phy->clks[BB_REFCLK] = ad9361_clk_register(phy,
-					"bb_refclk", "ad9361_ext_refclk",
+					"-bb_refclk", "ad9361_ext_refclk",
 					flags | CLK_IGNORE_UNUSED,
 					BB_REFCLK);
 
 	/* Base Band PLL Clock */
 	phy->clks[BBPLL_CLK] = ad9361_clk_register(phy,
-					"bbpll_clk", "bb_refclk",
+					"-bbpll_clk", "-bb_refclk",
 					flags | CLK_IGNORE_UNUSED,
 					BBPLL_CLK);
 
 	phy->clks[ADC_CLK] = ad9361_clk_register(phy,
-					"adc_clk", "bbpll_clk",
+					"-adc_clk", "-bbpll_clk",
 					flags | CLK_IGNORE_UNUSED,
 					ADC_CLK);
 
 	phy->clks[R2_CLK] = ad9361_clk_register(phy,
-					"r2_clk", "adc_clk",
+					"-r2_clk", "-adc_clk",
 					flags | CLK_IGNORE_UNUSED,
 					R2_CLK);
 
 	phy->clks[R1_CLK] = ad9361_clk_register(phy,
-					"r1_clk", "r2_clk",
+					"-r1_clk", "-r2_clk",
 					flags | CLK_IGNORE_UNUSED,
 					R1_CLK);
 
 	phy->clks[CLKRF_CLK] = ad9361_clk_register(phy,
-					"clkrf_clk", "r1_clk",
+					"-clkrf_clk", "-r1_clk",
 					flags | CLK_IGNORE_UNUSED,
 					CLKRF_CLK);
 
 	phy->clks[RX_SAMPL_CLK] = ad9361_clk_register(phy,
-					"rx_sampl_clk", "clkrf_clk",
+					"-rx_sampl_clk", "-clkrf_clk",
 					flags | CLK_IGNORE_UNUSED,
 					RX_SAMPL_CLK);
 
 
 	phy->clks[DAC_CLK] = ad9361_clk_register(phy,
-					"dac_clk", "adc_clk",
+					"-dac_clk", "-adc_clk",
 					flags | CLK_IGNORE_UNUSED,
 					DAC_CLK);
 
 	phy->clks[T2_CLK] = ad9361_clk_register(phy,
-					"t2_clk", "dac_clk",
+					"-t2_clk", "-dac_clk",
 					flags | CLK_IGNORE_UNUSED,
 					T2_CLK);
 
 	phy->clks[T1_CLK] = ad9361_clk_register(phy,
-					"t1_clk", "t2_clk",
+					"-t1_clk", "-t2_clk",
 					flags | CLK_IGNORE_UNUSED,
 					T1_CLK);
 
 	phy->clks[CLKTF_CLK] = ad9361_clk_register(phy,
-					"clktf_clk", "t1_clk",
+					"-clktf_clk", "-t1_clk",
 					flags | CLK_IGNORE_UNUSED,
 					CLKTF_CLK);
 
 	phy->clks[TX_SAMPL_CLK] = ad9361_clk_register(phy,
-					"tx_sampl_clk", "clktf_clk",
+					"-tx_sampl_clk", "-clktf_clk",
 					flags | CLK_IGNORE_UNUSED,
 					TX_SAMPL_CLK);
 
 	phy->clks[RX_RFPLL] = ad9361_clk_register(phy,
-					"rx_rfpll", "rx_refclk",
+					"-rx_rfpll", "-rx_refclk",
 					flags | CLK_IGNORE_UNUSED,
 					RX_RFPLL);
 
 	phy->clks[TX_RFPLL] = ad9361_clk_register(phy,
-					"tx_rfpll", "tx_refclk",
+					"-tx_rfpll", "-tx_refclk",
 					flags | CLK_IGNORE_UNUSED,
 					TX_RFPLL);
 
 
 	return 0;
 }
+
+static const unsigned long ad9361_2x2_available_scan_masks[] = {
+	0x0FF,
+	0x000,
+};
 
 #define AIM_CHAN(_chan, _si, _bits, _sign)			\
 	{ .type = IIO_VOLTAGE,						\
@@ -4887,6 +4919,13 @@ static int register_clocks(struct ad9361_rf_phy *phy)
 	  .scan_index = _si,						\
 	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
 
+#define AIM_MC_CHAN(_chan, _si, _bits, _sign)			\
+	{ .type = IIO_VOLTAGE,						\
+	  .indexed = 1,							\
+	  .channel = _chan,						\
+	  .scan_index = _si,						\
+	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
+
 static const struct axiadc_chip_info axiadc_chip_info_tbl[] = {
 	[ID_AD9361] = {
 		.name = "AD9361",
@@ -4897,6 +4936,21 @@ static const struct axiadc_chip_info axiadc_chip_info_tbl[] = {
 		.channel[1] = AIM_CHAN(1, 1, 12, 's'),
 		.channel[2] = AIM_CHAN(2, 2, 12, 's'),
 		.channel[3] = AIM_CHAN(3, 3, 12, 's'),
+	},
+	[ID_AD9361_2] = { /* MCS/MIMO 2x AD9361 */
+		.name = "AD9361-2",
+		.max_rate = 61440000UL,
+		.max_testmode = 0,
+		.num_channels = 8,
+		.scan_masks = ad9361_2x2_available_scan_masks,
+		.channel[0] = AIM_CHAN(0, 0, 12, 's'),
+		.channel[1] = AIM_CHAN(1, 1, 12, 's'),
+		.channel[2] = AIM_CHAN(2, 2, 12, 's'),
+		.channel[3] = AIM_CHAN(3, 3, 12, 's'),
+		.channel[4] = AIM_MC_CHAN(4, 4, 12, 's'),
+		.channel[5] = AIM_MC_CHAN(5, 5, 12, 's'),
+		.channel[6] = AIM_MC_CHAN(6, 6, 12, 's'),
+		.channel[7] = AIM_MC_CHAN(7, 7, 12, 's'),
 	},
 	[ID_AD9364] = {
 		.name = "AD9361",
@@ -5012,14 +5066,15 @@ static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq)
 	u32 s0, s1, c0, c1, tmp, saved = 0;
 	u8 field[2][16];
 
-	num_chan = conv->chip_info->num_channels;
+	num_chan = (conv->chip_info->num_channels > 4) ? 4 : conv->chip_info->num_channels;
 
 	ad9361_bist_prbs(phy, BIST_INJ_RX);
 
 	for (t = 0; t < 2; t++) {
 		memset(field, 0, 32);
 		for (k = 0; k < 2; k++) {
-			ad9361_set_trx_clock_chain_freq(phy, k ? max_freq : 10000000UL);
+			if (max_freq)
+				ad9361_set_trx_clock_chain_freq(phy, k ? max_freq : 10000000UL);
 		for (i = 0; i < 2; i++) {
 			for (j = 0; j < 16; j++) {
 				ad9361_spi_write(phy->spi,
@@ -5032,8 +5087,9 @@ static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq)
 				mdelay(4);
 
 				if ((t == 1) || (axiadc_read(st, ADI_REG_STATUS) & ADI_STATUS)) {
-					for (chan = 0, ret = 0; chan < num_chan; chan++)
+					for (chan = 0, ret = 0; chan < num_chan; chan++) {
 						ret |= axiadc_read(st, ADI_REG_CHAN_STATUS(chan));
+					}
 				} else {
 					ret = 1;
 				}
@@ -5104,10 +5160,19 @@ static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq)
 				axiadc_write(st, 0x4414 + (chan) * 0x40, 0);
 			}
 
-			phy->pdata->port_ctrl.rx_clk_data_delay =
-				ad9361_spi_read(phy->spi, REG_RX_CLOCK_DATA_DELAY);
-			phy->pdata->port_ctrl.tx_clk_data_delay =
-				ad9361_spi_read(phy->spi, REG_TX_CLOCK_DATA_DELAY);
+			if (err == -EIO) {
+				ad9361_spi_write(phy->spi, REG_RX_CLOCK_DATA_DELAY,
+						phy->pdata->port_ctrl.rx_clk_data_delay);
+
+				ad9361_spi_write(phy->spi, REG_TX_CLOCK_DATA_DELAY,
+						phy->pdata->port_ctrl.tx_clk_data_delay);
+				err = 0;
+			} else {
+				phy->pdata->port_ctrl.rx_clk_data_delay =
+					ad9361_spi_read(phy->spi, REG_RX_CLOCK_DATA_DELAY);
+				phy->pdata->port_ctrl.tx_clk_data_delay =
+					ad9361_spi_read(phy->spi, REG_TX_CLOCK_DATA_DELAY);
+			}
 
 			return err;
 		}
@@ -5121,8 +5186,10 @@ static int ad9361_post_setup(struct iio_dev *indio_dev)
 	struct axiadc_state *st = iio_priv(indio_dev);
 	struct axiadc_converter *conv = iio_device_get_drvdata(indio_dev);
 	unsigned rx2tx2 = conv->phy->pdata->rx2tx2;
-	unsigned tmp;
+	unsigned tmp, num_chan;
 	int i, ret;
+
+	num_chan = (conv->chip_info->num_channels > 4) ? 4 : conv->chip_info->num_channels;
 
 	conv->indio_dev = indio_dev;
 	axiadc_write(st, ADI_REG_CNTRL, rx2tx2 ? 0 : ADI_R1_MODE);
@@ -5137,7 +5204,7 @@ static int ad9361_post_setup(struct iio_dev *indio_dev)
 		axiadc_write(st, 0x404c, 3); /* RATE */
 	}
 
-	for (i = 0; i < conv->chip_info->num_channels; i++) {
+	for (i = 0; i < num_chan; i++) {
 		axiadc_write(st, ADI_REG_CHAN_CNTRL_1(i),
 			     ADI_DCFILT_OFFSET(0));
 		axiadc_write(st, ADI_REG_CHAN_CNTRL_2(i),
@@ -5147,7 +5214,8 @@ static int ad9361_post_setup(struct iio_dev *indio_dev)
 			     ADI_ENABLE | ADI_IQCOR_ENB);
 	}
 
-	ret = ad9361_dig_tune(conv->phy, 61440000);
+	ret = ad9361_dig_tune(conv->phy, ((conv->chip_info->num_channels > 4) ||
+		axiadc_read(st, ADI_REG_ID)) ? 0 : 61440000);
 	if (ret < 0)
 		return ret;
 
@@ -5173,7 +5241,9 @@ static int ad9361_register_axi_converter(struct ad9361_rf_phy *phy)
   		goto out;
 	}
 
-	conv->chip_info = &axiadc_chip_info_tbl[phy->pdata->rx2tx2 ? ID_AD9361 : ID_AD9364];
+	conv->chip_info = &axiadc_chip_info_tbl[
+		(spi_get_device_id(spi)->driver_data == ID_AD9361_2) ?
+		ID_AD9361_2 : phy->pdata->rx2tx2 ? ID_AD9361 : ID_AD9364];
 	conv->adc_output_mode = OUTPUT_MODE_TWOS_COMPLEMENT;
 	conv->write = ad9361_spi_write;
 	conv->read = ad9361_spi_read;
@@ -6308,7 +6378,9 @@ static ssize_t ad9361_debugfs_write(struct file *file,
 	case DBGFS_LOOPBACK:
 		if (ret != 1)
 			return -EINVAL;
+		mutex_lock(&phy->indio_dev->mlock);
 		ret = ad9361_bist_loopback(phy, val);
+		mutex_unlock(&phy->indio_dev->mlock);
 		if (ret < 0)
 			return ret;
 
@@ -6317,7 +6389,9 @@ static ssize_t ad9361_debugfs_write(struct file *file,
 	case DBGFS_BIST_PRBS:
 		if (ret != 1)
 			return -EINVAL;
+		mutex_lock(&phy->indio_dev->mlock);
 		ret = ad9361_bist_prbs(phy, val);
+		mutex_unlock(&phy->indio_dev->mlock);
 		if (ret < 0)
 			return ret;
 
@@ -6326,7 +6400,9 @@ static ssize_t ad9361_debugfs_write(struct file *file,
 	case DBGFS_BIST_TONE:
 		if (ret != 4)
 			return -EINVAL;
+		mutex_lock(&phy->indio_dev->mlock);
 		ret = ad9361_bist_tone(phy, val, val2, val3, val4);
+		mutex_unlock(&phy->indio_dev->mlock);
 		if (ret < 0)
 			return ret;
 
@@ -6335,9 +6411,27 @@ static ssize_t ad9361_debugfs_write(struct file *file,
 	case DBGFS_MCS:
 		if (ret != 1)
 			return -EINVAL;
+		mutex_lock(&phy->indio_dev->mlock);
 		ret = ad9361_mcs(phy, val);
+		mutex_unlock(&phy->indio_dev->mlock);
 		if (ret < 0)
 			return ret;
+
+		entry->val = val;
+		return count;
+	case DBGFS_CAL_SW_CTRL:
+		if (ret != 1)
+			return -EINVAL;
+
+		if (!IS_ERR(phy->pdata->cal_sw1_gpio) &&
+			!IS_ERR(phy->pdata->cal_sw2_gpio)) {
+			mutex_lock(&phy->indio_dev->mlock);
+			gpiod_set_value(phy->pdata->cal_sw1_gpio, !!(val & BIT(0)));
+			gpiod_set_value(phy->pdata->cal_sw2_gpio, !!(val & BIT(1)));
+			mutex_unlock(&phy->indio_dev->mlock);
+		} else {
+			return -ENODEV;
+		}
 
 		entry->val = val;
 		return count;
@@ -6407,6 +6501,8 @@ static int ad9361_register_debugfs(struct iio_dev *indio_dev)
 	ad9361_add_debugfs_entry(phy, "gaininfo_rx1", DBGFS_RXGAIN_1);
 	ad9361_add_debugfs_entry(phy, "gaininfo_rx2", DBGFS_RXGAIN_2);
 	ad9361_add_debugfs_entry(phy, "multichip_sync", DBGFS_MCS);
+	ad9361_add_debugfs_entry(phy, "calibration_switch_control",
+					 DBGFS_CAL_SW_CTRL);
 
 	for (i = 0; i < phy->ad9361_debugfs_entry_index; i++)
 		d = debugfs_create_file(
@@ -6570,17 +6666,17 @@ static struct ad9361_phy_platform_data
 
 	tmp = 0;
 	of_property_read_u32(np, "adi,rx-data-clock-delay", &tmp);
-	pdata->port_ctrl.rx_clk_data_delay = (tmp & 0xF) << 4;
+	pdata->port_ctrl.rx_clk_data_delay = DATA_CLK_DELAY(tmp);
 	tmp = 0;
 	of_property_read_u32(np, "adi,rx-data-delay", &tmp);
-	pdata->port_ctrl.rx_clk_data_delay |= (tmp & 0xF);
+	pdata->port_ctrl.rx_clk_data_delay |= RX_DATA_DELAY(tmp);
 
 	tmp = 0;
 	of_property_read_u32(np, "adi,tx-fb-clock-delay", &tmp);
-	pdata->port_ctrl.tx_clk_data_delay = (tmp & 0xF) << 4;
+	pdata->port_ctrl.tx_clk_data_delay = FB_CLK_DELAY(tmp);
 	tmp = 0;
 	of_property_read_u32(np, "adi,tx-data-delay", &tmp);
-	pdata->port_ctrl.tx_clk_data_delay |= (tmp & 0xF);
+	pdata->port_ctrl.tx_clk_data_delay |= TX_DATA_DELAY(tmp);
 
 	tmp = 75;
 	of_property_read_u32(np, "adi,lvds-bias-mV", &tmp);
@@ -7009,9 +7105,20 @@ static int ad9361_probe(struct spi_device *spi)
 		ret = gpiod_direction_output(phy->pdata->reset_gpio, 1);
 	}
 
+	/* Optional: next three used for MCS synchronization */
 	phy->pdata->sync_gpio = devm_gpiod_get(&spi->dev, "sync");
 	if (!IS_ERR(phy->pdata->sync_gpio)) {
 		ret = gpiod_direction_output(phy->pdata->sync_gpio, 0);
+	}
+
+	phy->pdata->cal_sw1_gpio = devm_gpiod_get(&spi->dev, "cal-sw1");
+	if (!IS_ERR(phy->pdata->cal_sw1_gpio)) {
+		ret = gpiod_direction_output(phy->pdata->cal_sw1_gpio, 0);
+	}
+
+	phy->pdata->cal_sw2_gpio= devm_gpiod_get(&spi->dev, "cal-sw2");
+	if (!IS_ERR(phy->pdata->cal_sw2_gpio)) {
+		ret = gpiod_direction_output(phy->pdata->cal_sw2_gpio, 0);
 	}
 
 	phy->spi = spi;
@@ -7064,7 +7171,12 @@ static int ad9361_probe(struct spi_device *spi)
 	phy->bin.size = 4096;
 
 	indio_dev->dev.parent = &spi->dev;
-	indio_dev->name = "ad9361-phy";
+
+	if (spi->dev.of_node)
+		indio_dev->name = spi->dev.of_node->name;
+	else
+		indio_dev->name = "ad9361-phy";
+
 	indio_dev->info = &ad9361_phy_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = ad9361_phy_chan;
@@ -7116,8 +7228,9 @@ static int ad9361_remove(struct spi_device *spi)
 }
 
 static const struct spi_device_id ad9361_id[] = {
-	{"ad9361", 9361}, /* 2RX2TX */
-	{"ad9364", 9364}, /* 1RX1TX */
+	{"ad9361", ID_AD9361}, /* 2RX2TX */
+	{"ad9364", ID_AD9364}, /* 1RX1TX */
+	{"ad9361-2x", ID_AD9361_2}, /* 2 x 2RX2TX */
 	{}
 };
 MODULE_DEVICE_TABLE(spi, ad9361_id);

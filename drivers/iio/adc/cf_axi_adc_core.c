@@ -442,6 +442,11 @@ static const struct axiadc_core_info ad9643_6_00_a_info = {
 	.version = PCORE_VERSION(6, 0, 'a'),
 };
 
+static const struct axiadc_core_info ad9680_6_00_a_info = {
+	.has_fifo_interface = true,
+	.version = PCORE_VERSION(6, 0, 'a'),
+};
+
 /* Match table for of_platform binding */
 static const struct of_device_id axiadc_of_match[] = {
 	{ .compatible = "xlnx,cf-ad9467-core-1.00.a", },
@@ -449,12 +454,13 @@ static const struct of_device_id axiadc_of_match[] = {
 	{ .compatible = "xlnx,axi-adc-2c-1.00.a", },
 	{ .compatible =	"xlnx,axi-adc-1c-1.00.a", },
 	{ .compatible =	"xlnx,axi-ad9250-1.00.a", },
-	{ .compatible =	"xlnx,axi-ad9265-1.00.a", },
 	{ .compatible =	"xlnx,axi-ad9683-1.00.a", },
 	{ .compatible =	"xlnx,axi-ad9625-1.00.a", },
 	{ .compatible =	"xlnx,axi-ad9434-1.00.a", },
 	{ .compatible = "adi,axi-ad9643-6.00.a", .data = &ad9643_6_00_a_info },
 	{ .compatible = "adi,axi-ad9361-6.00.a", .data = &ad9361_6_00_a_info },
+	{ .compatible = "adi,axi-ad9680-1.0", .data = &ad9680_6_00_a_info },
+	{ .compatible = "adi,axi-ad9625-1.0", .data = &ad9680_6_00_a_info },
 	{ /* end of list */ },
 };
 MODULE_DEVICE_TABLE(of, axiadc_of_match);
@@ -573,6 +579,7 @@ static int axiadc_probe(struct platform_device *pdev)
 	indio_dev->dev.parent = &pdev->dev;
 	indio_dev->name = pdev->dev.of_node->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
+	indio_dev->available_scan_masks = conv->chip_info->scan_masks;
 
 	axiadc_channel_setup(indio_dev, conv->chip_info->channel,
 			     st->dp_disable ? 0 : conv->chip_info->num_channels);
@@ -585,7 +592,7 @@ static int axiadc_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_put_converter;
 
-	if (!st->dp_disable) {
+	if (!st->dp_disable && !axiadc_read(st, ADI_REG_ID)) {
 		if (st->streaming_dma)
 			axiadc_configure_ring_stream(indio_dev, NULL);
 		else
@@ -605,9 +612,12 @@ static int axiadc_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_iio_buffer_unregister;
 
-	dev_info(&pdev->dev, "ADI AIM (0x%X) at 0x%08llX mapped to 0x%p,"
+	dev_info(&pdev->dev, "ADI AIM (%d.%.2d.%c) at 0x%08llX mapped to 0x%p,"
 		 " probed ADC %s as %s\n",
-		 st->pcore_version, (unsigned long long)mem->start, st->regs,
+		PCORE_VERSION_MAJOR(st->pcore_version),
+		PCORE_VERSION_MINOR(st->pcore_version),
+		PCORE_VERSION_LETTER(st->pcore_version),
+		 (unsigned long long)mem->start, st->regs,
 		 conv->chip_info->name,
 		 axiadc_read(st, ADI_REG_ID) ? "SLAVE" : "MASTER");
 
