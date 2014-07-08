@@ -1,0 +1,177 @@
+/include/ "zynq.dtsi"
+
+/ {
+	model = "Topic Zynq Miami";
+	memory {
+		device_type = "memory";
+		reg = <0x000000000 0x20000000>;
+	};
+
+	chosen {
+		/* Boot using squashfs system, nice for QSPI NOR flash */
+		bootargs = "console=ttyPS0,115200 root=/dev/mtdblock5 ro rootfstype=squashfs rootwait quiet";
+		/* bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait"; */
+		linux,stdout-path = "/fpga_axi@0/uart@e0000000";
+	};
+
+	aliases {
+		serial0 = &uart0;
+	};
+};
+
+&sdhci0 {
+	disable-wp; /* We don't have a write-protect detection */
+};
+
+&primary_flash {
+	/* Specify flash chip to expect */
+	compatible = "n25q256a11";
+	/* Max frequency for quad read is 108MHz according to data sheet */
+	spi-max-frequency = <108000000>;
+	/* Flash chip is 32MB, so add 16MB to the rootfs partition */
+	partition@qspi-rootfs {
+		label = "qspi-rootfs";
+		reg = <0x480000 0x1b80000>;
+	};
+};
+
+/ {
+	fpga_axi: fpga_axi@0 {
+		compatible = "simple-bus";
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+
+		ps7_i2c_0: ps7-i2c@e0004000 {
+			bus-id = <0>;
+			clocks = <&clkc 38>;
+			compatible = "cdns,i2c-r1p10";
+			clock-frequency = <400000>;
+			interrupt-parent = <&gic>;
+			interrupts = <0 25 4>;
+			reg = <0xe0004000 0x1000>;
+			xlnx,has-interrupt = <0x0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+		ps7_i2c_1: ps7-i2c@e0005000 {
+			clock-frequency = <400000>;
+			clocks = <&clkc 39>;
+			compatible = "cdns,i2c-r1p10";
+			interrupt-parent = <&gic>;
+			interrupts = <0 48 4>;
+			reg = <0xe0005000 0x1000>;
+			xlnx,has-interrupt = <0x0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			/* AD converter for voltage monitoring */
+			monitorvolt: ad799x@29 {
+				compatible = "ad7999";
+				reg = <0x29>;
+				adi,reference-voltage-mv = <3300>; /* Use Vdd */
+			};
+			/* GPIO expander */
+			gpioex: pca953x@41 {
+				compatible = "nxp,pca9536";
+				reg = <0x41>;
+				/* 0=USB_RESET 1=VTT_SHDWN_N 2=V_PRESENT 3=DEBUG_PRESENT */
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+			/* Current monitoring chip */
+			monitorcurrent: ltc2990@4C {
+				compatible = "ltc2990";
+				reg = <0x4C>;
+			};
+			/* EEPROM */
+			eeprom: eeprom@50 {
+				compatible = "at24,24c04";
+				reg = <0x50>;
+			};
+			/* IO Voltage controller */
+			ltc3562: ltc3562@65 {
+				compatible = "ltc3562";
+				reg = <0x65>; /* 0b1100101 */
+				regulators {
+					R400B_reg: R400B {
+						/* Supplies VCCO2 to bank 34 */
+						regulator-name = "R400B";
+						regulator-min-microvolt = <600000>;
+						regulator-max-microvolt = <3300000>;
+						ltc3562-default-voltage = <1800000>;
+						regulator-boot-on;
+						regulator-always-on;
+					};
+					R600B_reg: R600B {
+						/* Supplies VCCO0 to Bank 13 */
+						regulator-name = "R600B";
+						regulator-min-microvolt = <600000>;
+						regulator-max-microvolt = <3300000>;
+						ltc3562-default-voltage = <3300000>;
+						regulator-boot-on;
+						regulator-always-on;
+					};
+					R400A_reg: R400A {
+						/* Not connected */
+						regulator-name = "R400A";
+						regulator-min-microvolt = <425000>;
+						regulator-max-microvolt = <8000000>;
+						ltc3562-A-r1 = <1>;
+						ltc3562-A-r2 = <1>;
+					};
+					R600A_reg: R600A {
+						/* Supplies VCCO1 to bank 35 */
+						regulator-name = "R600A";
+						regulator-min-microvolt = <425000>;
+						regulator-max-microvolt = <1800000>;
+						ltc3562-A-r1 = <316>;
+						ltc3562-A-r2 = <100>;
+						ltc3562-default-voltage = <1800000>;
+						regulator-boot-on;
+						regulator-always-on;
+					};
+				};
+			};
+		};
+
+		uart0: uart@e0000000 {
+			compatible = "xlnx,xuartps";
+			reg = <0xE0000000 0x1000>;
+			interrupts = <0 27 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "uart_clk", "pclk";
+			clocks = <&clkc 23>, <&clkc 40>;
+			port-number = <1>;
+			current-speed = <115200>;
+			device_type = "serial";
+		};
+
+	};
+
+	leds: leds {
+		compatible = "gpio-leds";
+		alive {
+			label = "alive:green";
+			gpios = <&gpio 25 1>; /* Active low */
+			linux,default-trigger = "heartbeat";
+		};
+	};
+};
+
+/* Disable UART1, ethernet, ... */
+
+&uart {
+	status = "disabled";
+};
+
+&eth {
+	status = "disabled";
+};
+
+&usb {
+	dr_mode = "host";
+	/* USB reset connected to output 0 of expander */
+	xlnx,phy-reset-gpio = <&gpioex 0 0>;
+	xlnx,phy-reset-gpio-tristate;
+};
