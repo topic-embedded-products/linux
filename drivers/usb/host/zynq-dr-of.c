@@ -213,6 +213,12 @@ static int zynq_dr_of_probe(struct platform_device *ofdev)
 			msleep(5);
 			gpio_set_value_cansleep(reset_gpio, 1);
 			msleep(1);
+		} else {
+			/* GPIO controller is not yet available, try again later. */
+			if (reset_gpio == -EPROBE_DEFER) {
+				ret = reset_gpio;
+				goto err_out_clk_disable;
+			}
 		}
 		pdata->ulpi = otg_ulpi_create(&ulpi_viewport_access_ops,
 			ULPI_OTG_DRVVBUS | ULPI_OTG_DRVVBUS_EXT);
