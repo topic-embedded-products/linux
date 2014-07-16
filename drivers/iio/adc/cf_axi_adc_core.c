@@ -30,11 +30,6 @@
 
 #include "cf_axi_adc.h"
 
-#define PCORE_VERSION(major, minor, letter) ((major << 16) | (minor << 8) | letter)
-#define PCORE_VERSION_MAJOR(version) (version >> 16)
-#define PCORE_VERSION_MINOR(version) ((version >> 8) & 0xff)
-#define PCORE_VERSION_LETTER(version) (version & 0xff)
-
 struct axiadc_core_info {
 	bool has_fifo_interface;
 	unsigned int version;
@@ -60,6 +55,65 @@ static int axiadc_spi_write(struct axiadc_state *st, unsigned reg, unsigned val)
 	return conv->write(conv->spi, reg, val);
 }
 
+
+int axiadc_set_pnsel(struct axiadc_state *st, int channel, enum adc_pn_sel sel)
+{
+	unsigned reg;
+
+	if (PCORE_VERSION_MAJOR(st->pcore_version) > 7) {
+		reg = axiadc_read(st, ADI_REG_CHAN_CNTRL_3(channel));
+		reg &= ~ADI_ADC_PN_SEL(~0);
+		reg |= ADI_ADC_PN_SEL(sel);
+		axiadc_write(st, ADI_REG_CHAN_CNTRL_3(channel), reg);
+	} else {
+		reg = axiadc_read(st, ADI_REG_CHAN_CNTRL(channel));
+
+		if (sel == ADC_PN_CUSTOM) {
+			reg |= ADI_PN_SEL;
+		} else if (sel == ADC_PN9) {
+			reg &= ~ADI_PN23_TYPE;
+			reg &= ~ADI_PN_SEL;
+		} else {
+			reg |= ADI_PN23_TYPE;
+			reg &= ~ADI_PN_SEL;
+		}
+
+		axiadc_write(st, ADI_REG_CHAN_CNTRL(channel), reg);
+	}
+
+	return 0;
+}
+
+enum adc_pn_sel axiadc_get_pnsel(struct axiadc_state *st,
+			       int channel, const char **name)
+{
+	unsigned val;
+
+	if (PCORE_VERSION_MAJOR(st->pcore_version) > 7) {
+		const char *ident[] = {"PN9", "PN23A", "UNDEF", "UNDEF",
+				"PN7", "PN15", "PN23", "PN31", "UNDEF", "PN_CUSTOM"};
+
+		val = ADI_TO_ADC_PN_SEL(axiadc_read(st, ADI_REG_CHAN_CNTRL_3(channel)));
+
+		if (name)
+			*name = ident[val];
+
+		return val;
+	} else {
+		val = axiadc_read(st, ADI_REG_CHAN_CNTRL(channel));;
+
+		if (name) {
+			if (val & ADI_PN_SEL)
+				*name = "PN_CUSTOM";
+			else if (val & ADI_PN23_TYPE)
+				*name = "PN23";
+			else
+				*name = "PN9";
+		}
+		return val & (ADI_PN23_TYPE | ADI_PN_SEL);
+	}
+}
+
 static void axiadc_toggle_scale_offset_en(struct axiadc_state *st)
 {
 	return;
@@ -71,19 +125,20 @@ static ssize_t axiadc_debugfs_pncheck_read(struct file *file, char __user *userb
 	struct iio_dev *indio_dev = file->private_data;
 	struct axiadc_state *st = iio_priv(indio_dev);
 	struct axiadc_converter *conv = to_converter(st->dev_spi);
-	char buf[1024];
+	char buf[1000];
+	const char *pn_name;
 	ssize_t len = 0;
-	unsigned stat, type, i;
+	unsigned stat, i;
 
 	for (i = 0; i < conv->chip_info->num_channels; i++) {
 		stat = axiadc_read(st, ADI_REG_CHAN_STATUS(i));
-		type = axiadc_read(st, ADI_REG_CHAN_CNTRL(i));
-		len += sprintf(buf + len, "CH%d : %s : %s %s\n", i,
-			(type & ADI_PN23_TYPE) ? "PN23" : "PN9",
+		axiadc_get_pnsel(st, i, &pn_name);
+
+		len += sprintf(buf + len, "CH%d : %s : %s %s\n", i, pn_name,
 			(stat & ADI_PN_OOS) ? "Out of Sync :" : "In Sync :",
 			(stat & (ADI_PN_ERR | ADI_PN_OOS)) ? "PN Error" : "OK");
 		axiadc_write(st, ADI_REG_CHAN_STATUS(i), ~0);
-		if (len > 974)
+		if (len > 955)
 			return -ENOMEM;
 	}
 
@@ -96,7 +151,7 @@ static ssize_t axiadc_debugfs_pncheck_write(struct file *file,
 	struct iio_dev *indio_dev = file->private_data;
 	struct axiadc_state *st = iio_priv(indio_dev);
 	struct axiadc_converter *conv = to_converter(st->dev_spi);
-	unsigned type, i, mode = TESTMODE_OFF;
+	unsigned i, mode = TESTMODE_OFF;
 	char buf[80], *p = buf;
 
 	count = min_t(size_t, count, (sizeof(buf)-1));
@@ -118,12 +173,8 @@ static ssize_t axiadc_debugfs_pncheck_write(struct file *file,
 		if (conv->testmode_set)
 			conv->testmode_set(indio_dev, i, mode);
 
-		type = axiadc_read(st, ADI_REG_CHAN_CNTRL(i));
-		if (mode == TESTMODE_PN9_SEQ)
-			type &= ~ADI_PN23_TYPE;
-		else
-			type |= ADI_PN23_TYPE;
-		axiadc_write(st, ADI_REG_CHAN_CNTRL(i), type);
+		axiadc_set_pnsel(st, i, (mode == TESTMODE_PN9_SEQ) ?
+				ADC_PN9 : ADC_PN23A);
 		axiadc_write(st, ADI_REG_CHAN_STATUS(i), ~0);
 	}
 
@@ -434,17 +485,17 @@ static int axiadc_attach_spi_client(struct device *dev, void *data)
 
 static const struct axiadc_core_info ad9361_6_00_a_info = {
 	.has_fifo_interface = true,
-	.version = PCORE_VERSION(6, 0, 'a'),
+	.version = PCORE_VERSION(8, 0, 'a'),
 };
 
 static const struct axiadc_core_info ad9643_6_00_a_info = {
 	.has_fifo_interface = true,
-	.version = PCORE_VERSION(6, 0, 'a'),
+	.version = PCORE_VERSION(8, 0, 'a'),
 };
 
 static const struct axiadc_core_info ad9680_6_00_a_info = {
 	.has_fifo_interface = true,
-	.version = PCORE_VERSION(6, 0, 'a'),
+	.version = PCORE_VERSION(8, 0, 'a'),
 };
 
 /* Match table for of_platform binding */
@@ -563,7 +614,7 @@ static int axiadc_probe(struct platform_device *pdev)
 	else
 		expected_version = PCORE_VERSION(4, 0, 'a');
 
-	if (PCORE_VERSION_MAJOR(st->pcore_version) !=
+	if (PCORE_VERSION_MAJOR(st->pcore_version) >
 		PCORE_VERSION_MAJOR(expected_version)) {
 		dev_err(&pdev->dev, "Major version mismatch between PCORE and driver. Driver expected %d.%.2d.%c, PCORE reported %d.%.2d.%c\n",
 			PCORE_VERSION_MAJOR(expected_version),

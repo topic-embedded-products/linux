@@ -194,12 +194,14 @@ static int ad9467_dco_calibrate(struct iio_dev *indio_dev, unsigned chan)
 
 		if (chan == 2) {
 			ad9467_testmode_set(indio_dev, 1, TESTMODE_PN23_SEQ);
-			axiadc_write(st, ADI_REG_CHAN_CNTRL(1), ADI_ENABLE | ADI_PN23_TYPE);
+			axiadc_write(st, ADI_REG_CHAN_CNTRL(1), ADI_ENABLE);
+			axiadc_set_pnsel(st, 1, ADC_PN23A);
 			axiadc_write(st, ADI_REG_CHAN_STATUS(1), ~0);
 		}
 
 		ad9467_testmode_set(indio_dev, 0, TESTMODE_PN9_SEQ);
 		axiadc_write(st, ADI_REG_CHAN_CNTRL(0), ADI_ENABLE);
+		axiadc_set_pnsel(st, 1, ADC_PN9);
 		axiadc_write(st, ADI_REG_CHAN_STATUS(0), ~0);
 
 		for(dco = 0; dco <= 32; dco++) {
@@ -824,7 +826,7 @@ static int ad9467_probe(struct spi_device *spi)
 {
 	struct axiadc_converter *conv;
 	struct clk *clk = NULL;
-	int ret;
+	int ret, clk_enabled = 0;
 
 	clk = devm_clk_get(&spi->dev, NULL);
 	if (IS_ERR(clk)) {
@@ -835,14 +837,14 @@ static int ad9467_probe(struct spi_device *spi)
 	if (conv == NULL)
 		return -ENOMEM;
 
-	spi->mode = SPI_MODE_0 | SPI_3WIRE;
+//	spi->mode = SPI_MODE_0 | SPI_3WIRE;
 
 	if (!(spi_get_device_id(spi)->driver_data == CHIPID_AD9680 ||
 		spi_get_device_id(spi)->driver_data == CHIPID_AD9625)) {
 		ret = clk_prepare_enable(clk);
 		if (ret < 0)
 			return ret;
-
+		clk_enabled = 1;
 		conv->adc_clk = clk_get_rate(clk);
 
 	}
@@ -960,7 +962,8 @@ static int ad9467_probe(struct spi_device *spi)
 	return 0;
 
 out:
-	clk_disable_unprepare(clk);
+	if (clk_enabled)
+		clk_disable_unprepare(clk);
 
 	return ret;
 }
