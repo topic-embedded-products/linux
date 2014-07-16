@@ -211,7 +211,7 @@ static int zynq_dr_of_probe(struct platform_device *ofdev)
 				goto err_out_clk_disable;
 			}
 			msleep(5);
-			gpio_set_value(reset_gpio, 1);
+			gpio_set_value_cansleep(reset_gpio, 1);
 			msleep(1);
 		}
 		pdata->ulpi = otg_ulpi_create(&ulpi_viewport_access_ops,
