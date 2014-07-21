@@ -1143,6 +1143,10 @@ static void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	u16 clk = 0;
 	unsigned long timeout;
 
+	/* Clock may be limited by other things than card and controller */
+	if (host->clk_limit && (clock > host->clk_limit))
+		clock = host->clk_limit;
+
 	if (clock && clock == host->clock)
 		return;
 
