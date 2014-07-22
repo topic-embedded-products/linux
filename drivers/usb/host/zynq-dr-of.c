@@ -211,7 +211,10 @@ static int zynq_dr_of_probe(struct platform_device *ofdev)
 				goto err_out_clk_disable;
 			}
 			msleep(5);
-			gpio_set_value_cansleep(reset_gpio, 1);
+			if (of_property_read_bool(np, "xlnx,phy-reset-gpio-tristate"))
+				gpio_direction_input(reset_gpio);
+			else
+				gpio_set_value_cansleep(reset_gpio, 1);
 			msleep(1);
 		} else {
 			/* GPIO controller is not yet available, try again later. */
