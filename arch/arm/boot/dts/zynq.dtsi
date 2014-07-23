@@ -14,7 +14,7 @@
 			compatible = "arm,cortex-a9";
 			device_type = "cpu";
 			interrupt-handle = <&gic>;
-			operating-points = <666667 1000000 333334 1000000 222223 1000000>;
+			operating-points = <666667 1000000 333334 1000000>;
 			clock-latency = <1000>;
 			reg = <0x0>;
 		} ;
