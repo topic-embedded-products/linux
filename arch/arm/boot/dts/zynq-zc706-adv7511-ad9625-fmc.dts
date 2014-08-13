@@ -4,6 +4,15 @@
 
 / {
 
+	clocks {
+		ad9625_clkin: clock@0 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <2500000000>;
+			clock-output-names = "clkin";
+		};
+	};
+
 	fpga_axi: fpga-axi@0 {
 		compatible = "simple-bus";
 		#address-cells = <0x1>;
@@ -85,28 +94,53 @@
 					#address-cells = <1>;
 					#size-cells = <0>;
 					reg = <4>;
-					rtc@51 {
+					rtc@54 {
 						compatible = "nxp,pcf8563";
 						reg = <0x51>;
 					};
 				};
 
-				fmc_i2c: i2c@6 {
-					#size-cells = <0>;
+				i2c@5 { /* HPC IIC */
 					#address-cells = <1>;
+					#size-cells = <0>;
+					reg = <5>;
+
+					eeprom@50 {
+						compatible = "at24,24c02";
+						reg = <0x50>;
+					};
+
+					eeprom@54 {
+						compatible = "at24,24c02";
+						reg = <0x54>;
+					};
+				};
+
+				i2c@6 { /* LPC IIC */
+					#address-cells = <1>;
+					#size-cells = <0>;
 					reg = <6>;
+					eeprom@50 {
+						compatible = "at24,24c02";
+						reg = <0x50>;
+					};
+
+					eeprom@54 {
+						compatible = "at24,24c02";
+						reg = <0x54>;
+					};
 				};
 			};
 		};
 
 		fmc_spi: spi@e0006000 {
 			bus-num = <1>;
-			compatible = "cdns,spi-r1p6";
+			compatible = "cdns,spi-r1p6", "xlnx,zynq-spi-1.00.a", "xlnx,ps7-spi-1.00.a";
 			interrupt-parent = <&gic>;
 			interrupts = < 0 26 4 >;
-			clock-names = "ref_clk", "pclk";
-			clocks = <&clkc 25>, <&clkc 34>;
-			num-chip-select = <4>;
+			clock-names = "ref_clk", "aper_clk", "pclk";
+			clocks = <&clkc 25>, <&clkc 34>, <&clkc 34>;
+			num-chip-select = <2>;
 			reg = < 0xe0006000 0x1000 >;
 			speed-hz = <100000000>;
 			xlnx,has-ss0 = <0x1>;
@@ -115,6 +149,17 @@
 			xlnx,spi-clk-freq-hz = <100000000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+
+			adc0_ad9625: ad9625@0 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				compatible = "ad9625";
+				reg = <0>;
+				spi-max-frequency = <10000000>;
+				clocks = <&axi_ad9625_jesd>, <&ad9625_clkin>;
+				clock-names = "jesd_clk", "adc_clk";
+
+			};
 		};
 
 		axi_vdma_0: axivdma@43000000 {
@@ -162,8 +207,8 @@
 			reg = <0x75c00000 0x1000>;
 			dmas = <&ps7_dma 0>;
 			dma-names = "tx";
-			clocks = <&clkc 17 &audio_clock>;
-			clock-names = "axi", "spdif";
+			clocks = <&clkc 15>, <&audio_clock>, <&audio_clock>;
+			clock-names = "axi", "ref", "spdif";
 		};
 
 		adv7511_hdmi_snd: adv7511_hdmi_snd {
@@ -172,9 +217,9 @@
 			cpu-dai = <&axi_spdif_tx_0>;
 		};
 
-		rx_dma: dma@7c400000 {
+		rx_dma: rx-dmac@7c420000 {
 			compatible = "adi,axi-dmac-1.00.a";
-			reg = <0x7c400000 0x10000>;
+			reg = <0x7c420000 0x10000>;
 			#dma-cells = <1>;
 			interrupts = <0 57 0>;
 			clocks = <&clkc 16>;
@@ -185,62 +230,77 @@
 			};
 		};
 
-		tx_dma: dma@7c420000 {
-			compatible = "adi,axi-dmac-1.00.a";
-			reg = <0x7c420000 0x10000>;
-			#dma-cells = <1>;
-			interrupts = <0 56 0>;
-			clocks = <&clkc 16>;
-
-			dma-channel {
-				adi,buswidth = <64>;
-				adi,type = <1>;
-				adi,cyclic;
-			};
-		};
-
-		cf_ad9361_adc_core_0: cf-ad9361-lpc@79020000 {
-			compatible = "adi,axi-ad9361-6.00.a";
-			reg = <0x79020000 0x6000>;
+		axi_ad9625_core: axi-ad9625-hpc@44a10000 {
+			compatible = "adi,axi-ad9625-1.0";
+			reg = < 0x44a10000 0x10000 >;
 			dmas = <&rx_dma 0>;
 			dma-names = "rx";
-			spibus-connected = <&adc0_ad9364>;
-			xlnx,dphase-timeout = <0x8>;
-			xlnx,num-mem = <0x1>;
-			xlnx,num-reg = <0x1>;
-			xlnx,s-axi-min-size = <0x1ff>;
-			xlnx,slv-awidth = <0x20>;
-			xlnx,slv-dwidth = <0x20>;
-			xlnx,use-wstrb = <0x0>;
-		};
+			spibus-connected = <&adc0_ad9625>;
 
-		cf_ad9361_dac_core_0: cf-ad9361-dds-core-lpc@79024000 {
-			compatible = "adi,axi-ad9364-dds-6.00.a";
-			reg = <0x79024000 0x1000>;
-			adi,axi-dds-rate = <1>; /* use 1 for 1RX1TX mode */
-			adi,axi-dds-1-rf-channel;
-			clocks = <&adc0_ad9364 13>;
-			clock-names = "sampl_clk";
-			dmas = <&tx_dma 0>;
-			dma-names = "tx";
-			dac-sample-frequency = <491520000>;
-			xlnx,dphase-timeout = <0x8>;
-			xlnx,num-mem = <0x1>;
-			xlnx,num-reg = <0x1>;
-			xlnx,s-axi-min-size = <0x1ff>;
-			xlnx,slv-awidth = <0x20>;
-			xlnx,slv-dwidth = <0x20>;
-			xlnx,use-wstrb = <0x0>;
-		};
+			xlnx,pcore-device-type = <0x0>;
+			xlnx,pcore-id = <0x0>;
+			xlnx,pcore-iodelay-group = "adc_if_delay_group";
+			xlnx,s-axi-min-size = <0xffff>;
+		} ;
+
+		axi_ad9625_jesd: axi-jesd204b-rx@44a91000 {
+			#clock-cells = <0>;
+			compatible = "xlnx,jesd204-5.1";
+			reg = < 0x44a91000 0x1000 >;
+
+			clocks = <&axi_daq2_gt 0>;
+			clock-names = "gt_clk";
+			clock-output-names = "jesd_clk";
+
+			xlnx,gt-line-rate = "8.0";
+			xlnx,gt-refclk-freq = "200.0";
+
+			xlnx,lanes = <0x8>;
+			xlnx,frames-per-multiframe = <32>;
+			xlnx,bytes-per-frame = <1>;
+			xlnx,subclass = <1>;
+			xlnx,lanesync-enable;
+			xlnx,scramble-enable;
+
+			xlnx,lmfc-buffer-size = <0x6>;
+			xlnx,node-is-transmit = <0x0>;
+			xlnx,speedgrade = <0xfffffffe>;
+			xlnx,supportlevel = <0x0>;
+			xlnx,transceiver = "GTXE2";
+			xlnx,transceivercontrol = "false";
+			xlnx,use-bram = <0x1>;
+			xlnx,use-jspat = "false";
+			xlnx,use-rpat = "false";
+		} ;
+
+		axi_daq2_gt: axi-jesd-gt-rx-tx@44a60000 {
+			#clock-cells = <1>;
+			compatible = "xlnx,axi-jesd-gt-1.0";
+			reg = < 0x44a60000 0x10000 >;
+
+			clocks = <&ad9625_clkin>;
+			clock-names = "adc_clk";
+			clock-output-names = "adc_gt_clk";
+
+			adi,rx-sys-clk-select = <0>;
+			adi,rx-out-clk-select = <2>;
+			adi,use-cpll-enable;
+
+			xlnx,pcore-cpll-fbdiv = <0x2>;
+			xlnx,pcore-device-type = <0x0>;
+			xlnx,pcore-id = <0x0>;
+			xlnx,pcore-num-of-lanes = <0x4>;
+			xlnx,pcore-pma-rsv = <0x1e7080>;
+			xlnx,pcore-qpll-cfg = "000011010000000000110000001";
+			xlnx,pcore-qpll-fbdiv = <0x9000>;
+			xlnx,pcore-qpll-fbdiv-ratio = <0x1>;
+			xlnx,pcore-qpll-refclk-div = <0x1>;
+			xlnx,pcore-rx-cdr-cfg = "0x0B000023FF10400020";
+			xlnx,pcore-rx-clk25-div = <0x14>;
+			xlnx,pcore-rx-out-div = <0x1>;
+			xlnx,pcore-tx-clk25-div = <0x14>;
+			xlnx,pcore-tx-out-div = <0x1>;
+			xlnx,s-axi-min-size = <0xffff>;
+		} ;
 	};
-};
-
-/include/ "adi-fmcomms4.dtsi"
-
-&adc0_ad9364 {
-	en_agc-gpios = <&gpio 98 0>;
-	sync-gpios = <&gpio 99 0>;
-	reset-gpios = <&gpio 100 0>; /* Previously 83 */
-	enable-gpios = <&gpio 101 0>;
-	txnrx-gpios = <&gpio 102 0>;
 };

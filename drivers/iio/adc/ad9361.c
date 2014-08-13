@@ -155,6 +155,69 @@ struct ad9361_rf_phy {
 	struct ad9361_fastlock	fastlock;
 };
 
+static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq);
+
+#ifdef _DEBUG
+struct ad9361_trace {
+	s64 time;
+	unsigned reg;
+	unsigned read;
+};
+
+static struct ad9361_trace timestamps[5000];
+static int timestamp_cnt = 0;
+static bool timestamp_en = 0;
+
+static inline void ad9361_timestamp_en(unsigned reg, unsigned read)
+{
+	timestamp_en = true;
+}
+
+static inline void ad9361_timestamp_dis(unsigned reg, unsigned read)
+{
+	timestamp_en = false;
+}
+
+static inline void ad9361_add_timestamp(unsigned reg, unsigned read)
+{
+	if (timestamp_en && (timestamp_cnt < 5000)) {
+		timestamps[timestamp_cnt].time = iio_get_time_ns();
+		timestamps[timestamp_cnt].reg = reg;
+		timestamps[timestamp_cnt].read = read;
+
+		timestamp_cnt++;
+	}
+}
+
+static inline void ad9361_print_timestamp(void)
+{
+	int i;
+
+	pr_dbg("\n--- TRACE START / Points (%d) --- \n", timestamp_cnt);
+
+	for (i = 0; i < timestamp_cnt; i++) {
+		if (i == 0)
+			pr_dbg("[%lld] [%lld] \t%s\t 0x%X\n",
+			timestamps[i].time,
+				0LL,
+				timestamps[i].read ? "REG_RD" : "REG_WR",
+				timestamps[i].reg);
+		else
+			pr_dbg("[%lld] [%12lld] \t%s\t 0x%X\n",
+			timestamps[i].time,
+				timestamps[i].time - timestamps[i - 1].time,
+				timestamps[i].read ? "REG_RD" : "REG_WR",
+				timestamps[i].reg);
+
+		}
+
+	pr_dbg("\n--- TRACE END / Time %lld ns --- \n",
+	       timestamps[timestamp_cnt - 1].time - timestamps[0].time);
+
+	timestamp_cnt = 0;
+}
+#endif
+
 static const char *ad9361_ensm_states[] = {
 	"sleep", "", "", "", "", "alert", "tx", "tx flush",
 	"rx", "rx_flush", "fdd", "fdd_flush"
@@ -512,7 +575,7 @@ static ssize_t ad9361_dig_interface_timing_analysis(struct ad9361_rf_phy *phy,
 static int ad9361_check_cal_done(struct ad9361_rf_phy *phy, u32 reg,
 				 u32 mask, bool done_state)
 {
-	u32 timeout = 500;
+	u32 timeout = 5000; /* RFDC_CAL can take long */
 	u32 state;
 
 	do {
@@ -520,7 +583,11 @@ static int ad9361_check_cal_done(struct ad9361_rf_phy *phy, u32 reg,
 		if (state == done_state)
 			return 0;
 
-		msleep_interruptible(1);
+		if (reg == REG_CALIBRATION_CTRL)
+			usleep_range(800, 1200);
+		else
+			usleep_range(80, 120);
+
 	} while (timeout--);
 
 	dev_err(&phy->spi->dev, "Calibration TIMEOUT (0x%X, 0x%X)", reg, mask);
@@ -2063,6 +2130,9 @@ static int ad9361_set_dcxo_tune(struct ad9361_rf_phy *phy,
 	dev_dbg(&phy->spi->dev, "%s : coarse %u fine %u",
 		__func__, coarse, fine);
 
+	if (phy->pdata->use_extclk)
+		return -ENODEV;
+
 	ad9361_spi_write(phy->spi, REG_DCXO_COARSE_TUNE,
 			DCXO_TUNE_COARSE(coarse));
 	ad9361_spi_write(phy->spi, REG_DCXO_FINE_TUNE_LOW,
@@ -3477,6 +3547,9 @@ static int ad9361_mcs(struct ad9361_rf_phy *phy, unsigned step)
 		ad9361_spi_writef(phy->spi, REG_MULTICHIP_SYNC_AND_TX_MON_CTRL,
 			mcs_mask, 0);
 		break;
+
+	case 6:
+		ad9361_dig_tune(phy, 0);
 	}
 
 	return 0;
@@ -4868,11 +4941,6 @@ static int register_clocks(struct ad9361_rf_phy *phy)
 	return 0;
 }
 
-static const unsigned long ad9361_2x2_available_scan_masks[] = {
-	0x0FF,
-	0x000,
-};
-
 #define AIM_CHAN(_chan, _si, _bits, _sign)			\
 	{ .type = IIO_VOLTAGE,						\
 	  .indexed = 1,							\
@@ -4892,12 +4960,27 @@ static const unsigned long ad9361_2x2_available_scan_masks[] = {
 	  .scan_index = _si,						\
 	  .scan_type =  IIO_ST(_sign, _bits, 16, 0)}
 
+
+static const unsigned long ad9361_2x2_available_scan_masks[] = {
+	0x01, 0x02, 0x04, 0x08, 0x03, 0x0C, /* 1 & 2 chan */
+	0x10, 0x20, 0x40, 0x80, 0x30, 0xC0, /* 1 & 2 chan */
+	0x33, 0xCC, 0xC3, 0x3C, 0x0F, 0xF0, /* 4 chan */
+	0xFF,				   /* 8 chan */
+	0x00,
+};
+
+static const unsigned long ad9361_available_scan_masks[] = {
+	0x01, 0x02, 0x04, 0x08, 0x03, 0x0C, 0x0F,
+	0x00,
+};
+
 static const struct axiadc_chip_info axiadc_chip_info_tbl[] = {
 	[ID_AD9361] = {
 		.name = "AD9361",
 		.max_rate = 61440000UL,
 		.max_testmode = 0,
 		.num_channels = 4,
+		.scan_masks = ad9361_available_scan_masks,
 		.channel[0] = AIM_CHAN(0, 0, 12, 's'),
 		.channel[1] = AIM_CHAN(1, 1, 12, 's'),
 		.channel[2] = AIM_CHAN(2, 2, 12, 's'),
@@ -4908,6 +4991,7 @@ static const struct axiadc_chip_info axiadc_chip_info_tbl[] = {
 		.max_rate = 61440000UL,
 		.max_testmode = 0,
 		.num_channels = 8,
+		.num_shadow_slave_channels = 4,
 		.scan_masks = ad9361_2x2_available_scan_masks,
 		.channel[0] = AIM_CHAN(0, 0, 12, 's'),
 		.channel[1] = AIM_CHAN(1, 1, 12, 's'),
@@ -5024,6 +5108,7 @@ static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq)
 	int ret, i, j, k, chan, t, num_chan, err = 0;
 	u32 s0, s1, c0, c1, tmp, saved = 0;
 	u8 field[2][16];
+	u32 saved_dsel[4], saved_chan_ctrl6[4];
 
 	unsigned hdl_dac_version = axiadc_read(st, 0x4000);
 
@@ -5109,11 +5194,15 @@ static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq)
 					ADI_FORMAT_SIGNEXT | ADI_FORMAT_ENABLE |
 					ADI_ENABLE | ADI_IQCOR_ENB);
 				axiadc_set_pnsel(st, chan, ADC_PN_CUSTOM);
-				if (PCORE_VERSION_MAJOR(hdl_dac_version) > 7)
+				saved_chan_ctrl6[chan] = axiadc_read(st, 0x4414 + (chan) * 0x40);
+				if (PCORE_VERSION_MAJOR(hdl_dac_version) > 7) {
+					saved_dsel[chan] = axiadc_read(st, 0x4418 + (chan) * 0x40);
 					axiadc_write(st, 0x4418 + (chan) * 0x40, 9);
-				else
-					axiadc_write(st, 0x4414 + (chan) * 0x40, 1);
-
+					axiadc_write(st, 0x4414 + (chan) * 0x40, 0); /* !IQCOR_ENB */
+					axiadc_write(st, 0x4044, 1);
+				} else {
+					axiadc_write(st, 0x4414 + (chan) * 0x40, 1); /* DAC_PN_ENB */
+				}
 			}
 			if (PCORE_VERSION_MAJOR(hdl_dac_version) < 8) {
 				saved = tmp = axiadc_read(st, 0x4048);
@@ -5133,11 +5222,12 @@ static int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq)
 					ADI_FORMAT_SIGNEXT | ADI_FORMAT_ENABLE |
 					ADI_ENABLE | ADI_IQCOR_ENB);
 				axiadc_set_pnsel(st, chan, ADC_PN9);
-				if (PCORE_VERSION_MAJOR(hdl_dac_version) > 7)
-					axiadc_write(st, 0x4418 + (chan) * 0x40, 0);
-				else
-					axiadc_write(st, 0x4414 + (chan) * 0x40, 0);
+				if (PCORE_VERSION_MAJOR(hdl_dac_version) > 7) {
+					axiadc_write(st, 0x4418 + (chan) * 0x40, saved_dsel[chan]);
+					axiadc_write(st, 0x4044, 1);
+				}
 
+				axiadc_write(st, 0x4414 + (chan) * 0x40, saved_chan_ctrl6[chan]);
 			}
 
 			if (err == -EIO) {
@@ -5201,8 +5291,8 @@ static int ad9361_post_setup(struct iio_dev *indio_dev)
 			     ADI_ENABLE | ADI_IQCOR_ENB);
 	}
 
-	ret = ad9361_dig_tune(conv->phy, ((conv->chip_info->num_channels > 4) ||
-		axiadc_read(st, ADI_REG_ID)) ? 0 : 61440000);
+	ret = ad9361_dig_tune(conv->phy, (axiadc_read(st, ADI_REG_ID)) ?
+		0 : 61440000);
 	if (ret < 0)
 		return ret;
 
@@ -5541,10 +5631,16 @@ static ssize_t ad9361_phy_show(struct device *dev,
 		ret = sprintf(buf, "%d\n", phy->quad_track_en);
 		break;
 	case AD9361_DCXO_TUNE_COARSE:
-		ret = sprintf(buf, "%d\n", phy->pdata->dcxo_coarse);
+		if (phy->pdata->use_extclk)
+			ret = -ENODEV;
+		else
+			ret = sprintf(buf, "%d\n", phy->pdata->dcxo_coarse);
 		break;
 	case AD9361_DCXO_TUNE_FINE:
-		ret = sprintf(buf, "%d\n", phy->pdata->dcxo_fine);
+		if (phy->pdata->use_extclk)
+			ret = -ENODEV;
+		else
+			ret = sprintf(buf, "%d\n", phy->pdata->dcxo_fine);
 		break;
 	default:
 		ret = -EINVAL;
