@@ -1407,6 +1407,7 @@ int spi_nor_scan(struct spi_nor *nor, const struct spi_device_id *id,
 	    nor->wait_till_ready == spi_nor_wait_till_ready)
 		nor->wait_till_ready = spi_nor_wait_till_fsr_ready;
 
+#ifdef CONFIG_MTD_SPI_NOR_USE_4K_SECTORS
 	/* prefer "small sector" erase if possible */
 	if (info->flags & SECT_4K) {
 		nor->erase_opcode = SPINOR_OP_BE_4K;
@@ -1414,7 +1415,9 @@ int spi_nor_scan(struct spi_nor *nor, const struct spi_device_id *id,
 	} else if (info->flags & SECT_4K_PMC) {
 		nor->erase_opcode = SPINOR_OP_BE_4K_PMC;
 		mtd->erasesize = 4096;
-	} else {
+	} else
+#endif
+	{
 		nor->erase_opcode = SPINOR_OP_SE;
 		mtd->erasesize = info->sector_size;
 	}
