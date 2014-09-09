@@ -95,6 +95,20 @@ config MTD_M25P80
 	  if you want to specify device partitioning or to use a device which
 	  doesn't support the JEDEC ID instruction.
 
+if MTD_M25P80
+
+config CONFIG_MTD_SPI_NOR_USE_4K_SECTORS
+	bool "Use small 4096 B erase sectors"
+	help
+	  Many flash memories support erasing small (4096 B) sectors. Depending
+	  on the usage this feature may provide performance gain in comparison
+	  to erasing whole blocks (32/64 KiB).
+
+	  Please note that some tools/drivers/filesystems may not work with
+	  4096 B erase size (e.g. UBIFS requires 15 KiB as a minimum).
+
+endif # MTD_M25P80
+
 config MTD_SPEAR_SMI
 	tristate "SPEAR MTD NOR Support through SMI controller"
 	depends on PLAT_SPEAR

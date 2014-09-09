@@ -1525,11 +1525,14 @@ static int m25p_probe(struct spi_device *spi)
 	else
 		flash->mtd._write = m25p80_write_ext;
 
+#ifdef CONFIG_MTD_SPI_NOR_USE_4K_SECTORS
 	/* prefer "small sector" erase if possible */
 	if (info->flags & SECT_4K) {
 		flash->erase_opcode = OPCODE_BE_4K;
 		flash->mtd.erasesize = 4096 << flash->shift;
-	} else if (info->flags & SECT_32K) {
+	} else
+#endif
+	if (info->flags & SECT_32K) {
 		flash->erase_opcode = OPCODE_BE_32K;
 		flash->mtd.erasesize = 32768 << flash->shift;
 	} else if (info->flags & SECT_4K_PMC) {
