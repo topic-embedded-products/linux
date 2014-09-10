@@ -306,12 +306,18 @@
 the emac should see a MII interface */
 &eth {
 	status = "okay";
-	phy-mode = "gmii"; /* [r|s][g]mii[-id] ? */
-	phy-handle = <&phy1>;
-	phy1: phy@1 {
-		/* compatible = "micrel,..."; */
-		device_type = "ethernet-phy";
-		reg = <0x1>;
+	phy-mode = "gmii";
+	phy-handle = <&phy_ext>;
+	gmii2rgmii-phy-handle = <&phy_fpga>;
+	phy_ext: phy@2 {
+		/* PHY on the board */
+		reg = <0x2>;
+		interrupt-parent = <&gic>;
+		interrupts = <0 54 0x4>;
+	};
+	phy_fpga: phy@8 {
+		/* Internal GMII to RGMII adapter PHY */
+		reg = <0x8>;
 	};
 };
 

@@ -178,18 +178,6 @@
 
 			clock-names = "ref_clk", "aper_clk";
 			clocks = <&clkc 13>, <&clkc 30>;
-
-			xlnx,enet-clk-freq-hz = <0x17d7840>;
-			xlnx,enet-reset = "MIO 11";
-			xlnx,enet-slcr-1000mbps-div0 = <0x8>;
-			xlnx,enet-slcr-1000mbps-div1 = <0x1>;
-			xlnx,enet-slcr-100mbps-div0 = <0x8>;
-			xlnx,enet-slcr-100mbps-div1 = <0x5>;
-			xlnx,enet-slcr-10mbps-div0 = <0x8>;
-			xlnx,enet-slcr-10mbps-div1 = <0x32>;
-			xlnx,eth-mode = <0x1>;
-			xlnx,has-mdio = <0x1>;
-			xlnx,ptp-enet-clock = <111111115>;
 		};
 
 		gpio: gpio@e000a000 {
