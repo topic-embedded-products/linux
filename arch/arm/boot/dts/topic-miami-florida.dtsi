@@ -309,11 +309,11 @@ the emac should see a MII interface */
 	phy-mode = "gmii";
 	phy-handle = <&phy_ext>;
 	gmii2rgmii-phy-handle = <&phy_fpga>;
-	phy_ext: phy@2 {
+	phy_ext: phy@3 {
 		/* PHY on the board */
-		reg = <0x2>;
-		interrupt-parent = <&gic>;
-		interrupts = <0 54 0x4>;
+		reg = <0x3>;
+		interrupt-parent = <&gpio>;
+		interrupts = <65 0x8>; /* GPIO 65 (EMIO 11), IRQ_TYPE_LEVEL_LOW */
 	};
 	phy_fpga: phy@8 {
 		/* Internal GMII to RGMII adapter PHY */
