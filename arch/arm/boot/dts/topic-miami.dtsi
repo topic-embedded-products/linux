@@ -2,6 +2,13 @@
 
 / {
 	model = "Topic Zynq Miami";
+
+	/* Arrange that UART0 is ttyPS0 */
+	aliases {
+		serial0 = &uart0;
+		serial1 = &uart;
+	};
+
 	memory {
 		device_type = "memory";
 		reg = <0x000000000 0x20000000>;
@@ -14,9 +21,6 @@
 		linux,stdout-path = "/fpga_axi@0/uart@e0000000";
 	};
 
-	aliases {
-		serial0 = &uart0;
-	};
 };
 
 &sdhci0 {
@@ -142,11 +146,9 @@
 			interrupt-parent = <&gic>;
 			clock-names = "uart_clk", "pclk";
 			clocks = <&clkc 23>, <&clkc 40>;
-			port-number = <1>;
 			current-speed = <115200>;
 			device_type = "serial";
 		};
-
 	};
 
 	leds: leds {
@@ -157,12 +159,6 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
-};
-
-/* Disable UART1, ethernet, ... */
-
-&uart {
-	status = "disabled";
 };
 
 &eth {
