@@ -210,7 +210,7 @@ static int zynq_dr_of_probe(struct platform_device *ofdev)
 				dev_err(&ofdev->dev, "Failed to request ULPI reset gpio: %d\n", ret);
 				goto err_out_clk_disable;
 			}
-			msleep(5);
+			udelay(1); /* ULPI Datasheet specifies a 1us pulse width for reset */
 			if (of_property_read_bool(np, "xlnx,phy-reset-gpio-tristate"))
 				gpio_direction_input(reset_gpio);
 			else
