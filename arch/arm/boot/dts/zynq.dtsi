@@ -4,12 +4,15 @@
 	#size-cells = <1>;
 	interrupt-parent = <&gic>;
 
+	aliases {
+		ethernet0 = &eth;
+		serial0 = &uart;
+	};
 	cpus {
 		#address-cells = <1>;
-		#cpus = <0x2>;
 		#size-cells = <0>;
 		ps7_cortexa9_0: cpu@0 {
-			bus-handle = <&ps7_axi_interconnect_0>;
+			bus-handle = <&axi>;
 			clocks = <&clkc 3>;
 			compatible = "arm,cortex-a9";
 			device_type = "cpu";
@@ -19,14 +22,10 @@
 			reg = <0x0>;
 		} ;
 		ps7_cortexa9_1: cpu@1 {
-			bus-handle = <&ps7_axi_interconnect_0>;
+			bus-handle = <&axi>;
 			clocks = <&clkc 3>;
 			compatible = "arm,cortex-a9";
-			d-cache-line-size = <0x20>;
-			d-cache-size = <0x8000>;
 			device_type = "cpu";
-			i-cache-line-size = <0x20>;
-			i-cache-size = <0x8000>;
 			interrupt-handle = <&gic>;
 			reg = <0x1>;
 		};
@@ -36,30 +35,22 @@
 		compatible = "arm,cortex-a9-pmu";
 		interrupts = <0 5 4>, <0 6 4>;
 		interrupt-parent = <&gic>;
-		reg = < 0xf8891000 0x1000 0xf8893000 0x1000 >;
+		reg = <0xf8891000 0x1000>, <0xf8893000 0x1000>;
 		reg-names = "cpu0", "cpu1";
 	};
 
-	aliases {
-		ethernet0 = &eth;
-		serial0 = &uart;
-	};
-
-	ps7_axi_interconnect_0: amba@0 {
+	axi: amba@0 {
 		compatible = "simple-bus";
 		#address-cells = <0x1>;
 		#size-cells = <0x1>;
 		ranges;
 
 		gic: intc@f8f01000 {
-			#address-cells = <2>;
-			#interrupt-cells = <3>;
-			#size-cells = <1>;
-			compatible = "arm,cortex-a9-gic", "arm,gic";
 			interrupt-controller;
-			num_cpus = <2>;
-			num_interrupts = <96>;
-			reg = <0xf8f01000 0x1000>, <0xf8f00100 0x100>;
+			compatible = "arm,cortex-a9-gic";
+			#interrupt-cells = <3>;
+			reg = <0xf8f01000 0x1000>,
+			      <0xf8f00100 0x0100>;
 		};
 
 		pl310@f8f02000 {
@@ -101,7 +92,7 @@
 			#address-cells = <1>;
 			#size-cells = <1>;
 			compatible = "xlnx,zynq-slcr", "syscon";
-			reg = <0xF8000000 0x1000>;
+			reg = <0xf8000000 0x1000>;
 			ranges ;
 			clkc: clkc@100 {
 				#clock-cells = <1>;
@@ -178,6 +169,7 @@
 
 			clock-names = "ref_clk", "aper_clk";
 			clocks = <&clkc 13>, <&clkc 30>;
+
 		};
 
 		gpio: gpio@e000a000 {
@@ -213,6 +205,33 @@
 			phy_type = "ulpi";
 		};
 
+		spi0: spi@e0006000 {
+			compatible = "cdns,spi-r1p6", "xlnx,zynq-spi-1.00.a", "xlnx,ps7-spi-1.00.a";
+			interrupt-parent = <&gic>;
+			interrupts = <0 26 4>;
+			clock-names = "ref_clk", "aper_clk", "pclk";
+			clocks = <&clkc 25>, <&clkc 34>, <&clkc 34>;
+			num-chip-select = <4>;
+			reg = <0xe0006000 0x1000>;
+			speed-hz = <100000000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+
+		spi1: spi@e0007000 {
+			compatible = "cdns,spi-r1p6", "xlnx,zynq-spi-1.00.a", "xlnx,ps7-spi-1.00.a";
+			interrupt-parent = <&gic>;
+			interrupts = <0 49 4>;
+			clock-names = "ref_clk", "aper_clk", "pclk";
+			clocks = <&clkc 26>, <&clkc 35>, <&clkc 35>;
+			num-chip-select = <4>;
+			reg = <0xe0007000 0x1000>;
+			speed-hz = <100000000>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
 		qspi0: qspi@e000d000 {
 			#address-cells = <1>;
 			#size-cells = <0>;

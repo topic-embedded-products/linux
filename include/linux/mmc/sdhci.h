@@ -100,8 +100,11 @@ struct sdhci_host {
 #define SDHCI_QUIRK2_BROKEN_HOST_CONTROL		(1<<5)
 /* Controller does not support HS200 */
 #define SDHCI_QUIRK2_BROKEN_HS200			(1<<6)
-/* Controller lacks write protect detection */
-#define SDHCI_QUIRK2_DISABLE_WP			(1<<7)
+/* Controller does not support DDR50 */
+#define SDHCI_QUIRK2_BROKEN_DDR50			(1<<7)
+/* Controller does not have write-protect (e.g. micro SD) */
+#define SDHCI_QUIRK2_DISABLE_WP			(1<<8)
+
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
 
