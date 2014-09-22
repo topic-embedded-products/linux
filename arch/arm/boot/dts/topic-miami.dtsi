@@ -21,6 +21,13 @@
 		linux,stdout-path = "/fpga_axi@0/uart@e0000000";
 	};
 
+	/* Represents the 3v3 supply on the Miami SOM. */
+	reg_3v3_miami: regulator_3v3_miami {
+		compatible = "regulator-fixed";
+		regulator-name = "3v3-miami";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+	};
 };
 
 &sdhci0 {
@@ -73,7 +80,8 @@
 			monitorvolt: ad799x@29 {
 				compatible = "ad7999";
 				reg = <0x29>;
-				adi,reference-voltage-mv = <3300>; /* Use Vdd */
+				vcc-supply = <&reg_3v3_miami>;
+				vref-supply = <&reg_3v3_miami>;
 			};
 			/* GPIO expander */
 			gpioex: pca953x@41 {

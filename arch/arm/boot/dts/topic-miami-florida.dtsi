@@ -136,24 +136,10 @@
 	};
 };
 
-&fpga_axi {
 
-		fmc_spi: spi@e0006000 {
-			bus-num = <1>;
-			compatible = "cdns,spi-r1p6";
-			interrupt-parent = <&gic>;
-			interrupts = <0 26 4>;
-			clock-names = "ref_clk", "pclk";
-			clocks = <&clkc 25>, <&clkc 34>;
-			num-cs = <4>;
-			reg = <0xe0006000 0x1000>;
-			speed-hz = <100000000>;
-			xlnx,has-ss0 = <0x1>;
-			xlnx,has-ss1 = <0x1>;
-			xlnx,has-ss2 = <0x1>;
-			xlnx,spi-clk-freq-hz = <172000000>;
-			#address-cells = <1>;
-			#size-cells = <0>;
+&spi0 {
+	status = "okay";
+	speed-hz = <100000000>;
 
 			/* TI medical ADC */
 			ads1298_0: ads1298@0 {
@@ -188,7 +174,9 @@
 				spi-cpha;
 				spi-max-frequency = <2048000>;
 			};
-		};
+};
+
+&fpga_axi {
 
 		/* SDIO via EMIO to a Wifi card */
 
@@ -320,4 +308,3 @@ the emac should see a MII interface */
 		reg = <0x8>;
 	};
 };
-
