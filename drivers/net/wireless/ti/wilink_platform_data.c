@@ -22,31 +22,28 @@
 #include <linux/module.h>
 #include <linux/err.h>
 #include <linux/wl12xx.h>
-#include <linux/gpio.h>
 
-#define WL12XX_PLATFORM_GPIO_IRQ       63
-
-static struct wl12xx_platform_data platform_data = {
-	/* IRQ will be supplied by wl12xx_get_platform_data */
-	.irq = 0,
-	/* 38.4Mhz TCXO, see http://processors.wiki.ti.com/index.php/WL127x_Modules */
-	.board_ref_clock = WL12XX_REFCLOCK_38,
-};
+static struct wl12xx_platform_data *platform_data;
 
 int __init wl12xx_set_platform_data(const struct wl12xx_platform_data *data)
 {
-	printk(KERN_WARNING "wl12xx_set_platform_data called.\n");
+	if (platform_data)
+		return -EBUSY;
+	if (!data)
+		return -EINVAL;
+
+	platform_data = kmemdup(data, sizeof(*data), GFP_KERNEL);
+	if (!platform_data)
+		return -ENOMEM;
+
 	return 0;
 }
 
 struct wl12xx_platform_data *wl12xx_get_platform_data(void)
 {
-	printk(KERN_DEBUG "wl12xx_get_platform_data.\n");
-	if (platform_data.irq == 0) {
-		if (gpio_request_one(WL12XX_PLATFORM_GPIO_IRQ, GPIOF_IN, "wl12xx_irq"))
-			printk(KERN_WARNING "%s failed to aquire wlan_irq gpio %d.\n", __func__, WL12XX_PLATFORM_GPIO_IRQ);
-		platform_data.irq = gpio_to_irq(WL12XX_PLATFORM_GPIO_IRQ);
-	}
-	return &platform_data;
+	if (!platform_data)
+		return ERR_PTR(-ENODEV);
+
+	return platform_data;
 }
 EXPORT_SYMBOL(wl12xx_get_platform_data);
