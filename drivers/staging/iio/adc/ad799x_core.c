@@ -533,7 +533,6 @@ static int ad799x_probe(struct i2c_client *client,
 				   const struct i2c_device_id *id)
 {
 	int ret;
-	u32 param;
 	struct ad799x_platform_data *pdata = client->dev.platform_data;
 	struct ad799x_state *st;
 	struct iio_dev *indio_dev;
@@ -550,22 +549,12 @@ static int ad799x_probe(struct i2c_client *client,
 	st->chip_info = &ad799x_chip_info_tbl[st->id];
 	st->config = st->chip_info->default_config;
 
-	/* TODO: Add pdata/DT options for filtering and bit delay */
-	if (pdata) {
-		st->int_vref_mv = pdata->vref_mv;
-	}
-	else {
-		if (!client->dev.of_node) {
-			dev_err(&client->dev, "no platform data, no devicetree node?\n");
-			return -EINVAL;
-		}
-		ret = of_property_read_u32(client->dev.of_node, "adi,reference-voltage-mv", &param);
-		if (ret < 0) {
-			dev_err(&client->dev, "Missing adi,reference-voltage-mv data\n");
-			return ret;
-		}
-		st->int_vref_mv = param;
-	}
+	/* TODO: Add pdata options for filtering and bit delay */
+
+	if (!pdata)
+		return -EINVAL;
+
+	st->int_vref_mv = pdata->vref_mv;
 
 	st->reg = devm_regulator_get(&client->dev, "vcc");
 	if (!IS_ERR(st->reg)) {
