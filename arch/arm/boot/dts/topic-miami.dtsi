@@ -163,7 +163,7 @@
 		compatible = "gpio-leds";
 		alive {
 			label = "alive:green";
-			gpios = <&gpio 25 1>; /* Active low */
+			gpios = <&gpio 25 0>;
 			linux,default-trigger = "heartbeat";
 		};
 	};
