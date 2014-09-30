@@ -33,6 +33,12 @@
 			regulator-boot-on;
 			regulator-always-on;
 		};
+
+		xtal_27Mhz: clock_xtal_27Mhz {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <27000000>;
+		};
 };
 
 /* I2C bus layout */
@@ -64,11 +70,12 @@
 				adi,tdms-clock-inversion;
 				adi,clock-delay = <0x03>;
 			};
-			/* Clock generator. Currently on the GEN bus where it has
-			 * an address conflict with the ltc2943 */
+			/* Clock generator TI I2C chip, 27MHz . */
 			clockgen: cdce925pw@64 {
 				compatible = "cdce925pw";
 				reg = <0x64>;
+				clocks = <&xtal_27Mhz>;
+				#clock-cells = <1>;
 			};
 		};
 		i2c@1 {
@@ -108,10 +115,11 @@
 			};
 			/* Battery gauge */
 			fuelgauge: ltc2943@64 {
-				compatible = "ltc2943", "ltc2941";
+				compatible = "ltc2943";
 				reg = <0x64>;
-				rSense = <15>; /* mOhm */
-				PrescalerExponent = <5>; /* 2^x */
+				
+				resistor-sense = <0xfffffff1>; /* 15 mOhm, reversed polarity */
+				prescaler-exponent = <5>; /* 2^(2*5) = 1024 */
 			};
 		};
 		i2c@3 {
