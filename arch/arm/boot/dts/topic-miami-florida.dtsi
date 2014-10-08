@@ -72,10 +72,31 @@
 			};
 			/* Clock generator TI I2C chip, 27MHz . */
 			clockgen: cdce925pw@64 {
-				compatible = "cdce925pw";
+				compatible = "cdce925";
 				reg = <0x64>;
 				clocks = <&xtal_27Mhz>;
+				xtal-load-pf = <5>; /* Crystal load-capacitor value */
 				#clock-cells = <1>;
+				/* PLL options, optional. For example to get SSC 1%
+				 * centered, supply the following extra data:
+				 *PLL2 {
+				 *	spread-spectrum = <4>;
+				 *	spread-spectrum-center;
+				 *};
+				 */
+				/* Outputs calculate mux and divider settings */
+				Y1 {
+					#clock-cells = <0>;
+					clock-frequency = <27000>;
+				};
+				Y2 {
+					#clock-cells = <0>;
+					clock-frequency = <12288000>;
+				};
+				Y4 {
+					#clock-cells = <0>;
+					clock-frequency = <74250000>;
+				};
 			};
 		};
 		i2c@1 {
