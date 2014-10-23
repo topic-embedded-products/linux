@@ -149,7 +149,6 @@
 			label = "ld7:red";
 			gpios = <&gpio 80 0>;
 		};
-
 		ld9 {
 			label = "ld9";
 			gpios = <&gpio 7 0>;

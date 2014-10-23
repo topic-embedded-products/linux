@@ -519,7 +519,7 @@ static int mc_ctrl_probe(struct platform_device *pdev)
 	mc_ctrl_write(st, ADI_REG_RSTN, ADI_RSTN);
 
 	st->pcore_version = axiadc_read(st, ADI_REG_VERSION);
-	
+
 	st->channels[0] = (struct iio_chan_spec)AIM_CHAN_NOCALIB(0, 0, 32, 32, 0, 'u');
 	st->channels[1] = (struct iio_chan_spec)AIM_CHAN_NOCALIB(1, 1, 32, 32, 0, 'u');
 	st->channels[2] = (struct iio_chan_spec)AIM_CHAN_NOCALIB(2, 2, 32, 32, 0, 'u');
@@ -528,12 +528,12 @@ static int mc_ctrl_probe(struct platform_device *pdev)
 	st->channels[5] = (struct iio_chan_spec)AIM_CHAN_NOCALIB(5, 5, 32, 32, 0, 'u');
 	st->channels[6] = (struct iio_chan_spec)AIM_CHAN_NOCALIB(6, 6, 32, 32, 0, 'u');
 	st->channels[7] = (struct iio_chan_spec)AIM_CHAN_NOCALIB(7, 7, 32, 32, 0, 'u');
-	
+
 	indio_dev->channels = st->channels;
 	indio_dev->num_channels = 8;
 	indio_dev->masklength = 8;
 
-	axiadc_configure_ring(indio_dev, "ad-mc-ctrl-dma");
+	axiadc_configure_ring_stream(indio_dev, "ad-mc-ctrl-dma");
 
 	ret = iio_buffer_register(indio_dev, indio_dev->channels,
 				  indio_dev->num_channels);
@@ -551,7 +551,7 @@ static int mc_ctrl_probe(struct platform_device *pdev)
 err_iio_buffer_unregister:
 	iio_buffer_unregister(indio_dev);
 err_unconfigure_ring:
-	axiadc_unconfigure_ring(indio_dev);
+	axiadc_unconfigure_ring_stream(indio_dev);
 
 	return ret;
 }
