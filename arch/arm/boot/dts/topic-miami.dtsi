@@ -103,43 +103,33 @@
 			};
 			/* IO Voltage controller */
 			ltc3562: ltc3562@65 {
-				compatible = "ltc3562";
+				compatible = "lltc,ltc3562";
 				reg = <0x65>; /* 0b1100101 */
 				regulators {
 					R400B_reg: R400B {
 						/* Supplies VCCO2 to bank 34 */
-						regulator-name = "R400B";
-						regulator-min-microvolt = <600000>;
-						regulator-max-microvolt = <3300000>;
-						ltc3562-default-voltage = <1800000>;
+						regulator-min-microvolt = <1800000>;
+						regulator-max-microvolt = <1800000>;
 						regulator-boot-on;
 						regulator-always-on;
+						lltc,operating-mode = <1>;
 					};
 					R600B_reg: R600B {
 						/* Supplies VCCO0 to Bank 13 */
-						regulator-name = "R600B";
-						regulator-min-microvolt = <600000>;
+						regulator-min-microvolt = <3300000>;
 						regulator-max-microvolt = <3300000>;
-						ltc3562-default-voltage = <3300000>;
 						regulator-boot-on;
 						regulator-always-on;
 					};
-					R400A_reg: R400A {
-						/* Not connected */
-						regulator-name = "R400A";
-						regulator-min-microvolt = <425000>;
-						regulator-max-microvolt = <8000000>;
-						ltc3562-A-r1 = <1>;
-						ltc3562-A-r2 = <1>;
-					};
+					/* R400A Not connected */
 					R600A_reg: R600A {
 						/* Supplies VCCO1 to bank 35 */
-						regulator-name = "R600A";
-						regulator-min-microvolt = <425000>;
-						regulator-max-microvolt = <1800000>;
-						ltc3562-A-r1 = <316>;
-						ltc3562-A-r2 = <100>;
-						ltc3562-default-voltage = <1800000>;
+						/* We actually want 1v8, but the wiring of
+						 * the regulator is weird so you can only get
+						 * 1768mV */
+						regulator-min-microvolt = <1768000>;
+						regulator-max-microvolt = <1768000>;
+						lltc,fb-voltage-divider = <316 100>;
 						regulator-boot-on;
 						regulator-always-on;
 					};
