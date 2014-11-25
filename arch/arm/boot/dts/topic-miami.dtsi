@@ -6,7 +6,7 @@
 	/* Arrange that UART0 is ttyPS0 */
 	aliases {
 		serial0 = &uart0;
-		serial1 = &uart;
+		serial1 = &uart1;
 	};
 
 	memory {
@@ -136,17 +136,6 @@
 				};
 			};
 		};
-
-		uart0: uart@e0000000 {
-			compatible = "xlnx,xuartps";
-			reg = <0xE0000000 0x1000>;
-			interrupts = <0 27 4>;
-			interrupt-parent = <&gic>;
-			clock-names = "uart_clk", "pclk";
-			clocks = <&clkc 23>, <&clkc 40>;
-			current-speed = <115200>;
-			device_type = "serial";
-		};
 	};
 
 	leds: leds {
@@ -157,6 +146,10 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
+};
+
+&uart0 {
+	status = "okay";
 };
 
 &eth {

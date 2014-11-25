@@ -6,8 +6,9 @@
 
 	aliases {
 		ethernet0 = &eth;
-		serial0 = &uart;
+		serial0 = &uart1;
 	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -20,7 +21,8 @@
 			interrupt-handle = <&gic>;
 			operating-points = <666667 1000000 333334 1000000>;
 			reg = <0x0>;
-		} ;
+		};
+
 		ps7_cortexa9_1: cpu@1 {
 			bus-handle = <&axi>;
 			clocks = <&clkc 3>;
@@ -64,16 +66,21 @@
 			interrupts = <0 2 4>;
 		};
 
-		uart: uart@e0001000 {
+		uart0: serial@e0000000 {
 			compatible = "xlnx,xuartps", "cdns,uart-r1p8";
-			reg = <0xe0001000 0x1000>;
-			interrupts = < 0 50 4>;
-			interrupt-parent = <&gic>;
+			status = "disabled";
+			clocks = <&clkc 23>, <&clkc 40>;
 			clock-names = "uart_clk", "pclk";
+			reg = <0xE0000000 0x1000>;
+			interrupts = <0 27 4>;
+		};
+
+		uart1: serial@e0001000 {
+			compatible = "xlnx,xuartps", "cdns,uart-r1p8";
 			clocks = <&clkc 24>, <&clkc 41>;
-			port-number = <0>;
-			current-speed = <115200>;
-			device_type = "serial";
+			clock-names = "uart_clk", "pclk";
+			reg = <0xE0001000 0x1000>;
+			interrupts = <0 50 4>;
 		};
 
 		ps7_dma: ps7-dma@f8003000 {
@@ -232,6 +239,7 @@
 			#size-cells = <0>;
 			status = "disabled";
 		};
+
 		qspi0: qspi@e000d000 {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -306,7 +314,7 @@
 			xlnx,has-ecc = <0x0>;
 		} ;
 
-		ps7_ocmc_0: ps7-ocmc@f800c000 {
+		ps7_ocm_0: ps7-ocm@f800c000 {
 			compatible = "xlnx,zynq-ocmc-1.0";
 			interrupt-parent = <&gic>;
 			interrupts = <0 3 4>;
