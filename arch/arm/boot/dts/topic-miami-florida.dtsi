@@ -183,9 +183,6 @@
 				spi-cpha;
 				spi-max-frequency = <2048000>;
 				/* GPIO Setup */
-				clksel-gpio = <&gpio 57 0>;
-				/* drdy-gpio = <&gpio 12 0>; */
-				pwdn-gpio = <&gpio 55 0>;
 				reset-gpio = <&gpio 54 0>;
 				start-gpio = <&gpio 56 0>;
 				rdy-irq {
