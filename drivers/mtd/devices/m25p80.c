@@ -27,10 +27,7 @@
 #include <linux/spi/flash.h>
 #include <linux/mtd/spi-nor.h>
 
-/* Flash opcodes. */
 #define	MAX_CMD_SIZE		6
-
-
 struct m25p {
 	struct spi_device	*spi;
 	struct spi_nor		spi_nor;
@@ -48,22 +45,21 @@ static int m25p80_read_reg(struct spi_nor *nor, u8 code, u8 *val, int len)
 	if (ret < 0)
 		dev_err(&spi->dev, "error %d reading %x\n", ret, code);
 
-		return ret;
-	}
+	return ret;
+}
 
 static void m25p_addr2cmd(struct spi_nor *nor, unsigned int addr, u8 *cmd)
 {
-
-	cmd[1] = addr >> (nor->addr_width * 8 -  8);
-	cmd[2] = addr >> (nor->addr_width * 8 - 16);
-	cmd[3] = addr >> (nor->addr_width * 8 - 24);
-	cmd[4] = addr >> (nor->addr_width * 8 - 32);
+	int i;
+	/* opcode is in cmd[0] */
+	for (i = 1; i <= nor->addr_width; i++)
+		cmd[i] = addr >> (nor->addr_width * 8 - i * 8);
 }
 
 static int m25p_cmdsz(struct spi_nor *nor)
 {
 	return 1 + nor->addr_width;
-		}
+}
 
 static int m25p80_write_reg(struct spi_nor *nor, u8 opcode, u8 *buf, int len,
 			int wr_en)
@@ -74,9 +70,9 @@ static int m25p80_write_reg(struct spi_nor *nor, u8 opcode, u8 *buf, int len,
 	flash->command[0] = opcode;
 	if (buf)
 		memcpy(&flash->command[1], buf, len);
-	/* Wait until finished previous write command. */
+
 	return spi_write(spi, flash->command, len + 1);
-	}
+}
 
 static void m25p80_write(struct spi_nor *nor, loff_t to, size_t len,
 			size_t *retlen, const u_char *buf)
@@ -125,7 +121,7 @@ static inline unsigned int m25p80_rx_nbits(struct spi_nor *nor)
  * may be any size provided it is within the physical boundaries.
  */
 static int m25p80_read(struct spi_nor *nor, loff_t from, size_t len,
-	size_t *retlen, u_char *buf)
+			size_t *retlen, u_char *buf)
 {
 	struct m25p *flash = nor->priv;
 	struct spi_device *spi = flash->spi;
@@ -134,6 +130,7 @@ static int m25p80_read(struct spi_nor *nor, loff_t from, size_t len,
 	int dummy = nor->read_dummy;
 	int ret;
 
+	/* Wait till previous write/erase is done. */
 	ret = nor->wait_till_ready(nor);
 	if (ret)
 		return ret;
@@ -154,9 +151,8 @@ static int m25p80_read(struct spi_nor *nor, loff_t from, size_t len,
 	spi_message_add_tail(&t[1], &m);
 
 	spi_sync(spi, &m);
-	/* Wait till previous write/erase is done. */
-	*retlen = m.actual_length - m25p_cmdsz(nor) - dummy;
 
+	*retlen = m.actual_length - m25p_cmdsz(nor) - dummy;
 	return 0;
 }
 
@@ -168,17 +164,17 @@ static int m25p80_erase(struct spi_nor *nor, loff_t offset)
 	dev_dbg(nor->dev, "%dKiB at 0x%08x\n",
 		flash->mtd.erasesize / 1024, (u32)offset);
 
-
+	/* Wait until finished previous write command. */
 	ret = nor->wait_till_ready(nor);
 	if (ret)
 		return ret;
 
-
+	/* Send write enable, then erase commands. */
 	ret = nor->write_reg(nor, SPINOR_OP_WREN, NULL, 0, 0);
-		if (ret)
-	return ret;
+	if (ret)
+		return ret;
 
-
+	/* Set up command buffer. */
 	flash->command[0] = nor->erase_opcode;
 	m25p_addr2cmd(nor, offset, flash->command);
 
@@ -186,8 +182,6 @@ static int m25p80_erase(struct spi_nor *nor, loff_t offset)
 
 	return 0;
 }
-
-
 
 /*
  * board specific setup should have ensured the SPI clock used here
@@ -198,11 +192,10 @@ static int m25p_probe(struct spi_device *spi)
 {
 	struct mtd_part_parser_data	ppdata;
 	struct flash_platform_data	*data;
-	struct m25p			*flash;
+	struct m25p *flash;
 	struct spi_nor *nor;
 	enum read_mode mode = SPI_NOR_NORMAL;
 	int ret;
-
 
 	flash = devm_kzalloc(&spi->dev, sizeof(*flash), GFP_KERNEL);
 	if (!flash)
@@ -210,7 +203,7 @@ static int m25p_probe(struct spi_device *spi)
 
 	nor = &flash->spi_nor;
 
-
+	/* install the hooks */
 	nor->read = m25p80_read;
 	nor->write = m25p80_write;
 	nor->erase = m25p80_erase;
@@ -224,6 +217,7 @@ static int m25p_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, flash);
 	flash->mtd.priv = nor;
 	flash->spi = spi;
+	nor->spi = spi;
 
 	if (spi->mode & SPI_RX_QUAD)
 		mode = SPI_NOR_QUAD;

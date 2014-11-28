@@ -396,23 +396,33 @@ static int ad9361_hdl_loopback(struct ad9361_rf_phy *phy, bool enable)
 {
 	struct axiadc_converter *conv = spi_get_drvdata(phy->spi);
 	struct axiadc_state *st = iio_priv(conv->indio_dev);
-	unsigned reg, chan;
+	unsigned reg, addr, chan;
 
 	unsigned version = axiadc_read(st, 0x4000);
 
 	/* Still there but implemented a bit different */
 	if (PCORE_VERSION_MAJOR(version) > 7)
-		return -ENODEV;
+		addr = 0x4418;
+	else
+		addr = 0x4414;
 
 	for (chan = 0; chan < conv->chip_info->num_channels; chan++) {
-		reg = axiadc_read(st, 0x4414 + (chan) * 0x40);
-		/* DAC_LB_ENB If set enables loopback of receive data */
-		if (enable)
-			reg |= BIT(1);
-		else
-			reg &= ~BIT(1);
+		reg = axiadc_read(st, addr + (chan) * 0x40);
 
-		axiadc_write(st, 0x4414 + (chan) * 0x40, reg);
+		if (PCORE_VERSION_MAJOR(version) > 7) {
+		/* FIXME: May cause problems if DMA is selected */
+			if (enable)
+				reg = 0x8;
+			else
+				reg = 0x0;
+		} else {
+		/* DAC_LB_ENB If set enables loopback of receive data */
+			if (enable)
+				reg |= BIT(1);
+			else
+				reg &= ~BIT(1);
+		}
+		axiadc_write(st, addr + (chan) * 0x40, reg);
 	}
 
 	return 0;
@@ -4182,11 +4192,18 @@ static int ad9361_validate_enable_fir(struct ad9361_rf_phy *phy)
 				clk_get_rate(phy->clks[TX_SAMPL_CLK]),
 				phy->rate_governor, rx, tx);
 		if (ret < 0) {
+			u32 min = DIV_ROUND_UP(MIN_ADC_CLK,
+					phy->rate_governor ? 8 : 12);
 			dev_err(dev,
-				"%s: Calculating filter rates failed %d",
-				__func__, ret);
+				"%s: Calculating filter rates failed %d "
+				"using min frequency",__func__, ret);
+			if (clk_get_rate(phy->clks[TX_SAMPL_CLK]) <= min)
+				ret = ad9361_calculate_rf_clock_chain(phy, min,
+					phy->rate_governor, rx, tx);
+			if (ret < 0) {
+				return ret;
+			}
 
-			return ret;
 		}
 		valid = false;
 	} else {
@@ -5796,7 +5813,7 @@ static IIO_DEVICE_ATTR(tx_path_rates, S_IRUGO,
 			NULL,
 			AD9361_TX_PATH_FREQ);
 
-static IIO_DEVICE_ATTR(trx_rate_governor, S_IRUGO,
+static IIO_DEVICE_ATTR(trx_rate_governor, S_IRUGO | S_IWUSR,
 			ad9361_phy_show,
 			ad9361_phy_store,
 			AD9361_TRX_RATE_GOV);
