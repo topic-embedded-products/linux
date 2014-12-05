@@ -108,10 +108,12 @@ static int axi_spdif_hw_params(struct snd_pcm_substream *substream,
 	regmap_update_bits(spdif->regmap, AXI_SPDIF_REG_CTRL,
 		AXI_SPDIF_CTRL_CLKDIV_MASK, clkdiv);
 
-	ret = clk_prepare_enable(spdif->clk_ref);
-	if (ret)
-		return ret;
-	spdif->clk_ref_running = true;
+	if (!spdif->clk_ref_running) {
+		ret = clk_prepare_enable(spdif->clk_ref);
+		if (ret)
+			return ret;
+		spdif->clk_ref_running = true;
+	}
 
 	regmap_update_bits(spdif->regmap, AXI_SPDIF_REG_CTRL,
 		AXI_SPDIF_CTRL_TXEN, AXI_SPDIF_CTRL_TXEN);
@@ -194,6 +196,7 @@ static int axi_spdif_probe(struct platform_device *pdev)
 	struct resource *res;
 	void __iomem *base;
 	int ret;
+	long rate;
 
 	spdif = devm_kzalloc(&pdev->dev, sizeof(*spdif), GFP_KERNEL);
 	if (!spdif)
@@ -228,8 +231,9 @@ static int axi_spdif_probe(struct platform_device *pdev)
 	spdif->dma_data.maxburst = 1;
 
 	/* Determine if the clock rate is fixed. If it cannot change frequency,
-	 * it returns an error here. */
-	if (clk_round_rate(spdif->clk_ref, 128 * 44100) < 0) {
+	 * it returns an error or it will simply return its fixed value. */
+	rate = clk_round_rate(spdif->clk_ref, 128 * 44100);
+	if (rate < 0 || rate != clk_round_rate(spdif->clk_ref, 128 * 48000)) {
 		spdif->ratnum.num = clk_get_rate(spdif->clk_ref) / 128;
 		spdif->ratnum.den_step = 1;
 		spdif->ratnum.den_min = 1;
