@@ -3606,7 +3606,7 @@ regulator_register(const struct regulator_desc *regulator_desc,
 			ret = 0;
 			goto add_dev;
 		} else if (!r) {
-			dev_err(dev, "Failed to find supply %s\n", supply);
+			dev_dbg(dev, "Failed to find supply %s\n", supply);
 			ret = -EPROBE_DEFER;
 			goto scrub;
 		}
