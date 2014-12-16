@@ -119,7 +119,7 @@ struct ad9361_rf_phy {
 	struct refclk_scale	clk_priv[NUM_AD9361_CLKS];
 	struct clk_onecell_data	clk_data;
 	struct ad9361_phy_platform_data *pdata;
-	struct ad9361_debugfs_entry debugfs_entry[146];
+	struct ad9361_debugfs_entry debugfs_entry[147];
 	struct bin_attribute 	bin;
 	struct iio_dev 		*indio_dev;
 	struct work_struct 	work;
@@ -3619,6 +3619,20 @@ static void ad9361_clear_state(struct ad9361_rf_phy *phy)
 	memset(&phy->fastlock, 0, sizeof(phy->fastlock));
 }
 
+static unsigned long ad9361_ref_div_sel(unsigned long refin_Hz, unsigned long max)
+{
+	if (refin_Hz <= (max / 2))
+		return 2 * refin_Hz;
+	else if (refin_Hz <= max)
+		return refin_Hz;
+	else if (refin_Hz <= (max * 2))
+		return refin_Hz / 2;
+	else if (refin_Hz <= (max * 4))
+		return refin_Hz / 4;
+	else
+		return 0;
+}
+
 static int ad9361_setup(struct ad9361_rf_phy *phy)
 {
 	unsigned long refin_Hz, ref_freq, bbpll_freq;
@@ -3650,15 +3664,8 @@ static int ad9361_setup(struct ad9361_rf_phy *phy)
 
 	refin_Hz = clk_get_rate(phy->clk_refin);
 
-	if (refin_Hz < 40000000UL)
-		ref_freq = 2 * refin_Hz;
-	else if (refin_Hz < 80000000UL)
-		ref_freq = refin_Hz;
-	else if (refin_Hz < 160000000UL)
-		ref_freq = refin_Hz / 2;
-	else if (refin_Hz < 320000000UL)
-		ref_freq = refin_Hz / 4;
-	else
+	ref_freq = ad9361_ref_div_sel(refin_Hz, MAX_BBPLL_FREF);
+	if (!ref_freq)
 		return -EINVAL;
 
 	ad9361_spi_writef(spi, REG_REF_DIVIDE_CONFIG_1, RX_REF_RESET_BAR, 1);
@@ -3724,6 +3731,17 @@ static int ad9361_setup(struct ad9361_rf_phy *phy)
 	ret = ad9361_setup_ext_lna(phy, &pd->elna_ctrl);
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * This allows forcing a lower F_REF window
+	 * (worse phase noise, better fractional spurs)
+	 */
+	pd->trx_synth_max_fref = clamp_t(u32, pd->trx_synth_max_fref,
+					 MIN_SYNTH_FREF, MAX_SYNTH_FREF);
+
+	ref_freq = ad9361_ref_div_sel(refin_Hz, pd->trx_synth_max_fref);
+	if (!ref_freq)
+		return -EINVAL;
 
 	ret = clk_set_rate(phy->clks[RX_REFCLK], ref_freq);
 	if (ret < 0) {
@@ -4629,7 +4647,7 @@ static unsigned long ad9361_bbpll_recalc_rate(struct clk_hw *hw,
 static long ad9361_bbpll_round_rate(struct clk_hw *hw, unsigned long rate,
 				unsigned long *prate)
 {
-	u64 tmp;
+	u64 tmp, rate64 = rate;
 	u32 fract, integer;
 
 	if (rate > MAX_BBPLL_FREQ)
@@ -4638,11 +4656,11 @@ static long ad9361_bbpll_round_rate(struct clk_hw *hw, unsigned long rate,
 	if (rate < MIN_BBPLL_FREQ)
 		return MIN_BBPLL_FREQ;
 
-	tmp = do_div(rate, *prate);
+	tmp = do_div(rate64, *prate);
 	tmp = tmp * BBPLL_MODULUS + (*prate >> 1);
 	do_div(tmp, *prate);
 
-	integer = rate;
+	integer = rate64;
 	fract = tmp;
 
 	tmp = *prate * (u64)fract;
@@ -4657,7 +4675,7 @@ static int ad9361_bbpll_set_rate(struct clk_hw *hw, unsigned long rate,
 {
 	struct refclk_scale *clk_priv = to_clk_priv(hw);
 	struct spi_device *spi = clk_priv->spi;
-	u64 tmp;
+	u64 tmp, rate64 = rate;
 	u32 fract, integer;
 	int icp_val;
 	u8 lf_defaults[3] = {0x35, 0x5B, 0xE8};
@@ -4669,7 +4687,7 @@ static int ad9361_bbpll_set_rate(struct clk_hw *hw, unsigned long rate,
 	 * Setup Loop Filter and CP Current
 	 * Scale is 150uA @ (1280MHz BBPLL, 40MHz REFCLK)
 	 */
-	tmp = (rate >> 7) * 150ULL;
+	tmp = (rate64 >> 7) * 150ULL;
 	do_div(tmp, (parent_rate >> 7) * 32UL + (tmp >> 1));
 
 	/* 25uA/LSB, Offset 25uA */
@@ -4688,11 +4706,11 @@ static int ad9361_bbpll_set_rate(struct clk_hw *hw, unsigned long rate,
 	ad9361_spi_write(spi, REG_SDM_CTRL, 0x10);
 
 	/* Calculate and set BBPLL frequency word */
-	tmp = do_div(rate, parent_rate);
+	tmp = do_div(rate64, parent_rate);
 	tmp = tmp *(u64) BBPLL_MODULUS + (parent_rate >> 1);
 	do_div(tmp, parent_rate);
 
-	integer = rate;
+	integer = rate64;
 	fract = tmp;
 
 	ad9361_spi_write(spi, REG_INTEGER_BB_FREQ_WORD, integer);
@@ -6910,6 +6928,9 @@ static struct ad9361_phy_platform_data
 
 	ad9361_of_get_bool(iodev, np, "adi,rx1-rx2-phase-inversion-enable",
 			   &pdata->rx1rx2_phase_inversion_en);
+
+	ad9361_of_get_u32(iodev, np, "adi,trx-synthesizer-target-fref-overwrite-hz",
+			  MAX_SYNTH_FREF, &pdata->trx_synth_max_fref);
 
 
 	tmpl = 2400000000ULL;
