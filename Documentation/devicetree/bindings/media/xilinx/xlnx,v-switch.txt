@@ -3,9 +3,11 @@ Xilinx Video Switch
 
 Required properties:
 
-  - compatible: Must be "xlnx,axi-switch-1.0".
+  - compatible: Must be "xlnx,v-switch-1.0".
 
   - reg: Physical base address and length of the registers set for the device.
+
+  - clocks: Reference to the video core clock.
 
   - #xlnx,inputs: Number of input ports
   - #xlnx,outputs: Number of outputs ports
@@ -14,9 +16,10 @@ Required properties:
 
 Example:
 
-	axi_switch: axi_switch@43c10000 {
-		compatible = "xlnx,axi-switch-1.0";
+	switch: switch@43c10000 {
+		compatible = "xlnx,v-switch-1.0";
 		reg = <0x43c10000 0x10000>;
+		clocks = <&clkc 15>;
 
 		#xlnx,inputs = <2>;
 		#xlnx,outputs = <2>;
