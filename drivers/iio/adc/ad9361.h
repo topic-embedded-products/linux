@@ -1015,6 +1015,8 @@
 /*
  *	REG_TPM_MODE_ENABLE
  */
+#define TX2_MON_ENABLE		     	     (1 << 7) /* Tx2 Monitor Enable */
+#define TX1_MON_ENABLE		     	     (1 << 5) /* Tx1 Monitor Enable */
 #define ONE_SHOT_MODE			     (1 << 6) /* One Shot Mode */
 #define TX_MON_DURATION(x)		     (((x) & 0xF) << 0) /* Tx Mon Duration<3:0> */
 
@@ -1374,7 +1376,7 @@
  *	REG_SMALL_LMT_OVERLOAD_THRESH
  */
 #define FORCE_PD_RESET_RX2		     (1 << 7) /* Force PD Reset Rx2 */
-#define FOR_PD_RESET_RX1			     (1 << 6) /* For PD Reset Rx1 */
+#define FORCE_PD_RESET_RX1		     (1 << 6) /* Force PD Reset Rx1 */
 #define SMALL_LMT_OVERLOAD_THRESH(x)	     (((x) & 0x3F) << 0) /* Small LMT Overload Threshold<5:0> */
 
 /*
@@ -3065,6 +3067,7 @@ enum ad9361_clkout {
 struct ad9361_phy_platform_data {
 	bool			rx2tx2;
 	bool			fdd;
+	bool			fdd_independent_mode;
 	bool			split_gt;
 	bool 			use_extclk;
 	bool			ensm_pin_pulse_mode;
@@ -3076,11 +3079,13 @@ struct ad9361_phy_platform_data {
 	bool			use_ext_rx_lo;
 	bool			use_ext_tx_lo;
 	bool			rx1rx2_phase_inversion_en;
+	bool			qec_tracking_slow_mode_en;
 	u8			dc_offset_update_events;
 	u8			dc_offset_attenuation_high;
 	u8			dc_offset_attenuation_low;
 	u8			rf_dc_offset_count_high;
 	u8			rf_dc_offset_count_low;
+	u8			dig_interface_tune_skipmode;
 	u32			dcxo_coarse;
 	u32			dcxo_fine;
 	u32			rf_rx_input_sel;
