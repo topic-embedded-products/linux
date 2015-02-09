@@ -66,6 +66,15 @@
 		};
 	};
 
+	leds {
+		compatible = "gpio-leds";
+
+		ds23 {
+			label = "ds23";
+			gpios = <&gpio0 10 0>;
+			linux,default-trigger = "heartbeat";
+		};
+	};
 };
 
 &qspi {
@@ -117,9 +126,9 @@
 &gem0 {
 	status = "okay";
 	phy-mode = "rgmii-id";
-	phy-handle = <&phy0>;
+	phy-handle = <&ethernet_phy>;
 
-	phy0: phy@7 {
+	ethernet_phy: ethernet-phy@7 {
 		reg = <7>;
 	};
 };

@@ -111,9 +111,10 @@
 #define CDNS_I2C_DIVA_MAX	4
 #define CDNS_I2C_DIVB_MAX	64
 
+#define CDNS_I2C_TIMEOUT_MAX	0xFF
+
 #define cdns_i2c_readreg(offset)       readl_relaxed(id->membase + offset)
 #define cdns_i2c_writereg(val, offset) writel_relaxed(val, id->membase + offset)
-#define CDNS_I2C_TIMEOUT_MAX	0xff
 
 /**
  * struct cdns_i2c - I2C device private data structure
@@ -199,16 +200,26 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 		status = IRQ_HANDLED;
 	}
 
+	/*
+	 * Check if transfer size register needs to be updated again for a
+	 * large data receive operation.
+	 */
 	updatetx = 0;
 	if (id->recv_count > id->curr_recv_count)
 		updatetx = 1;
 
-	/* When receiving, handle data and tranfer complete interrupts */
+	/* When receiving, handle data interrupt and completion interrupt */
 	if (id->p_recv_buf &&
 	    ((isr_status & CDNS_I2C_IXR_COMP) ||
 	     (isr_status & CDNS_I2C_IXR_DATA))) {
+		/* Read data if receive data valid is set */
 		while (cdns_i2c_readreg(CDNS_I2C_SR_OFFSET) &
 		       CDNS_I2C_SR_RXDV) {
+			/*
+			 * Clear hold bit that was set for FIFO control if
+			 * RX data left is less than FIFO depth, unless
+			 * repeated start is selected.
+			 */
 			if ((id->recv_count < CDNS_I2C_FIFO_DEPTH) &&
 			    !id->bus_hold_flag)
 				cdns_i2c_clear_bus_hold(id);
@@ -223,6 +234,13 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 				break;
 		}
 
+		/*
+		 * The controller sends NACK to the slave when transfer size
+		 * register reaches zero without considering the HOLD bit.
+		 * This workaround is implemented for large data transfers to
+		 * maintain transfer size non-zero while performing a large
+		 * receive operation.
+		 */
 		if (updatetx &&
 		    (id->curr_recv_count == CDNS_I2C_FIFO_DEPTH + 1)) {
 			/* wait while fifo is full */
@@ -230,6 +248,10 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 			       (id->curr_recv_count - CDNS_I2C_FIFO_DEPTH))
 				;
 
+			/*
+			 * Check number of bytes to be received against maximum
+			 * transfer size and update register accordingly.
+			 */
 			if (((int)(id->recv_count) - CDNS_I2C_FIFO_DEPTH) >
 			    CDNS_I2C_TRANSFER_SIZE) {
 				cdns_i2c_writereg(CDNS_I2C_TRANSFER_SIZE,
@@ -244,6 +266,7 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 			}
 		}
 
+		/* Clear hold (if not repeated start) and signal completion */
 		if ((isr_status & CDNS_I2C_IXR_COMP) && !id->recv_count) {
 			if (!id->bus_hold_flag)
 				cdns_i2c_clear_bus_hold(id);
@@ -256,9 +279,8 @@ static irqreturn_t cdns_i2c_isr(int irq, void *ptr)
 	/* When sending, handle transfer complete interrupt */
 	if ((isr_status & CDNS_I2C_IXR_COMP) && !id->p_recv_buf) {
 		/*
-		 * If the device is sending data If there is further
-		 * data to be sent. Calculate the available space
-		 * in FIFO and fill the FIFO with that many bytes.
+		 * If there is more data to be sent, calculate the
+		 * space available in FIFO and fill with that many bytes.
 		 */
 		if (id->send_count) {
 			avail_bytes = CDNS_I2C_FIFO_DEPTH -
@@ -343,8 +365,10 @@ static void cdns_i2c_mrecv(struct cdns_i2c *id)
 		cdns_i2c_writereg(CDNS_I2C_TRANSFER_SIZE,
 				  CDNS_I2C_XFER_SIZE_OFFSET);
 		id->curr_recv_count = CDNS_I2C_TRANSFER_SIZE;
-	} else
+	} else {
 		cdns_i2c_writereg(id->recv_count, CDNS_I2C_XFER_SIZE_OFFSET);
+	}
+
 	/* Clear the bus hold flag if bytes to receive is less than FIFO size */
 	if (!id->bus_hold_flag &&
 		((id->p_msg->flags & I2C_M_RECV_LEN) != I2C_M_RECV_LEN) &&
@@ -521,6 +545,20 @@ static int cdns_i2c_master_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
 	 * processed with a repeated start.
 	 */
 	if (num > 1) {
+		/*
+		 * This controller does not give completion interrupt after a
+		 * master receive message if HOLD bit is set (repeated start),
+		 * resulting in SW timeout. Hence, if a receive message is
+		 * followed by any other message, an error is returned
+		 * indicating that this sequence is not supported.
+		 */
+		for (count = 0; count < num - 1; count++) {
+			if (msgs[count].flags & I2C_M_RD) {
+				dev_warn(adap->dev.parent,
+					 "Can't do repeated start after a receive message\n");
+				return -EOPNOTSUPP;
+			}
+		}
 		id->bus_hold_flag = 1;
 		reg = cdns_i2c_readreg(CDNS_I2C_CR_OFFSET);
 		reg |= CDNS_I2C_CR_HOLD;
@@ -858,6 +896,14 @@ static int cdns_i2c_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "reg adap failed: %d\n", ret);
 		goto err_clk_dis;
 	}
+
+	/*
+	 * Cadence I2C controller has a bug wherein it generates
+	 * invalid read transaction after HW timeout in master receiver mode.
+	 * HW timeout is not used by this driver and the interrupt is disabled.
+	 * But the feature itself cannot be disabled. Hence maximum value
+	 * is written to this register to reduce the chances of error.
+	 */
 	cdns_i2c_writereg(CDNS_I2C_TIMEOUT_MAX, CDNS_I2C_TIME_OUT_OFFSET);
 
 	dev_info(&pdev->dev, "%u kHz mmio %08lx irq %d\n",
