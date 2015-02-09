@@ -157,8 +157,5 @@
 };
 
 &usb {
-	dr_mode = "otg";
-	/* USB reset connected to output 0 of expander */
-	xlnx,phy-reset-gpio = <&gpioex 0 0>;
-	xlnx,phy-reset-gpio-tristate;
+	status = "disabled";
 };
