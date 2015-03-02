@@ -225,7 +225,7 @@ static inline void ad9361_print_timestamp(void)
 #endif
 
 static const char *ad9361_ensm_states[] = {
-	"sleep", "", "", "", "", "alert", "tx", "tx flush",
+	"sleep", NULL, NULL, NULL, NULL, "alert", "tx", "tx flush",
 	"rx", "rx_flush", "fdd", "fdd_flush"
 };
 
@@ -1082,13 +1082,11 @@ static void ad9361_ensm_force_state(struct ad9361_rf_phy *phy, u8 ensm_state)
 	switch (ensm_state) {
 
 	case ENSM_STATE_TX:
+	case ENSM_STATE_FDD:
 		val |= FORCE_TX_ON;
 		break;
 	case ENSM_STATE_RX:
 		val |= FORCE_RX_ON;
-		break;
-	case ENSM_STATE_FDD:
-		val |= (FORCE_TX_ON | FORCE_RX_ON);
 		break;
 	case ENSM_STATE_ALERT:
 		val &= ~(FORCE_TX_ON | FORCE_RX_ON);
@@ -1129,13 +1127,11 @@ static void ad9361_ensm_restore_prev_state(struct ad9361_rf_phy *phy)
 	switch (phy->prev_ensm_state) {
 
 	case ENSM_STATE_TX:
+	case ENSM_STATE_FDD:
 		val |= FORCE_TX_ON;
 		break;
 	case ENSM_STATE_RX:
 		val |= FORCE_RX_ON;
-		break;
-	case ENSM_STATE_FDD:
-		val |= (FORCE_TX_ON | FORCE_RX_ON);
 		break;
 	case ENSM_STATE_ALERT:
 		val |= TO_ALERT;
@@ -1404,13 +1400,14 @@ static int ad9361_gc_update(struct ad9361_rf_phy *phy)
 		dec_pow_meas_dur =
 			phy->pdata->gain_ctrl.f_agc_dec_pow_measuremnt_duration;
 	} else {
-
+		u32 fir_div = DIV_ROUND_CLOSEST(clkrf, clk_get_rate(phy->clks[RX_SAMPL_CLK]));
 		dec_pow_meas_dur = phy->pdata->gain_ctrl.dec_pow_measuremnt_duration;
 
-		if (((reg * 2) / dec_pow_meas_dur) < 2) {
-			dec_pow_meas_dur = reg;
+		if (((reg * 2 / fir_div) / dec_pow_meas_dur) < 2) {
+			dec_pow_meas_dur = reg / fir_div;
 		}
 	}
+
 
 	/* Power Measurement Duration */
 	ad9361_spi_writef(spi, REG_DEC_POWER_MEASURE_DURATION_0,
@@ -3179,7 +3176,7 @@ static int ad9361_ensm_set_state(struct ad9361_rf_phy *phy, u8 ensm_state,
 			rc = -EINVAL;
 		break;
 	case ENSM_STATE_FDD:
-		val |= (FORCE_TX_ON | FORCE_RX_ON);
+		val |= FORCE_TX_ON;
 		if (!phy->pdata->fdd)
 			rc = -EINVAL;
 		break;
@@ -3472,8 +3469,7 @@ static int ad9361_set_ensm_mode(struct ad9361_rf_phy *phy, bool fdd, bool pinctr
 	if (fdd)
 		ret = ad9361_spi_write(phy->spi, REG_ENSM_CONFIG_2,
 			val | DUAL_SYNTH_MODE |
-			(pinctrl ? (pd->fdd_independent_mode ?
-				FDD_EXTERNAL_CTRL_ENABLE : 0) : 0));
+			(pd->fdd_independent_mode ? FDD_EXTERNAL_CTRL_ENABLE : 0));
 	 else
 		ret = ad9361_spi_write(phy->spi, REG_ENSM_CONFIG_2, val |
 				(pd->tdd_use_dual_synth ? DUAL_SYNTH_MODE : 0) |
@@ -3822,6 +3818,12 @@ static int ad9361_setup(struct ad9361_rf_phy *phy)
 
 	if (pd->fdd) {
 		pd->tdd_skip_vco_cal = false;
+		if (pd->ensm_pin_ctrl && pd->fdd_independent_mode) {
+			dev_warn(dev,
+				 "%s: Either set ENSM PINCTRL or FDD Independent Mode",
+				__func__);
+			pd->ensm_pin_ctrl = false;
+		}
 	} else { /* TDD Mode */
 		if (pd->tdd_use_dual_synth || pd->tdd_skip_vco_cal)
 			pd->tdd_use_fdd_tables = true;
@@ -5062,8 +5064,8 @@ static unsigned long ad9361_rfpll_recalc_rate(struct clk_hw *hw,
 		vco_div = ad9361_spi_readf(clk_priv->spi, REG_RFPLL_DIVIDERS, div_mask);
 	}
 
-	fract = (buf[0] << 16) | (buf[1] << 8) | buf[2];
-	integer = buf[3] << 8 | buf[4];
+	fract = (SYNTH_FRACT_WORD(buf[0]) << 16) | (buf[1] << 8) | buf[2];
+	integer = (SYNTH_INTEGER_WORD(buf[3]) << 8) | buf[4];
 
 	return ad9361_to_clk(ad9361_calc_rfpll_freq(parent_rate, integer,
 					      fract, vco_div));
@@ -5123,10 +5125,12 @@ static int ad9361_rfpll_set_rate(struct clk_hw *hw, unsigned long rate,
 	ad9361_rfpll_vco_init(phy, div_mask == TX_VCO_DIVIDER(~0),
 			      vco, parent_rate);
 
-	buf[0] = fract >> 16;
+	buf[0] = SYNTH_FRACT_WORD(fract >> 16);
 	buf[1] = fract >> 8;
 	buf[2] = fract & 0xFF;
-	buf[3] = integer >> 8;
+	buf[3] = SYNTH_INTEGER_WORD(integer >> 8) |
+		(~SYNTH_INTEGER_WORD(~0) &
+		ad9361_spi_read(clk_priv->spi, reg - 3));
 	buf[4] = integer & 0xFF;
 
 	ad9361_spi_writem(clk_priv->spi, reg, buf, 5);
@@ -5781,6 +5785,7 @@ static ssize_t ad9361_phy_store(struct device *dev,
 		break;
 	case AD9361_ENSM_MODE:
 		res = false;
+		phy->pdata->fdd_independent_mode = false;
 
 		if (sysfs_streq(buf, "tx"))
 			val = ENSM_STATE_TX;
@@ -5797,10 +5802,8 @@ static ssize_t ad9361_phy_store(struct device *dev,
 		else if (sysfs_streq(buf, "pinctrl")) {
 			res = true;
 			val = ENSM_STATE_SLEEP_WAIT;
-			phy->pdata->fdd_independent_mode = false;
 		} else if (sysfs_streq(buf, "pinctrl_fdd_indep")) {
-			res = true;
-			val = ENSM_STATE_SLEEP_WAIT;
+			val = ENSM_STATE_FDD;
 			phy->pdata->fdd_independent_mode = true;
 		} else
 			break;
@@ -5961,9 +5964,15 @@ static ssize_t ad9361_phy_show(struct device *dev,
 		ret = sprintf(buf, "%u\n", phy->current_tx_bw_Hz);
 		break;
 	case AD9361_ENSM_MODE:
-		ret = sprintf(buf, "%s\n",
-			      ad9361_ensm_states[ad9361_spi_readf
-			      (phy->spi, REG_STATE, ENSM_STATE(~0))]);
+		ret = ad9361_spi_readf(phy->spi, REG_STATE, ENSM_STATE(~0));
+		if (ret < 0)
+			break;
+		if (ret >= ARRAY_SIZE(ad9361_ensm_states) ||
+			ad9361_ensm_states[ret] == NULL) {
+			ret = -EIO;
+			break;
+		}
+		ret = sprintf(buf, "%s\n", ad9361_ensm_states[ret]);
 		break;
 	case AD9361_ENSM_MODE_AVAIL:
 		ret = sprintf(buf, "%s\n", phy->pdata->fdd ?
@@ -7650,7 +7659,7 @@ static int ad9361_probe(struct spi_device *spi)
 		dev_err(&spi->dev, "%s : Unsupported PRODUCT_ID 0x%X",
 			__func__, ret);
 		ret = -ENODEV;
-		goto out;
+		goto out_iio_device_free;
 	}
 
 	rev = ret & REV_MASK;
@@ -7663,16 +7672,18 @@ static int ad9361_probe(struct spi_device *spi)
 
 	ret = register_clocks(phy);
 	if (ret < 0)
-		goto out;
+		goto out_iio_device_free;
 
 	ad9361_init_gain_tables(phy);
 
 	ret = ad9361_setup(phy);
 	if (ret < 0)
-		goto out;
+		goto out_iio_device_free;
 
-	of_clk_add_provider(spi->dev.of_node,
+	ret = of_clk_add_provider(spi->dev.of_node,
 			    of_clk_src_onecell_get, &phy->clk_data);
+	if (ret)
+		goto out_disable_clocks;
 
 	sysfs_bin_attr_init(&phy->bin);
 	phy->bin.attr.name = "filter_fir_config";
@@ -7696,28 +7707,30 @@ static int ad9361_probe(struct spi_device *spi)
 
 	ret = iio_device_register(indio_dev);
 	if (ret < 0)
-		goto out_disable_clocks;
+		goto out_clk_del_provider;
 	ret = ad9361_register_axi_converter(phy);
 	if (ret < 0)
-		goto out1;
+		goto out_iio_device_unregister;
 	ret = sysfs_create_bin_file(&indio_dev->dev.kobj, &phy->bin);
 	if (ret < 0)
-		goto out1;
+		goto out_iio_device_unregister;
 
 	ret = ad9361_register_debugfs(indio_dev);
 	if (ret < 0)
-		goto out1;
+		goto out_iio_device_unregister;
 
 	dev_info(&spi->dev, "%s : AD9361 Rev %d successfully initialized",
 		 __func__, rev);
 
 	return 0;
 
-out1:
+out_iio_device_unregister:
 	iio_device_unregister(indio_dev);
+out_clk_del_provider:
+	of_clk_del_provider(spi->dev.of_node);
 out_disable_clocks:
 	ad9361_clks_disable(phy);
-out:
+out_iio_device_free:
 	iio_device_free(indio_dev);
 
 	return ret;
