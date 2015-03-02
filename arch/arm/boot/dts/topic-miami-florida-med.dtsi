@@ -1,0 +1,37 @@
+/include/ "topic-miami-florida-gen.dtsi"
+
+&spi0 {
+	status = "okay";
+	speed-hz = <100000000>;
+
+			/* TI medical ADC */
+			ads1298_0: ads1298@0 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#clock-cells = <1>;
+				compatible = "ads1298";
+				/* SPI Setup */
+				reg = <0>;
+				spi-cpha;
+				spi-max-frequency = <2048000>;
+				/* GPIO Setup */
+				reset-gpio = <&gpio 54 0>;
+				start-gpio = <&gpio 56 0>;
+				rdy-irq {
+					interrupt-parent = <&gic>;
+					interrupts = <0 56 0x1>;
+				};
+			};
+
+			/* TI medical ADC */
+			ads1298_1: ads1298@1 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#clock-cells = <1>;
+				compatible = "ads1298";
+				/* SPI Setup */
+				reg = <1>;
+				spi-cpha;
+				spi-max-frequency = <2048000>;
+			};
+};

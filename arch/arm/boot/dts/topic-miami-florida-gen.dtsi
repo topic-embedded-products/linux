@@ -1,0 +1,209 @@
+/include/ "topic-miami-florida.dtsi"
+
+/ {
+		/* Fake power supply that activates when the FPGA has been
+		 * configured. */
+		fpga_power: fpga_power@0 {
+			compatible = "regulator-fpga";
+			regulator-name = "FPGA power";
+			regulator-always-on;
+		};
+
+		/* SD 1 for WiFi card */
+		reg_sd1: regulator_sd1 {
+			compatible = "regulator-fixed";
+			regulator-name = "rsi-wifi";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			vin-supply = <&fpga_power>;
+			gpio = <&gpio 62 0>; /* Connected to NRESET */
+			enable-active-high;
+			startup-delay-us = <25000>; /* Datasheet mentions 20ms */
+		};
+
+};
+
+/* I2C bus layout */
+&i2cmux_0 {
+	/* HDMI OUT */
+	adv7511: adv7511@39 {
+		compatible = "adi,adv7511";
+		reg = <0x39>;
+
+		adi,input-style = <0x02>;
+		adi,input-id = <0x01>;
+		adi,input-color-depth = <0x3>;
+		adi,sync-pulse = <0x03>;
+		adi,bit-justification = <0x01>;
+		adi,up-conversion = <0x00>;
+		adi,timing-generation-sequence = <0x00>;
+		adi,vsync-polarity = <0x02>;
+		adi,hsync-polarity = <0x02>;
+		adi,tdms-clock-inversion;
+		adi,clock-delay = <0x03>;
+	};
+};
+&i2cmux_2 {
+	/* Touch */
+	touch: ad7879@2f {
+		compatible = "ad7879";
+		reg = <0x2F>;
+		interrupt-parent = <&gpio>;
+		interrupts = <64 0x2>; /* GPIO 64 (EMIO 10), falling edge */
+		adi,x-plate-ohms = /bits/ 16 <620>;
+		adi,pressure-min = /bits/ 16 <0>;
+		adi,pressure-max = /bits/ 16 <10000>;
+		adi,x-min = /bits/ 16 <0>;
+		adi,x-max = /bits/ 16 <1024>;
+		adi,y-min = /bits/ 16 <0>;
+		adi,y.max = /bits/ 16 <600>;
+		adi,pen-down-acquisition-interval = /bits/ 8 <255>; /* 9.4 ms */
+	};
+	/* Battery gauge */
+	fuelgauge: ltc2943@64 {
+		compatible = "ltc2943";
+		reg = <0x64>;
+
+		resistor-sense = <0xfffffff1>; /* 15 mOhm, reversed polarity */
+		prescaler-exponent = <5>; /* 2^(2*5) = 1024 */
+	};
+};
+&i2cmux {
+	i2c@1 {
+		/* HDMI O - Connects directly to HDMI connector */
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <1>;
+	};
+	i2c@3 {
+		/* HDMI IN */
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <3>;
+		/* copied from zynq-zed-imageon.dts */
+		adv7611@4c {
+			compatible = "adi,adv7611";
+			reg = <0x4c>;
+			/* endpoint todo...
+			port@0 {
+				reg = <0x0>;
+			};
+			port@1 {
+				reg = <0x1>;
+				adv7611: endpoint {
+					bus-width = <16>;
+					remote-endpoint = <&axi_hdmi_rx>;
+				};
+			};
+			*/
+		};
+	};
+};
+
+&fpga_axi {
+
+		/* SDIO via EMIO to a Wifi card */
+
+		sdhci1: sdhci@e0101000 {
+			compatible = "arasan,sdhci-8.9a";
+			reg = <0xe0101000 0x1000>;
+			interrupts = <0 47 4>;
+			interrupt-parent = <&gic>;
+			clock-names = "clk_xin", "clk_ahb";
+			clocks = <&clkc 22>, <&clkc 33>;
+			disable-wp;
+			broken-cd;
+			non-removable;
+			vmmc-supply = <&reg_sd1>;
+			bus-width = <4>;
+			cap-power-off-card;
+			/* Max clock is 25MHz when using EMIO */
+			max-frequency = <25000000>;
+		};
+
+		/* FPGA IP blocks */
+
+		axi_vdma_0: axivdma@43000000 {
+			compatible = "xlnx,axi-vdma";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			#dma-cells = <1>;
+			#dma-channels = <1>;
+			reg = <0x43000000 0x1000>;
+			xlnx,include-sg = <0x0>;
+			xlnx,num-fstores = <0x3>;
+			dma-channel@43000000 {
+				compatible = "xlnx,axi-vdma-mm2s-channel";
+				interrupts = <0 59 0x4>;
+				xlnx,datawidth = <0x40>;
+				xlnx,genlock-mode = <0x0>;
+				xlnx,include-dre = <0x0>;
+			};
+		};
+
+		hdmi_clock: axi-clkgen@79000000 {
+			compatible = "adi,axi-clkgen-2.00.a";
+			reg = <0x79000000 0x10000>;
+			#clock-cells = <0>;
+			clocks = <&clkc 17>;
+		};
+
+		axi_hdmi_0: axi_hdmi@70e00000 {
+			compatible = "adi,axi-hdmi-tx-1.00.a";
+			reg = <0x70e00000 0x10000>;
+			encoder-slave = <&adv7511>;
+			dmas = <&axi_vdma_0 0>;
+			dma-names = "video";
+			clocks = <&hdmi_clock>;
+		};
+
+		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
+			compatible = "adi,axi-spdif-tx-1.00.a";
+			reg = <0x75c00000 0x1000>;
+			dmas = <&ps7_dma 0>;
+			dma-names = "tx";
+			clocks = <&clkc 15>, <&audio_clock>, <&audio_clock>;
+			clock-names = "axi", "ref", "spdif";
+		};
+
+		adv7511_hdmi_snd: adv7511_hdmi_snd {
+			compatible = "adv7511-hdmi-snd";
+			audio-codec = <&adv7511>;
+			cpu-dai = <&axi_spdif_tx_0>;
+		};
+
+		axi_vdma_1: axivdma@43010000 {
+			compatible = "xlnx,axi-vdma";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			#dma-cells = <1>;
+			#dma-channels = <1>;
+			reg = <0x43010000 0x1000>;
+			xlnx,include-sg = <0x0>;
+			xlnx,num-fstores = <0x3>;
+			dma-channel@43000000 {
+				compatible = "xlnx,axi-vdma-mm2s-channel";
+				interrupts = <0 55 0x4>;
+				xlnx,datawidth = <0x40>;
+				xlnx,genlock-mode = <0x0>;
+				xlnx,include-dre = <0x0>;
+			};
+		};
+
+		axi_vdma_vga: axi_vdma_vga@7e000000 {
+			compatible = "topic,vdma-fb";
+			reg = <0x7e000000 0x10000>;
+			dmas = <&axi_vdma_1 0>;
+			dma-names = "video";
+			width = <1024>;
+			height = <600>;
+			horizontal-sync = <136>;
+			horizontal-front-porch = <24>;
+			horizontal-back-porch = <160>;
+			horizontal-polarity = <0>;
+			vertical-sync = <8>;
+			vertical-front-porch = <4>;
+			vertical-back-porch = <23>;
+			vertical-polarity = <0>;
+		};
+};

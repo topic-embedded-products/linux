@@ -44,6 +44,11 @@
 		label = "qspi-rootfs";
 		reg = <0x480000 0x1b80000>;
 	};
+	/* Everything? */
+	partition@qspi-all {
+		label = "qspi-all";
+		reg = <0x0 0x2000000>;
+	};
 };
 
 / {
@@ -157,8 +162,5 @@
 };
 
 &usb {
-	dr_mode = "otg";
-	/* USB reset connected to output 0 of expander */
-	xlnx,phy-reset-gpio = <&gpioex 0 0>;
-	xlnx,phy-reset-gpio-tristate;
+	status = "disabled";
 };

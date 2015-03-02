@@ -1,0 +1,12 @@
+/dts-v1/;
+/include/ "topic-miami-florida.dtsi"
+
+/* DTS snippet to add the PCI sender to the kernel configuration. */
+&fpga_axi {
+	pcisender@40000000 {
+		compatible = "topic,pcisender";
+		reg = <0x40000000 4096>;
+		interrupt-parent = <&gic>;
+		interrupts = <0 60 0x4>; /* Not used in driver (yet) */
+	};
+};
