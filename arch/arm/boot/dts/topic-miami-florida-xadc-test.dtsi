@@ -1,0 +1,15 @@
+&spi1 {
+	status = "okay";
+	speed-hz = <100000000>;
+	/* DAC */
+	ad5065: ad5065@0 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		#clock-cells = <1>;
+		compatible = "ad5065";
+		/* SPI Setup */
+		reg = <0>;
+		spi-cpha;
+		spi-max-frequency = <50000000>;
+	};
+};
