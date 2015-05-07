@@ -280,8 +280,8 @@ static int ltc3562_i2c_probe(struct i2c_client *i2c,
 		}
 
 		rconfig.dev = &i2c->dev;
-		rconfig.init_data =
-			of_get_regulator_init_data(&i2c->dev, np_child);
+		rconfig.init_data = of_get_regulator_init_data(&i2c->dev,
+			np_child, &ltc3562_regulators[i]);
 		rconfig.driver_data = ltc3562;
 		rconfig.of_node = np_child;
 
