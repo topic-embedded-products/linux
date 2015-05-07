@@ -165,8 +165,6 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	host = sdhci_pltfm_init(pdev, &sdhci_arasan_pdata, 0);
 	if (IS_ERR(host)) {
 		ret = PTR_ERR(host);
-		if (ret != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "platform init failed (%d)\n", ret);
 		goto clk_disable_all;
 	}
 
@@ -176,11 +174,8 @@ static int sdhci_arasan_probe(struct platform_device *pdev)
 	pltfm_host->clk = clk_xin;
 
 	ret = sdhci_add_host(host);
-	if (ret) {
-		if (ret != -EPROBE_DEFER)
-			dev_err(&pdev->dev, "platform register failed (%d)\n", ret);
+	if (ret)
 		goto err_pltfm_free;
-	}
 
 	return 0;
 

@@ -152,6 +152,7 @@ int cf_axi_dds_datasel(struct cf_axi_dds_state *st,
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(cf_axi_dds_datasel);
 
 static enum dds_data_select cf_axi_dds_get_datasel(struct cf_axi_dds_state *st,
 			       int channel)
@@ -207,6 +208,7 @@ void cf_axi_dds_stop(struct cf_axi_dds_state *st)
 	if (PCORE_VERSION_MAJOR(st->version) < 8)
 		dds_write(st, ADI_REG_CNTRL_1, 0);
 }
+EXPORT_SYMBOL_GPL(cf_axi_dds_stop);
 
 void cf_axi_dds_start_sync(struct cf_axi_dds_state *st, bool force_on)
 {
@@ -217,6 +219,7 @@ void cf_axi_dds_start_sync(struct cf_axi_dds_state *st, bool force_on)
 		dds_master_write(st, ADI_REG_CNTRL_1, ADI_SYNC);
 	}
 }
+EXPORT_SYMBOL_GPL(cf_axi_dds_start_sync);
 
 static int cf_axi_dds_rate_change(struct notifier_block *nb,
 	unsigned long flags, void *data)
@@ -793,15 +796,21 @@ static struct cf_axi_dds_chip_info cf_axi_dds_chip_info_tbl[] = {
 			},
 			CF_AXI_DDS_CHAN_BUF(0),
 			CF_AXI_DDS_CHAN_BUF(1),
+			CF_AXI_DDS_CHAN_BUF(2),
+			CF_AXI_DDS_CHAN_BUF(3),
 			CF_AXI_DDS_CHAN(0, 0, "1A"),
 			CF_AXI_DDS_CHAN(1, 0, "1B"),
 			CF_AXI_DDS_CHAN(2, 0, "2A"),
 			CF_AXI_DDS_CHAN(3, 0, "2B"),
+			CF_AXI_DDS_CHAN(4, 0, "3A"),
+			CF_AXI_DDS_CHAN(5, 0, "3B"),
+			CF_AXI_DDS_CHAN(6, 0, "4A"),
+			CF_AXI_DDS_CHAN(7, 0, "4B"),
 		},
-		.num_channels = 7,
-		.num_dp_disable_channels = 3,
-		.num_dds_channels = 4,
-		.num_buf_channels = 2,
+		.num_channels = 13,
+		.num_dp_disable_channels = 5,
+		.num_dds_channels = 8,
+		.num_buf_channels = 4,
 	},
 };
 

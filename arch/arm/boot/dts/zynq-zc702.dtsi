@@ -129,8 +129,3 @@
 &usb {
 	xlnx,phy-reset-gpio = <&gpio 7 0>;
 };
-
-&primary_flash {
-	/* Specify flash chip to expect */
-	compatible = "n25q128a11";
-};

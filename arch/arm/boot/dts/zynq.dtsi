@@ -67,6 +67,7 @@
 		};
 
 		uart0: uart@e0000000 {
+			interrupt-parent = <&gic>;
 			compatible = "xlnx,xuartps", "cdns,uart-r1p8";
 			status = "disabled";
 			clocks = <&clkc 23>, <&clkc 40>;
@@ -76,6 +77,7 @@
 		};
 
 		uart1: uart@e0001000 {
+			interrupt-parent = <&gic>;
 			compatible = "xlnx,xuartps", "cdns,uart-r1p8";
 			clocks = <&clkc 24>, <&clkc 41>;
 			clock-names = "uart_clk", "pclk";
@@ -203,12 +205,11 @@
 		};
 
 		usb: usb@e0002000 {
-			compatible = "xlnx,ps7-usb-1.00.a", "xlnx,zynq-usb-1.00.a";
+			compatible = "xlnx,zynq-usb-2.20a", "chipidea,usb2";
 			reg = <0xe0002000 0x1000>;
 			interrupts = <0 21 4>;
 			interrupt-parent = <&gic>;
 			clocks = <&clkc 28>;
-			dr_mode = "host";
 			phy_type = "ulpi";
 		};
 

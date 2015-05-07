@@ -253,6 +253,8 @@
 			clocks = <&clk_bus_0>;
 
 			dma-channel {
+				adi,source-bus-width = <128>;
+				adi,destination-bus-width = <128>;
 				adi,type = <1>;
 				adi,cyclic;
 			};
@@ -404,10 +406,10 @@
 			clock-names = "adc_clk", "adc_sysref", "dac_sysref", "dac_clk";
 			clock-output-names = "adc_gt_clk", "dac_gt_clk";
 
-			adi,rx-sys-clk-select = <2>;
-			adi,rx-out-clk-select = <2>;
-			adi,tx-sys-clk-select = <2>;
-			adi,tx-out-clk-select = <2>;
+			adi,rx-sys-clk-select = <3>;
+			adi,rx-out-clk-select = <4>;
+			adi,tx-sys-clk-select = <3>;
+			adi,tx-out-clk-select = <4>;
 
 		} ;
 
@@ -500,8 +502,8 @@
 			compatible = "xlnx,xps-intc-1.00.a";
 			interrupt-controller ;
 			reg = <0x41200000 0x10000>;
-			xlnx,kind-of-intr = <0x3810>;
-			xlnx,num-intr-inputs = <0xf>;
+			xlnx,kind-of-intr = <0xffffc410>;
+			xlnx,num-intr-inputs = <32>;
 		} ;
 		axi_spdif_tx_core: axi-spdif-tx@75c00000 {
 			compatible = "adi,axi-spdif-tx-1.0";
@@ -594,10 +596,10 @@
 	reset-gpios = <&axi_daq2_gpio 3 8>;
 	irq-gpios = <&axi_daq2_gpio 2 0>;
 
-	adi,jesd-xbar-lane0-sel = <1>;
-	adi,jesd-xbar-lane1-sel = <0>;
-	adi,jesd-xbar-lane2-sel = <3>;
-	adi,jesd-xbar-lane3-sel = <2>;
+	adi,jesd-xbar-lane0-sel = <0>;
+	adi,jesd-xbar-lane1-sel = <1>;
+	adi,jesd-xbar-lane2-sel = <2>;
+	adi,jesd-xbar-lane3-sel = <3>;
 };
 
 &clk0_ad9523 {
