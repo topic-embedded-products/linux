@@ -72,15 +72,24 @@ static const struct spi_device_id *spi_nor_match_id(const char *name);
 static int read_sr(struct spi_nor *nor)
 {
 	int ret;
-	u8 val;
+	u8 val[2];
 
-	ret = nor->read_reg(nor, SPINOR_OP_RDSR, &val, 1);
-	if (ret < 0) {
-		pr_err("error %d reading SR\n", (int) ret);
-		return ret;
+	if (nor->isparallel) {
+		ret = nor->read_reg(nor, SPINOR_OP_RDSR, &val[0], 2);
+		if (ret < 0) {
+			pr_err("error %d reading SR\n", (int) ret);
+			return ret;
+		}
+		val[0] |= val[1];
+	} else {
+		ret = nor->read_reg(nor, SPINOR_OP_RDSR, &val[0], 1);
+		if (ret < 0) {
+			pr_err("error %d reading SR\n", (int) ret);
+			return ret;
+		}
 	}
 
-	return val;
+	return val[0];
 }
 
 /*
@@ -91,15 +100,24 @@ static int read_sr(struct spi_nor *nor)
 static int read_fsr(struct spi_nor *nor)
 {
 	int ret;
-	u8 val;
+	u8 val[2];
 
-	ret = nor->read_reg(nor, SPINOR_OP_RDFSR, &val, 1);
-	if (ret < 0) {
-		pr_err("error %d reading FSR\n", ret);
-		return ret;
+	if (nor->isparallel) {
+		ret = nor->read_reg(nor, SPINOR_OP_RDFSR, &val[0], 2);
+		if (ret < 0) {
+			pr_err("error %d reading FSR\n", ret);
+			return ret;
+		}
+		val[0] &= val[1];
+	} else {
+		ret = nor->read_reg(nor, SPINOR_OP_RDFSR, &val[0], 1);
+		if (ret < 0) {
+			pr_err("error %d reading FSR\n", ret);
+			return ret;
+		}
 	}
 
-	return val;
+	return val[0];
 }
 
 /*
@@ -427,6 +445,8 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 	if (ret)
 		return ret;
 
+	if (nor->isparallel)
+		nor->spi->master->flags |= SPI_DATA_STRIPE;
 	/* whole-chip erase? */
 	if (len == mtd->size) {
 		write_enable(nor);
@@ -500,11 +520,15 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 	instr->state = MTD_ERASE_DONE;
 	mtd_erase_callback(instr);
 
+	if (nor->isparallel)
+		nor->spi->master->flags &= ~SPI_DATA_STRIPE;
 	return ret;
 
 erase_err:
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_ERASE);
 	instr->state = MTD_ERASE_FAILED;
+	if (nor->isparallel)
+		nor->spi->master->flags &= ~SPI_DATA_STRIPE;
 	return ret;
 }
 
@@ -951,7 +975,9 @@ static const struct spi_device_id *spi_nor_read_id(struct spi_nor *nor)
 	int			tmp;
 	u8			id[SPI_NOR_MAX_ID_LEN];
 	struct flash_info	*info;
+	nor->spi->master->flags &= ~SPI_BOTH_FLASH;
 
+	/* If more than one flash are present,need to read id of second flash */
 	tmp = nor->read_reg(nor, SPINOR_OP_RDID, id, SPI_NOR_MAX_ID_LEN);
 	if (tmp < 0) {
 		dev_dbg(nor->dev, " error %d reading JEDEC ID\n", tmp);
@@ -992,6 +1018,7 @@ static int spi_nor_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 	u32 read_count = 0;
 	u32 rem_bank_len = 0;
 	u8 bank = 0;
+	u8 stack_shift = 0;
 	int ret;
 
 #define OFFSET_16_MB 0x1000000
@@ -1001,18 +1028,20 @@ static int spi_nor_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 	ret = spi_nor_lock_and_prep(nor, SPI_NOR_OPS_READ);
 	if (ret)
 		return ret;
-	if (nor->addr_width == 4) {
-		ret = nor->read(nor, from, len, retlen, buf);
-		goto read_err;
-	}
+	if (nor->isparallel)
+		nor->spi->master->flags |= SPI_DATA_STRIPE;
+
 	while (len) {
-		bank = addr / (OFFSET_16_MB << nor->shift);
-		rem_bank_len = ((OFFSET_16_MB << nor->shift) * (bank + 1)) -
-				addr;
+		if (nor->addr_width == 3) {
+			bank = addr / (OFFSET_16_MB << nor->shift);
+			rem_bank_len = ((OFFSET_16_MB << nor->shift) *
+							(bank + 1)) - addr;
+		}
 		offset = addr;
 		if (nor->isparallel == 1)
 			offset /= 2;
 		if (nor->isstacked == 1) {
+			stack_shift = 1;
 			if (offset >= (nor->mtd->size / 2)) {
 				offset = offset - (nor->mtd->size / 2);
 				nor->spi->master->flags |= SPI_MASTER_U_PAGE;
@@ -1020,11 +1049,22 @@ static int spi_nor_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 				nor->spi->master->flags &= ~SPI_MASTER_U_PAGE;
 			}
 		}
-		write_ear(nor, offset);
+		/* Die cross over issue is not handled */
+		if (nor->addr_width == 4) {
+			rem_bank_len = (nor->mtd->size >> stack_shift) -
+					(offset << nor->shift);
+		}
+		if (nor->addr_width == 3)
+			write_ear(nor, offset);
 		if (len < rem_bank_len)
 			read_len = len;
 		else
 			read_len = rem_bank_len;
+
+		/* Wait till previous write/erase is done. */
+		ret = spi_nor_wait_till_ready(nor);
+		if (ret)
+			goto read_err;
 
 		ret = spi_nor_read(mtd, offset, read_len, &actual_len, buf);
 		if (ret)
@@ -1039,6 +1079,8 @@ static int spi_nor_read_ext(struct mtd_info *mtd, loff_t from, size_t len,
 	*retlen = read_count;
 
 read_err:
+	if (nor->isparallel)
+		nor->spi->master->flags &= ~SPI_DATA_STRIPE;
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_READ);
 	return ret;
 }
@@ -1169,6 +1211,7 @@ static int spi_nor_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 	u32 write_count = 0;
 	u32 rem_bank_len = 0;
 	u8 bank = 0;
+	u8 stack_shift = 0;
 	int ret;
 
 #define OFFSET_16_MB 0x1000000
@@ -1178,18 +1221,20 @@ static int spi_nor_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 	ret = spi_nor_lock_and_prep(nor, SPI_NOR_OPS_WRITE);
 	if (ret)
 		return ret;
-	if (nor->addr_width == 4) {
-		ret = spi_nor_write(mtd, offset, len, retlen, buf);
-		goto write_err;
-	}
+	if (nor->isparallel)
+		nor->spi->master->flags |= SPI_DATA_STRIPE;
+
 	while (len) {
 		actual_len = 0;
-		bank = addr / (OFFSET_16_MB << nor->shift);
-		rem_bank_len = ((OFFSET_16_MB << nor->shift) * (bank + 1)) -
-				addr;
+		if (nor->addr_width == 3) {
+			bank = addr / (OFFSET_16_MB << nor->shift);
+			rem_bank_len = ((OFFSET_16_MB << nor->shift) *
+							(bank + 1)) - addr;
+		}
 		offset = addr;
 
 		if (nor->isstacked == 1) {
+			stack_shift = 1;
 			if (offset >= (nor->mtd->size / 2)) {
 				offset = offset - (nor->mtd->size / 2);
 				nor->spi->master->flags |= SPI_MASTER_U_PAGE;
@@ -1197,7 +1242,11 @@ static int spi_nor_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 				nor->spi->master->flags &= ~SPI_MASTER_U_PAGE;
 			}
 		}
-		write_ear(nor, (offset >> nor->shift));
+		/* Die cross over issue is not handled */
+		if (nor->addr_width == 4)
+			rem_bank_len = (nor->mtd->size >> stack_shift) - offset;
+		if (nor->addr_width == 3)
+			write_ear(nor, (offset >> nor->shift));
 		if (len < rem_bank_len)
 			write_len = len;
 		else
@@ -1216,6 +1265,8 @@ static int spi_nor_write_ext(struct mtd_info *mtd, loff_t to, size_t len,
 	*retlen = write_count;
 
 write_err:
+	if (nor->isparallel)
+		nor->spi->master->flags &= ~SPI_DATA_STRIPE;
 	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_WRITE);
 	return ret;
 }
@@ -1394,8 +1445,10 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 		u32 is_dual;
 
 		np_spi = of_get_next_parent(np);
-		if (of_property_match_string(np_spi, "compatible",
-		    "xlnx,zynq-qspi-1.0") >= 0) {
+		if ((of_property_match_string(np_spi, "compatible",
+		    "xlnx,zynq-qspi-1.0") >= 0) ||
+			(of_property_match_string(np_spi, "compatible",
+					"xlnx,zynqmp-qspi-1.0") >= 0)) {
 			if (of_property_read_u32(np_spi, "is-dual",
 						 &is_dual) < 0) {
 				/* Default to single if prop not defined */
@@ -1411,6 +1464,8 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 					mtd->size <<= nor->shift;
 					nor->isparallel = 1;
 					nor->isstacked = 0;
+					nor->spi->master->flags |=
+							SPI_BOTH_FLASH;
 				} else {
 #ifdef CONFIG_SPI_ZYNQ_QSPI_DUAL_STACKED
 					/* dual stacked */
@@ -1420,10 +1475,25 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 					nor->isstacked = 1;
 					nor->isparallel = 0;
 #else
-					/* single */
-					nor->shift = 0;
-					nor->isstacked = 0;
-					nor->isparallel = 0;
+					u32 is_stacked;
+					if (of_property_read_u32(np_spi,
+							"is-stacked",
+							&is_stacked) < 0) {
+						is_stacked = 0;
+					}
+					if (is_stacked) {
+						/* dual stacked */
+						nor->shift = 0;
+						mtd->size <<= 1;
+						info->n_sectors <<= 1;
+						nor->isstacked = 1;
+						nor->isparallel = 0;
+					} else {
+						/* single */
+						nor->shift = 0;
+						nor->isstacked = 0;
+						nor->isparallel = 0;
+					}
 #endif
 				}
 			}
@@ -1581,6 +1651,11 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 			mtd->erasesize = info->sector_size;
 		} else
 			set_4byte(nor, info, 1);
+			if (nor->isstacked) {
+				nor->spi->master->flags |= SPI_MASTER_U_PAGE;
+				set_4byte(nor, info, 1);
+				nor->spi->master->flags &= ~SPI_MASTER_U_PAGE;
+			}
 #ifdef CONFIG_OF
 		}
 #endif
