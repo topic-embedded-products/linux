@@ -11,13 +11,15 @@
  * Licenced under GPL
  */
 #include <linux/clk-provider.h>
-#include <linux/clk-private.h>
 #include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/i2c.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
 #include <linux/gcd.h>
+
+/* TODO: Remove for later kernel versions, 3.19 still needs it. */
+#include <linux/clk-private.h>
 
 /* The chip has 2 PLLs which can be routed through dividers to 5 outputs.
  * Model this as 2 PLL clocks which are parents to the outputs.
@@ -35,8 +37,8 @@
 #define CDCE925_PLL_MUX_OUTPUTS	0x14
 #define CDCE925_PLL_MULDIV	0x18
 
-#define CDCE925_PLL_FREQUENCY_MIN	 80000000
-#define CDCE925_PLL_FREQUENCY_MAX	230000000
+#define CDCE925_PLL_FREQUENCY_MIN	 80000000ul
+#define CDCE925_PLL_FREQUENCY_MAX	230000000ul
 struct clk_cdce925_chip;
 
 struct clk_cdce925_output {
@@ -79,12 +81,17 @@ static unsigned long cdce925_pll_recalc_rate(struct clk_hw *hw,
 {
 	/* Output frequency of PLL is Fout = (Fin/Pdiv)*(N/M) */
 	struct clk_cdce925_pll *data = to_clk_cdce925_pll(hw);
+
 	return cdce925_pll_calculate_rate(parent_rate, data->n, data->m);
 }
 
-static int cdce925_pll_find_rate(unsigned long rate,
+static void cdce925_pll_find_rate(unsigned long rate,
 		unsigned long parent_rate, u16 *n, u16 *m)
 {
+	unsigned long un;
+	unsigned long um;
+	unsigned long g;
+
 	if (rate <= parent_rate) {
 		/* Can always deliver parent_rate in bypass mode */
 		rate = parent_rate;
@@ -92,10 +99,6 @@ static int cdce925_pll_find_rate(unsigned long rate,
 		*m = 0;
 	} else {
 		/* In PLL mode, need to apply min/max range */
-		unsigned long un;
-		unsigned long um;
-		unsigned long g;
-
 		if (rate < CDCE925_PLL_FREQUENCY_MIN)
 			rate = CDCE925_PLL_FREQUENCY_MIN;
 		else if (rate > CDCE925_PLL_FREQUENCY_MAX)
@@ -117,22 +120,14 @@ static int cdce925_pll_find_rate(unsigned long rate,
 		*n = un;
 		*m = um;
 	}
-
-	pr_debug("%s(%lu,%lu) n=%u m=%u\n",
-			__func__, rate, parent_rate, *n, *m);
-
-	return 0;
 }
 
 static long cdce925_pll_round_rate(struct clk_hw *hw, unsigned long rate,
 		unsigned long *parent_rate)
 {
-	struct clk_cdce925_pll *data = to_clk_cdce925_pll(hw);
 	u16 n, m;
-	int ret;
-	pr_debug("%s (index=%d parent_rate=%lu rate=%lu)\n", __func__,
-		data->index, *parent_rate, rate);
-	ret = cdce925_pll_find_rate(rate, *parent_rate, &n, &m);
+
+	cdce925_pll_find_rate(rate, *parent_rate, &n, &m);
 	return (long)cdce925_pll_calculate_rate(*parent_rate, n, m);
 }
 
@@ -159,7 +154,8 @@ static int cdce925_pll_set_rate(struct clk_hw *hw, unsigned long rate,
 		return -EINVAL;
 	}
 
-	return cdce925_pll_find_rate(rate, parent_rate, &data->n, &data->m);
+	cdce925_pll_find_rate(rate, parent_rate, &data->n, &data->m);
+	return 0;
 }
 
 
@@ -168,6 +164,7 @@ static u8 cdce925_pll_calc_p(u16 n, u16 m)
 {
 	u8 p;
 	u16 r = n / m;
+
 	if (r >= 16)
 		return 0;
 	p = 4;
@@ -183,6 +180,7 @@ static u8 cdce925_pll_calc_range_bits(struct clk_hw *hw, u16 n, u16 m)
 {
 	struct clk *parent = clk_get_parent(hw->clk);
 	unsigned long rate = clk_get_rate(parent);
+
 	rate = mult_frac(rate, (unsigned long)n, (unsigned long)m);
 	if (rate >= 175000000)
 		return 0x3;
@@ -207,8 +205,6 @@ static int cdce925_pll_prepare(struct clk_hw *hw)
 	u8 pll[4]; /* Bits are spread out over 4 byte registers */
 	u8 reg_ofs = data->index * CDCE925_OFFSET_PLL;
 	unsigned i;
-
-	pr_debug("%s: index=%d\n", __func__, data->index);
 
 	if ((!m || !n) || (m == n)) {
 		/* Set PLL mux to bypass mode, leave the rest as is */
@@ -255,7 +251,7 @@ static void cdce925_pll_unprepare(struct clk_hw *hw)
 {
 	struct clk_cdce925_pll *data = to_clk_cdce925_pll(hw);
 	u8 reg_ofs = data->index * CDCE925_OFFSET_PLL;
-	pr_debug("%s: index=%d\n", __func__, data->index);
+
 	regmap_update_bits(data->chip->regmap,
 			reg_ofs + CDCE925_PLL_MUX_OUTPUTS, 0x80, 0x80);
 }
@@ -271,7 +267,6 @@ static const struct clk_ops cdce925_pll_ops = {
 
 static void cdce925_clk_set_pdiv(struct clk_cdce925_output *data, u16 pdiv)
 {
-	pr_debug("%s: index=%d pdiv=%d\n", __func__, data->index, pdiv);
 	switch (data->index) {
 	case 0:
 		regmap_update_bits(data->chip->regmap,
@@ -296,7 +291,6 @@ static void cdce925_clk_set_pdiv(struct clk_cdce925_output *data, u16 pdiv)
 
 static void cdce925_clk_activate(struct clk_cdce925_output *data)
 {
-	pr_debug("%s: index=%d\n", __func__, data->index);
 	switch (data->index) {
 	case 0:
 		regmap_update_bits(data->chip->regmap,
@@ -316,7 +310,7 @@ static void cdce925_clk_activate(struct clk_cdce925_output *data)
 static int cdce925_clk_prepare(struct clk_hw *hw)
 {
 	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
-	pr_debug("%s: index=%d\n", __func__, data->index);
+
 	cdce925_clk_set_pdiv(data, data->pdiv);
 	cdce925_clk_activate(data);
 	return 0;
@@ -325,7 +319,7 @@ static int cdce925_clk_prepare(struct clk_hw *hw)
 static void cdce925_clk_unprepare(struct clk_hw *hw)
 {
 	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
-	pr_debug("%s: index=%d\n", __func__, data->index);
+
 	/* Disable clock by setting divider to "0" */
 	cdce925_clk_set_pdiv(data, 0);
 }
@@ -334,8 +328,7 @@ static unsigned long cdce925_clk_recalc_rate(struct clk_hw *hw,
 		unsigned long parent_rate)
 {
 	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
-	pr_debug("%s: index=%d parent_rate=%lu pdiv=%d\n", __func__,
-		data->index, parent_rate, data->pdiv);
+
 	if (data->pdiv)
 		return parent_rate / data->pdiv;
 	return 0;
@@ -344,16 +337,18 @@ static unsigned long cdce925_clk_recalc_rate(struct clk_hw *hw,
 static u16 cdce925_calc_divider(unsigned long rate,
 		unsigned long parent_rate)
 {
-	if (rate >= parent_rate) {
-		return 1;
-	} else if (rate) {
-		unsigned long divider = DIV_ROUND_CLOSEST(parent_rate, rate);
-		if (divider > 0x7F) /* TODO: Y1 has 10-bit divider */
-			divider = 0x7F;
-		return (u16)divider;
-	} else {
+	unsigned long divider;
+
+	if (!rate)
 		return 0;
-	}
+	if (rate >= parent_rate)
+		return 1;
+
+	divider = DIV_ROUND_CLOSEST(parent_rate, rate);
+	if (divider > 0x7F)
+		divider = 0x7F;
+
+	return (u16)divider;
 }
 
 static unsigned long cdce925_clk_best_parent_rate(
@@ -371,8 +366,8 @@ static unsigned long cdce925_clk_best_parent_rate(
 	if (root_rate % rate == 0)
 		return root_rate; /* Don't need the PLL, use bypass */
 
-	pdiv_min = (u16)max(1u, DIV_ROUND_UP(CDCE925_PLL_FREQUENCY_MIN, rate));
-	pdiv_max = (u16)min(127u, CDCE925_PLL_FREQUENCY_MAX / rate);
+	pdiv_min = (u16)max(1ul, DIV_ROUND_UP(CDCE925_PLL_FREQUENCY_MIN, rate));
+	pdiv_max = (u16)min(127ul, CDCE925_PLL_FREQUENCY_MAX / rate);
 
 	if (pdiv_min > pdiv_max)
 		return 0; /* No can do? */
@@ -383,6 +378,7 @@ static unsigned long cdce925_clk_best_parent_rate(
 		long pll_rate = clk_round_rate(pll, target_rate);
 		unsigned long actual_rate;
 		unsigned long rate_error;
+
 		if (pll_rate <= 0)
 			continue;
 		actual_rate = pll_rate / pdiv_now;
@@ -401,18 +397,15 @@ static unsigned long cdce925_clk_best_parent_rate(
 static long cdce925_clk_round_rate(struct clk_hw *hw, unsigned long rate,
 		unsigned long *parent_rate)
 {
-	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
 	unsigned long l_parent_rate = *parent_rate;
 	u16 divider = cdce925_calc_divider(rate, l_parent_rate);
-	pr_debug("%s (index=%d parent_rate=%lu rate=%lu)\n", __func__,
-		data->index, l_parent_rate, rate);
+
 	if (l_parent_rate / divider != rate) {
 		l_parent_rate = cdce925_clk_best_parent_rate(hw, rate);
 		divider = cdce925_calc_divider(rate, l_parent_rate);
 		*parent_rate = l_parent_rate;
 	}
-	pr_debug("%s parent_rate=%lu pdiv=%u\n", __func__,
-		l_parent_rate, divider);
+
 	if (divider)
 		return (long)(l_parent_rate / divider);
 	return 0;
@@ -422,9 +415,9 @@ static int cdce925_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 		unsigned long parent_rate)
 {
 	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
+
 	data->pdiv = cdce925_calc_divider(rate, parent_rate);
-	pr_debug("%s (index=%d parent_rate=%lu rate=%lu div=%d)\n", __func__,
-		data->index, parent_rate, rate, data->pdiv);
+
 	return 0;
 }
 
@@ -440,25 +433,26 @@ static const struct clk_ops cdce925_clk_ops = {
 static u16 cdce925_y1_calc_divider(unsigned long rate,
 		unsigned long parent_rate)
 {
+	unsigned long divider;
+
+	if (!rate)
+		return 0;
 	if (rate >= parent_rate)
 		return 1;
-	else if (rate) {
-		unsigned long divider = DIV_ROUND_CLOSEST(parent_rate, rate);
-		if (divider > 0x3FF) /* Y1 has 10-bit divider */
-			divider = 0x3FF;
-		return (u16)divider;
-	} else
-		return 0;
+
+	divider = DIV_ROUND_CLOSEST(parent_rate, rate);
+	if (divider > 0x3FF) /* Y1 has 10-bit divider */
+		divider = 0x3FF;
+
+	return (u16)divider;
 }
 
 static long cdce925_clk_y1_round_rate(struct clk_hw *hw, unsigned long rate,
 		unsigned long *parent_rate)
 {
-	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
 	unsigned long l_parent_rate = *parent_rate;
 	u16 divider = cdce925_y1_calc_divider(rate, l_parent_rate);
-	pr_debug("%s (index=%d parent_rate=%lu rate=%lu pdiv=%u)\n", __func__,
-		data->index, l_parent_rate, rate, divider);
+
 	if (divider)
 		return (long)(l_parent_rate / divider);
 	return 0;
@@ -468,9 +462,9 @@ static int cdce925_clk_y1_set_rate(struct clk_hw *hw, unsigned long rate,
 		unsigned long parent_rate)
 {
 	struct clk_cdce925_output *data = to_clk_cdce925_output(hw);
+
 	data->pdiv = cdce925_y1_calc_divider(rate, parent_rate);
-	pr_debug("%s (index=%d parent_rate=%lu rate=%lu div=%d)\n", __func__,
-		data->index, parent_rate, rate, data->pdiv);
+
 	return 0;
 }
 
@@ -509,7 +503,7 @@ static int cdce925_regmap_i2c_write(
 	reg_data[0] = CDCE925_I2C_COMMAND_BYTE_TRANSFER | ((u8 *)data)[0];
 	reg_data[1] = ((u8 *)data)[1];
 
-	dev_dbg(&i2c->dev, "%s(%u) %#x %#x\n", __func__, count,
+	dev_dbg(&i2c->dev, "%s(%zu) %#x %#x\n", __func__, count,
 			reg_data[0], reg_data[1]);
 
 	ret = i2c_master_send(i2c, reg_data, count);
@@ -554,7 +548,7 @@ static int cdce925_regmap_i2c_read(void *context,
 
 	ret = i2c_transfer(i2c->adapter, xfer, 2);
 	if (likely(ret == 2)) {
-		dev_dbg(&i2c->dev, "%s(%u, %u) %#x %#x\n", __func__,
+		dev_dbg(&i2c->dev, "%s(%zu, %u) %#x %#x\n", __func__,
 				reg_size, val_size, reg_data[0], *((u8 *)val));
 		return 0;
 	} else if (ret < 0)
@@ -569,13 +563,6 @@ static struct regmap_bus regmap_cdce925_bus = {
 	.write = cdce925_regmap_i2c_write,
 	.read = cdce925_regmap_i2c_read,
 };
-
-static void cdce925_config_pll(struct clk_cdce925_chip *data,
-	struct device_node *np_output, struct clk *clk)
-{
-	u32 value;
-
-}
 
 static int cdce925_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
