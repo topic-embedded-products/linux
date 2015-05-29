@@ -18,9 +18,6 @@
 #include <linux/slab.h>
 #include <linux/gcd.h>
 
-/* TODO: Remove for later kernel versions, 3.19 still needs it. */
-#include <linux/clk-private.h>
-
 /* The chip has 2 PLLs which can be routed through dividers to 5 outputs.
  * Model this as 2 PLL clocks which are parents to the outputs.
  */
@@ -64,6 +61,8 @@ struct clk_cdce925_chip {
 	struct i2c_client *i2c_client;
 	struct clk_cdce925_pll pll[NUMBER_OF_PLLS];
 	struct clk_cdce925_output clk[NUMBER_OF_OUTPUTS];
+	struct clk *dt_clk[NUMBER_OF_OUTPUTS];
+	struct clk_onecell_data onecell;
 };
 
 /* ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** ** */
@@ -570,6 +569,7 @@ static int cdce925_probe(struct i2c_client *client,
 	struct clk_cdce925_chip *data;
 	struct device_node *node = client->dev.of_node;
 	const char *parent_name;
+	const char *pll_clk_name[NUMBER_OF_PLLS] = {NULL,};
 	struct clk_init_data init;
 	struct clk *clk;
 	u32 value;
@@ -615,13 +615,13 @@ static int cdce925_probe(struct i2c_client *client,
 
 	/* Register PLL clocks */
 	for (i = 0; i < NUMBER_OF_PLLS; ++i) {
-		init.name = kasprintf(GFP_KERNEL, "%s.pll%d",
+		pll_clk_name[i] = kasprintf(GFP_KERNEL, "%s.pll%d",
 			client->dev.of_node->name, i);
+		init.name = pll_clk_name[i];
 		data->pll[i].chip = data;
 		data->pll[i].hw.init = &init;
 		data->pll[i].index = i;
 		clk = devm_clk_register(&client->dev, &data->pll[i].hw);
-		kfree(init.name); /* clock framework made a copy of the name */
 		if (IS_ERR(clk)) {
 			dev_err(&client->dev, "Failed register PLL %d\n", i);
 			err = PTR_ERR(clk);
@@ -669,6 +669,7 @@ static int cdce925_probe(struct i2c_client *client,
 		err = PTR_ERR(clk);
 		goto error;
 	}
+	data->dt_clk[0] = clk;
 
 	/* Register output clocks Y2 .. Y5*/
 	init.ops = &cdce925_clk_ops;
@@ -685,12 +686,12 @@ static int cdce925_probe(struct i2c_client *client,
 		case 1:
 		case 2:
 			/* Mux Y2/3 to PLL1 */
-			init.parent_names = &data->pll[0].hw.clk->name;
+			init.parent_names = &pll_clk_name[0];
 			break;
 		case 3:
 		case 4:
 			/* Mux Y4/5 to PLL2 */
-			init.parent_names = &data->pll[1].hw.clk->name;
+			init.parent_names = &pll_clk_name[1];
 			break;
 		}
 		clk = devm_clk_register(&client->dev, &data->clk[i].hw);
@@ -700,46 +701,24 @@ static int cdce925_probe(struct i2c_client *client,
 			err = PTR_ERR(clk);
 			goto error;
 		}
+		data->dt_clk[i] = clk;
 	}
 
-	/* Fetch settings from devicetree, if any */
-	for (i = 0; i < NUMBER_OF_OUTPUTS; ++i) {
-		sprintf(child_name, "Y%d", i+1);
-		np_output = of_get_child_by_name(node, child_name);
-		if (!np_output) {
-			/* Disable unlisted/unused clock outputs explicitly */
-			cdce925_clk_unprepare(&data->clk[i].hw);
-			continue;
-		}
-		clk = data->clk[i].hw.clk;
-		if (!of_property_read_u32(np_output,
-			"clock-frequency", &value)) {
-			err = clk_set_rate(clk, value);
-			if (err)
-				dev_err(&client->dev,
-					"unable to set frequency %ud\n",
-					value);
-		}
-		if (of_property_read_bool(np_output, "clock-enabled")) {
-			err = clk_prepare_enable(clk);
-			if (err)
-				dev_err(&client->dev,
-					"Failed to enable clock %s\n",
-					init.name);
-		} else {
-			cdce925_clk_unprepare(&data->clk[i].hw);
-		}
-		err = of_clk_add_provider(np_output,
-			of_clk_src_simple_get, clk);
-		if (err)
-			dev_err(&client->dev,
-				"unable to add clock provider '%s'\n",
-				init.name);
-	}
+	/* Register the output clocks */
+	data->onecell.clk_num = NUMBER_OF_OUTPUTS;
+	data->onecell.clks = data->dt_clk;
+	err = of_clk_add_provider(client->dev.of_node, of_clk_src_onecell_get,
+		&data->onecell);
+	if (err)
+		dev_err(&client->dev, "unable to add OF clock provider\n");
 
-	return 0;
+	err = 0;
 
 error:
+	for (i = 0; i < NUMBER_OF_PLLS; ++i)
+		/* clock framework made a copy of the name */
+		kfree(pll_clk_name[i]);
+
 	return err;
 }
 
@@ -750,8 +729,7 @@ static const struct i2c_device_id cdce925_id[] = {
 MODULE_DEVICE_TABLE(i2c, cdce925_id);
 
 static const struct of_device_id clk_cdce925_of_match[] = {
-	{ .compatible = "cdce925pw" },
-	{ .compatible = "cdce925" },
+	{ .compatible = "ti,cdce925" },
 	{ },
 };
 MODULE_DEVICE_TABLE(of, clk_cdce925_of_match);

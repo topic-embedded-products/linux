@@ -35,7 +35,7 @@
 			reg = <0>;
 			/* Clock generator TI I2C chip, 27MHz . */
 			clockgen: cdce925pw@64 {
-				compatible = "cdce925";
+				compatible = "ti,cdce925";
 				reg = <0x64>;
 				clocks = <&xtal_27Mhz>;
 				xtal-load-pf = <5>; /* Crystal load-capacitor value */
@@ -47,19 +47,6 @@
 				 *	spread-spectrum-center;
 				 *};
 				 */
-				/* Outputs calculate mux and divider settings */
-				Y1 {
-					#clock-cells = <0>;
-					clock-frequency = <27000>;
-				};
-				audio_clock: Y2 {
-					#clock-cells = <0>;
-					clock-frequency = <12288000>; /* SPDIF audio */
-				};
-				hdmi_pixel_clock: Y4 {
-					#clock-cells = <0>;
-					clock-frequency = <148500000>; /* HD-video */
-				};
 			};
 		};
 		i2cmux_2: i2c@2 {
