@@ -1,0 +1,79 @@
+/include/ "topic-miami.dtsi"
+
+/* Common components for MIO parts of Florida boards. These are
+ * accessible even without programming any logic. */
+
+/ {
+		/* Regulator for the 5V USB VBUS power line. This is connected
+		 * to the second output of the GPIO expander. */
+		reg_usb0_vbus: regulator_usb {
+			compatible = "regulator-fixed";
+			regulator-name = "usb0-vbus";
+			regulator-min-microvolt = <5000000>;
+			regulator-max-microvolt = <5000000>;
+			gpio = <&gpioexf 1 0>;
+			enable-active-high;
+		};
+
+		xtal_27Mhz: clock_xtal_27Mhz {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <27000000>;
+		};
+};
+
+/* I2C bus layout */
+&ps7_i2c_0 {
+	i2cmux: i2cswitch@70 {
+		compatible = "nxp,pca9546";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0x70>;
+
+		i2cmux_0: i2c@0 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0>;
+			/* Clock generator TI I2C chip, 27MHz . */
+			clockgen: cdce925pw@64 {
+				compatible = "ti,cdce925";
+				reg = <0x64>;
+				clocks = <&xtal_27Mhz>;
+				xtal-load-pf = <5>; /* Crystal load-capacitor value */
+				#clock-cells = <1>;
+				/* PLL options, optional. For example to get SSC 1%
+				 * centered, supply the following extra data:
+				 *PLL2 {
+				 *	spread-spectrum = <4>;
+				 *	spread-spectrum-center;
+				 *};
+				 */
+			};
+		};
+		i2cmux_2: i2c@2 {
+			/* GEN */
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <2>;
+			/* GPIO expander */
+			gpioexf: pca953x@20 {
+				compatible = "nxp,pca9534";
+				reg = <0x20>;
+				/* 0=USB_OTG_OC_N 1=USB_OTG_EN_N 2=n.c. ...*/
+				gpio-controller;
+				#gpio-cells = <2>;
+				interrupt-controller;
+			};
+		};
+	};
+};
+
+/* USB connected through MIO and GPIO expander */
+&usb {
+	status = "okay";
+	vbus-supply = <&reg_usb0_vbus>;
+	dr_mode = "otg";
+	/* USB reset connected to output 0 of expander */
+	xlnx,phy-reset-gpio = <&gpioex 0 0>;
+	xlnx,phy-reset-gpio-tristate;
+};
