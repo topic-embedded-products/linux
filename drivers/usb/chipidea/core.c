@@ -664,7 +664,7 @@ static int ci_hdrc_create_ulpi_phy(struct device *dev, struct ci_hdrc *ci)
 			dev_err(dev, "Failed to request ULPI reset gpio: %d\n", ret);
 			return ret;
 		}
-		msleep(5);
+		udelay(1);
 		gpio_set_value_cansleep(reset_gpio, 1);
 		msleep(1);
 	}
