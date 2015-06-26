@@ -801,6 +801,7 @@ static int ci_hdrc_probe(struct platform_device *pdev)
 
 	if (ci->roles[CI_ROLE_HOST] && ci->roles[CI_ROLE_GADGET]) {
 		if (ci->is_otg) {
+			msleep(50); /* Datasheet: Wait 50ms to read ID */
 			ci->role = ci_otg_role(ci);
 			/* Enable ID change irq */
 			hw_write_otgsc(ci, OTGSC_IDIE, OTGSC_IDIE);
