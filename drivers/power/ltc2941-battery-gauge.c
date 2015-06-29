@@ -61,10 +61,10 @@ struct ltc294x_info {
 	struct i2c_client *client;	/* I2C Client pointer */
 	struct power_supply supply;	/* Supply pointer */
 	struct delayed_work work;	/* Work scheduler */
-	int num_regs; /* Number of registers (chip type) */
-	int	id;	/* Identifier of ltc294x chip */
-	int	charge;	/* Last charge register content */
-	int	r_sense;	/* mOhm */
+	int num_regs;	/* Number of registers (chip type) */
+	int id;		/* Identifier of ltc294x chip */
+	int charge;	/* Last charge register content */
+	int r_sense;	/* mOhm */
 	int Qlsb;	/* nAh */
 };
 
@@ -416,18 +416,19 @@ static int ltc294x_i2c_probe(struct i2c_client *client,
 
 	/* r_sense can be negative, when sense+ is connected to the battery
 	 * instead of the sense-. This results in reversed measurements. */
-	ret = of_property_read_u32(np, "resistor-sense", &r_sense);
+	ret = of_property_read_u32(np, "lltc,resistor-sense", &r_sense);
 	if (ret < 0) {
 		dev_err(&client->dev,
-			"Could not find resistor-sense in devicetree\n");
+			"Could not find lltc,resistor-sense in devicetree\n");
 		goto fail_name;
 	}
 	info->r_sense = r_sense;
 
-	ret = of_property_read_u32(np, "prescaler-exponent", &prescaler_exp);
+	ret = of_property_read_u32(np, "lltc,prescaler-exponent",
+		&prescaler_exp);
 	if (ret < 0) {
-		dev_err(&client->dev,
-			"PrescalerExponent not in devicetree, assume max\n");
+		dev_warn(&client->dev,
+			"lltc,prescaler-exponent not in devicetree\n");
 		prescaler_exp = LTC2941_MAX_PRESCALER_EXP;
 	}
 
@@ -468,7 +469,7 @@ static int ltc294x_i2c_probe(struct i2c_client *client,
 
 	ret = ltc294x_reset(info, prescaler_exp);
 	if (ret < 0) {
-		dev_err(&client->dev, "Communication with chip failed!\n");
+		dev_err(&client->dev, "Communication with chip failed\n");
 		goto fail_comm;
 	}
 
@@ -532,7 +533,6 @@ MODULE_DEVICE_TABLE(i2c, ltc294x_i2c_id);
 static struct i2c_driver ltc294x_driver = {
 	.driver = {
 		.name	= "LTC2941",
-		.owner	= THIS_MODULE,
 		.pm	= LTC294X_PM_OPS,
 	},
 	.probe		= ltc294x_i2c_probe,

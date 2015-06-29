@@ -31,8 +31,10 @@
 #define AXI_HDMI_RX_REG_ENABLE		0x040
 #define AXI_HDMI_RX_REG_CONFIG		0x044
 #define AXI_HDMI_RX_REG_SRC_SEL		0x048
-#define AXI_HDMI_RX_REG_DMA_STATUS	0x078
-#define AXI_HDMI_RX_REG_TPM_STATUS	0x07c
+#define AXI_HDMI_RX_REG_CLK_COUNT	0x054
+#define AXI_HDMI_RX_REG_CLK_RATIO	0x058
+#define AXI_HDMI_RX_REG_DMA_STATUS	0x060
+#define AXI_HDMI_RX_REG_TPM_STATUS	0x064
 #define AXI_HDMI_RX_REG_STATUS		0x080
 #define AXI_HDMI_RX_REG_TIMING		0x400
 #define AXI_HDMI_RX_REG_DETECTED_TIMING 0x404
@@ -297,6 +299,8 @@ static int axi_hdmi_rx_g_register(struct file *file, void *priv_fh,
 	case AXI_HDMI_RX_REG_ENABLE:
 	case AXI_HDMI_RX_REG_CONFIG:
 	case AXI_HDMI_RX_REG_SRC_SEL:
+	case AXI_HDMI_RX_REG_CLK_COUNT:
+	case AXI_HDMI_RX_REG_CLK_RATIO:
 	case AXI_HDMI_RX_REG_DMA_STATUS:
 	case AXI_HDMI_RX_REG_TPM_STATUS:
 	case AXI_HDMI_RX_REG_STATUS:
@@ -551,19 +555,10 @@ static int axi_hdmi_rx_s_fmt_vid_cap(struct file *file, void *priv_fh,
 	struct axi_hdmi_rx *hdmi_rx = video_drvdata(file);
 	struct axi_hdmi_rx_stream *s = &hdmi_rx->stream;
 	struct v4l2_pix_format *pix = &f->fmt.pix;
-	struct v4l2_subdev_format fmt;
 	unsigned int config;
-	int ret;
 
 	if (axi_hdmi_rx_try_fmt_vid_cap(file, priv_fh, f))
 		return -EINVAL;
-
-	fmt.which = V4L2_SUBDEV_FORMAT_ACTIVE;
-	fmt.pad = ADV7611_PAD_SOURCE;
-	fmt.format.code = MEDIA_BUS_FMT_YUYV8_1X16;
-	ret = v4l2_subdev_call(s->subdev, pad, set_fmt, NULL, &fmt);
-	if (ret)
-		return ret;
 
 	s->width = pix->width;
 	s->height = pix->height;
@@ -744,6 +739,7 @@ static int axi_hdmi_rx_async_bound(struct v4l2_async_notifier *notifier,
 	struct v4l2_subdev *subdev, struct v4l2_async_subdev *asd)
 {
 	struct axi_hdmi_rx *hdmi_rx = notifier_to_axi_hdmi_rx(notifier);
+	struct v4l2_subdev_format fmt;
 	int ret;
 
 	struct v4l2_subdev_edid edid = {
@@ -754,6 +750,13 @@ static int axi_hdmi_rx_async_bound(struct v4l2_async_notifier *notifier,
 	};
 
 	hdmi_rx->stream.subdev = subdev;
+
+	fmt.which = V4L2_SUBDEV_FORMAT_ACTIVE;
+	fmt.pad = ADV7611_PAD_SOURCE;
+	fmt.format.code = MEDIA_BUS_FMT_YUYV8_1X16;
+	ret = v4l2_subdev_call(subdev, pad, set_fmt, NULL, &fmt);
+	if (ret)
+		return ret;
 
 	ret = v4l2_subdev_call(subdev, video, s_routing, ADV76XX_PAD_HDMI_PORT_A,
 		0, 0);
