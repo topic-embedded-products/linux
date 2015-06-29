@@ -36,7 +36,7 @@
 
 &primary_flash {
 	/* Specify flash chip to expect */
-	compatible = "n25q256a11";
+	compatible = "n25q256a";
 	/* Max frequency for quad read is 108MHz according to data sheet */
 	spi-max-frequency = <108000000>;
 	/* Flash chip is 32MB, so add 16MB to the rootfs partition */
