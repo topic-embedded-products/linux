@@ -1398,6 +1398,8 @@ static int set_quad_mode(struct spi_nor *nor, struct flash_info *info)
 		}
 		return status;
 	case CFI_MFR_ST:
+		if (!(nor->spi->mode & SPI_TX_QUAD))
+			return 0;
 		status = micron_quad_enable(nor);
 		if (status) {
 			dev_err(nor->dev, "Micron quad-read not enabled\n");
