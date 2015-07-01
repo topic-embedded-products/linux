@@ -63,6 +63,9 @@
 				gpio-controller;
 				#gpio-cells = <2>;
 				interrupt-controller;
+				/* IRQ line connected to MIO 15 */
+				interrupt-parent = <&gpio>;
+				interrupts = <15 0x8>; /* GPIO 15, IRQ_TYPE_LEVEL_LOW */
 			};
 		};
 	};
