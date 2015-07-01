@@ -65,7 +65,7 @@
 		adi,pen-down-acquisition-interval = /bits/ 8 <255>; /* 9.4 ms */
 	};
 	/* Battery gauge */
-	fuelgauge: ltc2943@64 {
+	fuelgauge: battery-gauge {
 		compatible = "ltc2943";
 		reg = <0x64>;
 		lltc,resistor-sense = <15>; /* 15 mOhm */
