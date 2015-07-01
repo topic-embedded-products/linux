@@ -63,7 +63,7 @@
 	fuelgauge: ltc2943@64 {
 		compatible = "ltc2943";
 		reg = <0x64>;
-		lltc,resistor-sense = <0xfffffff1>; /* 15 mOhm, reversed polarity */
+		lltc,resistor-sense = <15>; /* 15 mOhm */
 		lltc,prescaler-exponent = <5>; /* 2^(2*5) = 1024 */
 	};
 };
