@@ -1,4 +1,5 @@
 /include/ "topic-miami-florida.dtsi"
+/include/ "topic-miami-florida-gen-mio.dtsi"
 
 / {
 		/* Fake power supply that activates when the FPGA has been
@@ -20,34 +21,9 @@
 			enable-active-high;
 			startup-delay-us = <25000>; /* Datasheet mentions 20ms */
 		};
-
-		charger: battery-charger {
-			compatible = "gpio-charger";
-			charger-type = "mains";
-			gpios = <&gpioexf 6 1>; /* Pin 6 of IO expander, active low */
-		};
 };
 
 /* I2C bus layout */
-&i2cmux_0 {
-	/* HDMI OUT */
-	adv7511: adv7511@39 {
-		compatible = "adi,adv7511";
-		reg = <0x39>;
-
-		adi,input-style = <0x02>;
-		adi,input-id = <0x01>;
-		adi,input-color-depth = <0x3>;
-		adi,sync-pulse = <0x03>;
-		adi,bit-justification = <0x01>;
-		adi,up-conversion = <0x00>;
-		adi,timing-generation-sequence = <0x00>;
-		adi,vsync-polarity = <0x02>;
-		adi,hsync-polarity = <0x02>;
-		adi,tdms-clock-inversion;
-		adi,clock-delay = <0x03>;
-	};
-};
 &i2cmux_2 {
 	/* Touch */
 	touch: ad7879@2f {
@@ -63,14 +39,6 @@
 		adi,y-min = /bits/ 16 <0>;
 		adi,y.max = /bits/ 16 <600>;
 		adi,pen-down-acquisition-interval = /bits/ 8 <255>; /* 9.4 ms */
-	};
-	/* Battery gauge */
-	fuelgauge: battery-gauge {
-		compatible = "ltc2943";
-		reg = <0x64>;
-		lltc,resistor-sense = <15>; /* 15 mOhm */
-		lltc,prescaler-exponent = <5>; /* 2^(2*5) = 1024 */
-		power-supplies = <&charger>;
 	};
 };
 &i2cmux {
@@ -108,7 +76,6 @@
 &fpga_axi {
 
 		/* SDIO via EMIO to a Wifi card */
-
 		sdhci1: sdhci@e0101000 {
 			compatible = "arasan,sdhci-8.9a";
 			reg = <0xe0101000 0x1000>;
