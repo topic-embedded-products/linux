@@ -148,6 +148,8 @@ static int rsi_load_ta_instructions(struct rsi_common *common)
 
 	/* Copy firmware into DMA-accessible memory */
 	fw = kmemdup(fw_entry->data, fw_entry->size, GFP_KERNEL);
+	if (!fw)
+		return -ENOMEM;
 	len = fw_entry->size;
 
 	if (len % 4)
