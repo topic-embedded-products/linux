@@ -146,6 +146,7 @@ static int rsi_load_ta_instructions(struct rsi_common *common)
 		return status;
 	}
 
+	/* Copy firmware into DMA-accessible memory */
 	fw = kmemdup(fw_entry->data, fw_entry->size, GFP_KERNEL);
 	len = fw_entry->size;
 
@@ -158,6 +159,7 @@ static int rsi_load_ta_instructions(struct rsi_common *common)
 	rsi_dbg(INIT_ZONE, "%s: num blocks: %d\n", __func__, num_blocks);
 
 	status = rsi_copy_to_card(common, fw, len, num_blocks);
+	kfree(fw);
 	release_firmware(fw_entry);
 	return status;
 }
