@@ -746,6 +746,12 @@ static struct device_type gadget_type = {
 	.name	= "gadget",
 };
 
+static void gether_net_setup(struct net_device *dev)
+{
+	ether_setup(dev);
+	dev->mtu = 512; /* HACK: chipidea driver is broken */
+}
+
 /**
  * gether_setup_name - initialize one ethernet-over-usb link
  * @g: gadget to associated with these links
@@ -768,7 +774,8 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 	struct net_device	*net;
 	int			status;
 
-	net = alloc_etherdev(sizeof *dev);
+	net = alloc_netdev(sizeof *dev, "usb%d", NET_NAME_UNKNOWN,
+		gether_net_setup);
 	if (!net)
 		return ERR_PTR(-ENOMEM);
 
@@ -830,7 +837,8 @@ struct net_device *gether_setup_name_default(const char *netname)
 	struct net_device	*net;
 	struct eth_dev		*dev;
 
-	net = alloc_etherdev(sizeof(*dev));
+	net = alloc_netdev(sizeof *dev, "usb%d", NET_NAME_UNKNOWN,
+		gether_net_setup);
 	if (!net)
 		return ERR_PTR(-ENOMEM);
 
