@@ -1,0 +1,13 @@
+/* Disables the QSPI controller and activates NAND instead. */
+
+&smcc {
+	status = "okay";
+};
+
+&nand0 {
+	status = "okay";
+};
+
+&qspi0 {
+	status = "disabled"; /* conflicts with NAND pins */
+};

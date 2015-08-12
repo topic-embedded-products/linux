@@ -73,7 +73,7 @@
 	};
 };
 
-&fpga_axi {
+&axi {
 
 		/* SDIO via EMIO to a Wifi card */
 		sdhci1: sdhci@e0101000 {

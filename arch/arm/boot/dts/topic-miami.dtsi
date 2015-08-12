@@ -18,7 +18,7 @@
 		/* Boot using squashfs system, nice for QSPI NOR flash */
 		bootargs = "console=ttyPS0,115200 root=/dev/mtdblock5 ro rootfstype=squashfs rootwait quiet";
 		/* bootargs = "console=ttyPS0,115200 ubi.mtd=qspi-rootfs root=ubi0:qspi-rootfs rw rootfstype=ubifs rootwait"; */
-		linux,stdout-path = "/fpga_axi@0/uart@e0000000";
+		linux,stdout-path = "/amba@0/uart@e0000000";
 	};
 
 	/* Represents the 3v3 supply on the Miami SOM. */
@@ -51,13 +51,7 @@
 	};
 };
 
-/ {
-	fpga_axi: fpga_axi@0 {
-		compatible = "simple-bus";
-		#address-cells = <0x1>;
-		#size-cells = <0x1>;
-		ranges;
-
+&axi {
 		ps7_i2c_0: ps7-i2c@e0004000 {
 			bus-id = <0>;
 			clocks = <&clkc 38>;
@@ -69,6 +63,8 @@
 			xlnx,has-interrupt = <0x0>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_i2c0_default>;
 		};
 
 		ps7_i2c_1: ps7-i2c@e0005000 {
@@ -81,6 +77,8 @@
 			xlnx,has-interrupt = <0x0>;
 			#address-cells = <1>;
 			#size-cells = <0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_i2c1_default>;
 			/* AD converter for voltage monitoring */
 			monitorvolt: ad799x@29 {
 				compatible = "ad7999";
@@ -141,8 +139,58 @@
 				};
 			};
 		};
-	};
 
+		smcc: memory-controller@e000e000 {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			status = "disabled";
+			clock-names = "memclk", "aclk";
+			clocks = <&clkc 11>, <&clkc 44>;
+			compatible = "arm,pl353-smc-r2p1";
+			interrupt-parent = <&gic>;
+			interrupts = <0 18 4>;
+			ranges ;
+			reg = <0xe000e000 0x1000>;
+			nand0: flash@e1000000 {
+				status = "disabled";
+				compatible = "arm,pl353-nand-r2p1";
+				reg = <0xe1000000 0x1000000>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&pinctrl_smc0_nand_default>;
+
+				/* Micron MT29F2G16ABBFAH4 timings */
+				arm,nand-cycle-t0 = <0x4>;
+				arm,nand-cycle-t1 = <0x4>;
+				arm,nand-cycle-t2 = <0x1>;
+				arm,nand-cycle-t3 = <0x2>;
+				arm,nand-cycle-t4 = <0x2>;
+				arm,nand-cycle-t5 = <0x2>;
+				arm,nand-cycle-t6 = <0x4>;
+
+				#address-cells = <0x1>;
+				#size-cells = <0x1>;
+				partition@nand-all {
+					label = "nand-all";
+					reg = <0x0 0x10000000>; /* 256 MB */
+				};
+				/* to mount as UBI:
+				   ubiattach /dev/ubi_ctrl -m 0
+				   ubimkvol /dev/ubi0 -N nand -m
+				   mkdir /media/nand
+				   mount -t ubifs /dev/ubi0_0 /media/nand
+				 */
+			};
+			nor0: flash@e2000000 {
+				status = "disabled";
+				compatible = "cfi-flash";
+				reg = <0xe2000000 0x2000000>;
+				#address-cells = <1>;
+				#size-cells = <1>;
+			};
+		};
+};
+
+/ {
 	leds: leds {
 		compatible = "gpio-leds";
 		alive {
@@ -163,4 +211,53 @@
 
 &usb {
 	status = "disabled";
+};
+
+&qspi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_qspi0_default>;
+};
+
+&pinctrl0 {
+	pinctrl_qspi0_default: qspi0_default {
+		mux {
+			groups = "qspi0_0_grp";
+			function = "qspi0";
+		};
+	};
+
+	pinctrl_smc0_nand_default: smc0_nand_default {
+		mux {
+			groups = "smc0_nand_grp";
+			function = "smc0_nand";
+		};
+	};
+
+	pinctrl_i2c0_default: i2c0-default {
+		mux {
+			groups = "i2c0_10_grp";
+			function = "i2c0";
+		};
+
+		conf {
+			groups = "i2c0_10_grp";
+			bias-pull-up;
+			slew-rate = <0>;
+			io-standard = <1>;
+		};
+	};
+
+	pinctrl_i2c1_default: i2c1-default {
+		mux {
+			groups = "i2c1_10_grp";
+			function = "i2c1";
+		};
+
+		conf {
+			groups = "i2c1_10_grp";
+			bias-pull-up;
+			slew-rate = <0>;
+			io-standard = <1>;
+		};
+	};
 };

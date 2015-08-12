@@ -1,0 +1,5 @@
+/dts-v1/;
+/include/ "topic-miami-florida-mio.dtsi"
+/include/ "topic-miami-florida-gen-mio.dtsi"
+/include/ "topic-miami-nand.dtsi"
+/include/ "topic-dyplo.dtsi"
