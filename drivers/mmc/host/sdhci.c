@@ -1164,9 +1164,6 @@ void sdhci_set_clock(struct sdhci_host *host, unsigned int clock)
 	u16 clk = 0;
 	unsigned long timeout;
 
-	if (host->clk_limit && (clock > host->clk_limit))
-		clock = host->clk_limit;
-
 	host->mmc->actual_clock = 0;
 
 	sdhci_writew(host, 0, SDHCI_CLOCK_CONTROL);
