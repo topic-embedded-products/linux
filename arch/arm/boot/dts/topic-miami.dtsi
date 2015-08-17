@@ -224,6 +224,16 @@
 			groups = "qspi0_0_grp";
 			function = "qspi0";
 		};
+		mux-fbclk {
+			groups = "qspi_fbclk_grp";
+			function = "qspi_fbclk";
+		};
+		conf {
+			groups = "qspi0_0_grp", "qspi_fbclk_grp";
+			slew-rate = <0>;
+			io-standard = <1>;
+			bias-disable;
+		};
 	};
 
 	pinctrl_smc0_nand_default: smc0_nand_default {
