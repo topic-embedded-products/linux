@@ -133,6 +133,9 @@ static noinline int do_fw_call_smc(u64 arg0, u64 arg1, u64 arg2,
 		__asmeq("%2", "x2")
 		"smc	#0\n"
 		: "+r" (arg0), "+r" (arg1), "+r" (arg2)
+		: /* no input only */
+		: "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
+		  "x13", "x14", "x15", "x16", "x17"
 		);
 
 	if (ret_payload != NULL) {
@@ -172,6 +175,9 @@ static noinline int do_fw_call_hvc(u64 arg0, u64 arg1, u64 arg2,
 		__asmeq("%2", "x2")
 		"hvc	#0\n"
 		: "+r" (arg0), "+r" (arg1), "+r" (arg2)
+		: /* no input only */
+		: "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
+		  "x13", "x14", "x15", "x16", "x17"
 		);
 
 	if (ret_payload != NULL) {
@@ -236,13 +242,12 @@ static int invoke_pm_fn(u32 pm_api_id, u32 arg0, u32 arg1, u32 arg2, u32 arg3,
  *
  * Return:	Returns status, either success or error+reason
  */
-int zynqmp_pm_self_suspend(const u32 node,
-				       const u32 latency,
-				       const u32 state)
+static int zynqmp_pm_self_suspend(const u32 node,
+				  const u32 latency,
+				  const u32 state)
 {
 	return invoke_pm_fn(SELF_SUSPEND, node, latency, state, 0, NULL);
 }
-EXPORT_SYMBOL_GPL(zynqmp_pm_self_suspend);
 
 /**
  * zynqmp_pm_request_suspend - PM call to request for another PU or subsystem to
@@ -286,11 +291,10 @@ EXPORT_SYMBOL_GPL(zynqmp_pm_force_powerdown);
  *
  * Return:	Returns status, either success or error+reason
  */
-int zynqmp_pm_abort_suspend(const enum zynqmp_pm_abort_reason reason)
+static int zynqmp_pm_abort_suspend(const enum zynqmp_pm_abort_reason reason)
 {
 	return invoke_pm_fn(ABORT_SUSPEND, reason, 0, 0, 0, NULL);
 }
-EXPORT_SYMBOL_GPL(zynqmp_pm_abort_suspend);
 
 /**
  * zynqmp_pm_request_wakeup - PM call for to wake up selected master or subsystem
@@ -482,15 +486,12 @@ EXPORT_SYMBOL_GPL(zynqmp_pm_get_operating_characteristic);
  *
  * Return:	Returns status, either success or error+reason
  */
-int zynqmp_pm_register_notifier(const u32 node,
-					    const u32 event,
-					    const u32 wake,
-					    const u32 enable)
+static int zynqmp_pm_register_notifier(const u32 node, const u32 event,
+				       const u32 wake, const u32 enable)
 {
 	return invoke_pm_fn(REGISTER_NOTIFIER, node, event,
 						wake, enable, NULL);
 }
-EXPORT_SYMBOL_GPL(zynqmp_pm_register_notifier);
 
 /* Direct-Control API functions */
 
@@ -929,7 +930,7 @@ static int zynqmp_pm_api_debugfs_remove(void)
 }
 #endif /* CONFIG_ZYNQMP_PM_API_DEBUGFS */
 
-static const struct of_device_id pm_of_match[] __initconst = {
+static const struct of_device_id pm_of_match[] = {
 	{ .compatible = "xlnx,zynqmp-pm", },
 	{ /* end of table */ },
 };

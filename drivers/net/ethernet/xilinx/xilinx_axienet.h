@@ -344,7 +344,7 @@
 
 /* Read/Write access to the registers */
 #ifndef out_be32
-#ifdef CONFIG_ARCH_ZYNQ
+#if defined(CONFIG_ARCH_ZYNQ) || defined(CONFIG_ARCH_ZYNQMP)
 #define in_be32(offset)		__raw_readl(offset)
 #define out_be32(offset, val)	__raw_writel(val, offset)
 #endif
@@ -422,7 +422,6 @@ struct axidma_bd {
  *		  1522 bytes (assuming support for basic VLAN)
  * @jumbo_support: Stores hardware configuration for jumbo support. If hardware
  *		   can handle jumbo packets, this entry will be 1, else 0.
- * @use_acpport:  Tells whether the design contains the acp port or not.
  * @is_10Gmac:	  Check for 10g mac.
  */
 struct axienet_local {
@@ -470,7 +469,6 @@ struct axienet_local {
 
 	u32 coalesce_count_rx;
 	u32 coalesce_count_tx;
-	bool use_acpport;
 	u32 is_10Gmac;
 };
 
