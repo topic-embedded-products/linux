@@ -375,7 +375,7 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 	int ret, i, j, k, chan, t, num_chan, err = 0;
 	u32 s0, s1, c0, c1, tmp, saved = 0;
 	u8 field[2][16];
-	u32 saved_dsel[4], saved_chan_ctrl6[4];
+	u32 saved_dsel[4], saved_chan_ctrl6[4], saved_chan_ctrl0[4];
 	u32 rates[3] = {25000000U, 40000000U, 61440000U};
 	unsigned hdl_dac_version;
 
@@ -399,6 +399,9 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 
 		return 0;
 	}
+
+	/* Mute TX, we don't want to transmit the PRBS */
+	ad9361_tx_mute(phy, 1);
 
 	if (flags & DO_IDELAY)
 		ad9361_midscale_iodelay(phy, 0);
@@ -495,6 +498,9 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 							     phy->pdata->ensm_pin_ctrl);
 					ad9361_ensm_restore_prev_state(phy);
 				}
+
+				ad9361_tx_mute(phy, 0);
+
 				return 0;
 			}
 
@@ -502,6 +508,7 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 			axiadc_write(st, 0x4000 + ADI_REG_RSTN, ADI_RSTN | ADI_MMCM_RSTN);
 
 			for (chan = 0; chan < num_chan; chan++) {
+				saved_chan_ctrl0[chan] = axiadc_read(st, ADI_REG_CHAN_CNTRL(chan));
 				axiadc_write(st, ADI_REG_CHAN_CNTRL(chan),
 					ADI_FORMAT_SIGNEXT | ADI_FORMAT_ENABLE |
 					ADI_ENABLE | ADI_IQCOR_ENB);
@@ -535,8 +542,7 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 
 			for (chan = 0; chan < num_chan; chan++) {
 				axiadc_write(st, ADI_REG_CHAN_CNTRL(chan),
-					ADI_FORMAT_SIGNEXT | ADI_FORMAT_ENABLE |
-					ADI_ENABLE | ADI_IQCOR_ENB);
+					saved_chan_ctrl0[chan]);
 				axiadc_set_pnsel(st, chan, ADC_PN9);
 				if (PCORE_VERSION_MAJOR(hdl_dac_version) > 7) {
 					axiadc_write(st, 0x4418 + (chan) * 0x40, saved_dsel[chan]);
@@ -561,6 +567,7 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 					ad9361_spi_read(phy->spi, REG_TX_CLOCK_DATA_DELAY);
 			}
 
+
 			if (!phy->pdata->fdd) {
 				ad9361_set_ensm_mode(phy, phy->pdata->fdd, phy->pdata->ensm_pin_ctrl);
 				ad9361_ensm_restore_prev_state(phy);
@@ -568,6 +575,8 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 
 			axiadc_write(st, ADI_REG_RSTN, ADI_MMCM_RSTN);
 			axiadc_write(st, ADI_REG_RSTN, ADI_RSTN | ADI_MMCM_RSTN);
+
+			ad9361_tx_mute(phy, 0);
 
 			return err;
 		}

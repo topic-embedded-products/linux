@@ -34,6 +34,7 @@ struct ad9144_platform_data {
 	u8 xbar_lane1_sel;
 	u8 xbar_lane2_sel;
 	u8 xbar_lane3_sel;
+	bool lanes2_3_swap_data;
 };
 
 struct ad9144_state {
@@ -128,23 +129,6 @@ static int ad9144_setup(struct ad9144_state *st,
 		regmap_write(map, 0x29c, 0x2a);
 		regmap_write(map, 0x29f, 0x78);
 		regmap_write(map, 0x2a0, 0x06);
-	} else if (st->id == CHIPID_AD9152) {
-		/* So secret. Such ugly. Very hardcoded. wow. */
-		regmap_write(map, 0x1a0, 0x01);
-		regmap_write(map, 0x1db, 0x0f);
-		regmap_write(map, 0x1dc, 0x10);
-		regmap_write(map, 0x1d3, 0x06);
-		regmap_write(map, 0x1d4, 0x0d);
-		regmap_write(map, 0x1d8, 0xb0);
-		regmap_write(map, 0x1da, 0x40);
-		regmap_write(map, 0x2a6, 0x08);
-		regmap_write(map, 0x248, 0xaa);
-		regmap_write(map, 0x291, 0x49);
-		regmap_write(map, 0x232, 0x0f);
-		regmap_write(map, 0x2aa, 0xb7);
-		regmap_write(map, 0x2ab, 0x87);
-		regmap_write(map, 0x2aa, 0xb7); // jesd termination
-		regmap_write(map, 0x2ab, 0x87); // jesd termination
 	}
 
 	// digital data path
@@ -250,6 +234,12 @@ static int ad9144_setup(struct ad9144_state *st,
 	}
 
 	regmap_write(map, 0x0e7, 0x30);	// turn off cal clock
+
+	/* TODO: remove me
+	 * Fix for an early DAQ3 design bug (swapped SERDIN+ / SERDIN- pins) */
+	if (st->id == CHIPID_AD9152)
+		regmap_write(map, 0x334,
+				pdata->lanes2_3_swap_data ? 0x0c : 0x00);
 
 	return 0;
 }
@@ -367,6 +357,9 @@ static struct ad9144_platform_data *ad9144_parse_dt(struct device *dev)
 	tmp = 3;
 	of_property_read_u32(np, "adi,jesd-xbar-lane3-sel", &tmp);
 	pdata->xbar_lane3_sel = tmp;
+
+	pdata->lanes2_3_swap_data = of_property_read_bool(np,
+			"adi,lanes2-3-swap-data");
 
 	return pdata;
 }
