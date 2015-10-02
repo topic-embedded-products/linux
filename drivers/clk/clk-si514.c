@@ -45,10 +45,10 @@
 #define SI514_MIN_FREQ	    100000U
 #define SI514_MAX_FREQ	 250000000U
 
-#define FXO				  31980000U
+#define FXO		  31980000U
 
-#define FVCO_MIN		2080000000U
-#define FVCO_MAX		2500000000U
+#define FVCO_MIN	2080000000U
+#define FVCO_MAX	2500000000U
 
 #define HS_DIV_MAX	1022
 
@@ -86,18 +86,14 @@ static int si514_get_muldiv(struct clk_si514 *data,
 	if (err)
 		return err;
 
-	settings->m_frac =
-		reg[0] |
-		((u32)reg[1] << 8) |
-		((u32)reg[2] << 16) |
-		((u32)(reg[3] & 0x1F) << 24);
-	settings->m_int = ((reg[4] & 0x3f) << 3) | (reg[3] >> 5);
+	settings->m_frac = reg[0] | reg[1] << 8 | reg[2] << 16 |
+			   (reg[3] & 0x1F) << 24;
+	settings->m_int = (reg[4] & 0x3f) << 3 | reg[3] >> 5;
 	settings->ls_div_bits = (reg[6] >> 4) & 0x07;
-	settings->hs_div = ((u16)(reg[6] & 0x03) << 8) | reg[5];
+	settings->hs_div = (reg[6] & 0x03) << 8 | reg[5];
 	return 0;
 }
 
-/* Program clock settings into hardware */
 static int si514_set_muldiv(struct clk_si514 *data,
 	struct clk_si514_muldiv *settings)
 {
@@ -107,20 +103,20 @@ static int si514_set_muldiv(struct clk_si514 *data,
 
 	/* Calculate LP1/LP2 according to table 13 in the datasheet */
 	/* 65.259980246 */
-	if ((settings->m_int < 65) ||
-		((settings->m_int == 65) && (settings->m_frac <= 139575831)))
+	if (settings->m_int < 65 ||
+		(settings->m_int == 65 && settings->m_frac <= 139575831))
 		lp = 0x22;
 	/* 67.859763463 */
-	else if ((settings->m_int < 67) ||
-		((settings->m_int == 67) && (settings->m_frac <= 461581994)))
+	else if (settings->m_int < 67 ||
+		(settings->m_int == 67 && settings->m_frac <= 461581994))
 		lp = 0x23;
 	/* 72.937624981 */
-	else if ((settings->m_int < 72) ||
-		((settings->m_int == 72) && (settings->m_frac <= 503383578)))
+	else if (settings->m_int < 72 ||
+		(settings->m_int == 72 && settings->m_frac <= 503383578))
 		lp = 0x33;
 	/* 75.843265046 */
-	else if ((settings->m_int < 75) ||
-		((settings->m_int == 75) && (settings->m_frac <= 452724474)))
+	else if (settings->m_int < 75 ||
+		(settings->m_int == 75 && settings->m_frac <= 452724474))
 		lp = 0x34;
 	else
 		lp = 0x44;
@@ -129,20 +125,21 @@ static int si514_set_muldiv(struct clk_si514 *data,
 	if (err < 0)
 		return err;
 
-	reg[0] = settings->m_frac & 0xff;
-	reg[1] = (settings->m_frac >> 8) & 0xff;
-	reg[2] = (settings->m_frac >> 16) & 0xff;
-	reg[3] = ((settings->m_frac >> 24) | (settings->m_int << 5)) & 0xff;
-	reg[4] = (settings->m_int >> 3) & 0xff;
-	reg[5] = (settings->hs_div) & 0xff;
-	reg[6] = (((settings->hs_div) >> 8) |
-			(settings->ls_div_bits << 4)) & 0xff;
+	reg[0] = settings->m_frac;
+	reg[1] = settings->m_frac >> 8;
+	reg[2] = settings->m_frac >> 16;
+	reg[3] = settings->m_frac >> 24 | settings->m_int << 5;
+	reg[4] = settings->m_int >> 3;
+	reg[5] = settings->hs_div;
+	reg[6] = (settings->hs_div >> 8) | (settings->ls_div_bits << 4);
 
 	err = regmap_bulk_write(data->regmap, SI514_REG_HS_DIV, reg + 5, 2);
 	if (err < 0)
 		return err;
-	/* Writing to SI514_REG_M_INT_FRAC triggers the clock change, so that
-	 * must be written last */
+	/*
+	 * Writing to SI514_REG_M_INT_FRAC triggers the clock change, so that
+	 * must be written last
+	 */
 	return regmap_bulk_write(data->regmap, SI514_REG_M_FRAC1, reg, 5);
 }
 
@@ -165,9 +162,9 @@ static int si514_calc_muldiv(struct clk_si514_muldiv *settings,
 	else {
 		res = 1;
 		tmp = 2 * HS_DIV_MAX;
-		while (tmp <= (HS_DIV_MAX*32)) {
+		while (tmp <= (HS_DIV_MAX * 32)) {
 			if ((frequency * tmp) >= FVCO_MIN)
-				break; /* We're done */
+				break;
 			++res;
 			tmp <<= 1;
 		}
@@ -179,7 +176,7 @@ static int si514_calc_muldiv(struct clk_si514_muldiv *settings,
 	settings->hs_div = DIV_ROUND_UP(FVCO_MIN >> 1, ls_freq) << 1;
 
 	/* M = LS_DIV x HS_DIV x frequency / F_XO (in fixed-point) */
-	m = ((u64)(ls_freq * settings->hs_div) << 29) + (FXO/2);
+	m = ((u64)(ls_freq * settings->hs_div) << 29) + (FXO / 2);
 	do_div(m, FXO);
 	settings->m_frac = (u32)m & (BIT(29) - 1);
 	settings->m_int = (u32)(m >> 29);
@@ -191,9 +188,9 @@ static int si514_calc_muldiv(struct clk_si514_muldiv *settings,
 static unsigned long si514_calc_rate(struct clk_si514_muldiv *settings)
 {
 	u64 m = settings->m_frac | ((u64)settings->m_int << 29);
+	u32 d = settings->hs_div * BIT(settings->ls_div_bits);
 
-	return ((u32)(((m * FXO) + (FXO/2)) >> 29)) /
-		(settings->hs_div * BIT(settings->ls_div_bits));
+	return ((u32)(((m * FXO) + (FXO / 2)) >> 29)) / d;
 }
 
 static unsigned long si514_recalc_rate(struct clk_hw *hw,
@@ -228,9 +225,11 @@ static long si514_round_rate(struct clk_hw *hw, unsigned long rate,
 	return si514_calc_rate(&settings);
 }
 
-/* Update output frequency for big frequency changes (> 1000 ppm).
+/*
+ * Update output frequency for big frequency changes (> 1000 ppm).
  * The chip supports <1000ppm changes "on the fly", we haven't implemented
- * that here. */
+ * that here.
+ */
 static int si514_set_rate(struct clk_hw *hw, unsigned long rate,
 		unsigned long parent_rate)
 {
@@ -250,6 +249,8 @@ static int si514_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	/* Trigger calibration */
 	err = regmap_write(data->regmap, SI514_REG_CONTROL, SI514_CONTROL_FCAL);
+	if (err < 0)
+		return err;
 
 	/* Applying a new frequency can take up to 10ms */
 	usleep_range(10000, 12000);
@@ -290,7 +291,7 @@ static bool si514_regmap_is_writeable(struct device *dev, unsigned int reg)
 	}
 }
 
-static struct regmap_config si514_regmap_config = {
+static const struct regmap_config si514_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
 	.cache_type = REGCACHE_RBTREE,
@@ -305,7 +306,6 @@ static int si514_probe(struct i2c_client *client,
 	struct clk_si514 *data;
 	struct clk_init_data init;
 	struct clk *clk;
-	u32 initial_fout;
 	int err;
 
 	data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
@@ -341,20 +341,6 @@ static int si514_probe(struct i2c_client *client,
 		dev_err(&client->dev, "unable to add clk provider\n");
 		return err;
 	}
-
-	/* Read the requested initial output frequency from device tree */
-	if (!of_property_read_u32(client->dev.of_node, "clock-frequency",
-				&initial_fout)) {
-		err = clk_set_rate(clk, initial_fout);
-		if (err) {
-			of_clk_del_provider(client->dev.of_node);
-			return err;
-		}
-	}
-
-	/* Display a message indicating that we've successfully registered */
-	dev_info(&client->dev, "registered, current frequency %lu Hz\n",
-			clk_get_rate(clk));
 
 	return 0;
 }

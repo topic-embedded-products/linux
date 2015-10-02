@@ -15,9 +15,6 @@ Required properties:
 
 Optional properties:
  - clock-output-names: From common clock bindings. Recommended to be "si514".
- - clock-frequency: Output frequency to generate. This defines the output
-		    frequency set during boot. It can be reprogrammed during
-		    runtime through the common clock framework.
 
 Example:
 	si514: clock-generator@55 {
