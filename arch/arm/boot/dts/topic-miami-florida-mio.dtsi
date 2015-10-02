@@ -20,6 +20,23 @@
 			#clock-cells = <0>;
 			clock-frequency = <27000000>;
 		};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		power {
+			label = "power";
+			gpios = <&gpioexf 2 1>; /* Input 2, active low */
+			linux,code = <116>; /* KEY_POWER */
+			gpio-key,wakeup;
+		};
+	};
+
+	gpio_poweroff {
+		compatible = "gpio-poweroff";
+		gpios = <&gpioexf 6 1>; /* Output 6, active low */
+	};
 };
 
 /* I2C bus layout */
