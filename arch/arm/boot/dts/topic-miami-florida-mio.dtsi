@@ -33,9 +33,10 @@
 		};
 	};
 
-	gpio_poweroff {
+	gpio-poweroff {
 		compatible = "gpio-poweroff";
-		gpios = <&gpioexf 6 1>; /* Output 6, active low */
+		gpios = <&gpioexf 5 1>; /* Output 5, active low */
+		input;
 	};
 };
 
