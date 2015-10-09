@@ -2782,8 +2782,8 @@ static int adv76xx_reset(struct adv76xx_state *state)
 static int adv76xx_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
-	static const struct v4l2_dv_timings cea640x480 =
-		V4L2_DV_BT_CEA_640X480P59_94;
+	static const struct v4l2_dv_timings v4l2_default_timings =
+		V4L2_DV_BT_CEA_1920X1080P60;
 	struct adv76xx_state *state;
 	struct v4l2_ctrl_handler *hdl;
 	struct v4l2_subdev *sd;
@@ -2854,7 +2854,7 @@ static int adv76xx_probe(struct i2c_client *client,
 		}
 	}
 
-	state->timings = cea640x480;
+	state->timings = v4l2_default_timings;
 	state->format = adv76xx_format_info(state, MEDIA_BUS_FMT_YUYV8_2X8);
 
 	sd = &state->sd;
