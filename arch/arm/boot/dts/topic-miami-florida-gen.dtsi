@@ -57,7 +57,12 @@
 		adv7611@4c {
 			compatible = "adi,adv7611";
 			reg = <0x4c>;
-			/* endpoint todo...
+			#address-cells = <0x1>;
+			#size-cells = <0x0>;
+			interrupt-parent = <&gpio>;
+			interrupts = <57 4>; /* EMIO GPIO 3 */
+			adi,int1-config = <1>; /* ADV76XX_INT1_CONFIG_ACTIVE_LOW */
+			reset-gpios = <&gpio 55 0>; /* EMIO GPIO 1 */
 			port@0 {
 				reg = <0x0>;
 			};
@@ -68,7 +73,6 @@
 					remote-endpoint = <&axi_hdmi_rx>;
 				};
 			};
-			*/
 		};
 	};
 };
@@ -142,6 +146,45 @@
 			compatible = "adv7511-hdmi-snd";
 			audio-codec = <&adv7511>;
 			cpu-dai = <&axi_spdif_tx_0>;
+		};
+
+		axi_hdmi_rx_core: axi-hdmi-rx@43c10000 {
+			compatible = "adi,axi-hdmi-rx-1.00.a";
+			reg = <0x43c10000 0x10000>;
+			dmas = <&axi_dmac 0>;
+			dma-names = "rx";
+			gpios = <&gpioexf 3 0>; /* HPD, hotplug control (?) */
+
+			port {
+				#address-cells = <0>;
+				#size-cells = <0>;
+
+				axi_hdmi_rx: endpoint {
+					remote-endpoint = <&adv7611>;
+				};
+			};
+		};
+
+		axi_dmac: dmac@43c00000 {
+			compatible = "adi,axi-dmac-1.00.a";
+			reg = <0x43c00000 0x10000>;
+			#dma-cells = <1>;
+			interrupts = <0 58 0>;
+			clocks = <&clkc 16>;
+
+			adi,channels {
+				#size-cells = <0>;
+				#address-cells = <1>;
+				dma-channel@0 {
+					reg = <0>;
+					adi,length-width = <14>;
+					adi,source-bus-width = <64>;
+					adi,source-bus-type = <2>;
+					adi,destination-bus-width = <64>;
+					adi,destination-bus-type = <0>;
+					adi,2d;
+				};
+			};
 		};
 
 		axi_vdma_1: axivdma@43010000 {
