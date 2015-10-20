@@ -56,7 +56,7 @@
 			bus-id = <0>;
 			clocks = <&clkc 38>;
 			compatible = "cdns,i2c-r1p10";
-			clock-frequency = <400000>;
+			clock-frequency = <360000>;
 			interrupt-parent = <&gic>;
 			interrupts = <0 25 4>;
 			reg = <0xe0004000 0x1000>;
@@ -68,7 +68,7 @@
 		};
 
 		ps7_i2c_1: ps7-i2c@e0005000 {
-			clock-frequency = <400000>;
+			clock-frequency = <360000>;
 			clocks = <&clkc 39>;
 			compatible = "cdns,i2c-r1p10";
 			interrupt-parent = <&gic>;
