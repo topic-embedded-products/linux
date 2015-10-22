@@ -54,13 +54,11 @@
 &axi {
 		ps7_i2c_0: ps7-i2c@e0004000 {
 			bus-id = <0>;
-			clocks = <&clkc 38>;
-			compatible = "cdns,i2c-r1p10";
-			clock-frequency = <360000>;
-			interrupt-parent = <&gic>;
-			interrupts = <0 25 4>;
-			reg = <0xe0004000 0x1000>;
-			xlnx,has-interrupt = <0x0>;
+			compatible = "i2c-gpio";
+			gpios = <&gpio 51 0 /* sda */
+				 &gpio 50 0 /* scl */
+				>;
+			i2c-gpio,delay-us = <3>;	/* 333 kHz (?) */
 			#address-cells = <1>;
 			#size-cells = <0>;
 			pinctrl-names = "default";
@@ -193,6 +191,8 @@
 / {
 	leds: leds {
 		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_leds_default>;
 		alive {
 			label = "alive:green";
 			gpios = <&gpio 25 0>;
@@ -243,14 +243,27 @@
 		};
 	};
 
-	pinctrl_i2c0_default: i2c0-default {
+	pinctrl_leds_default: leds-default {
 		mux {
-			groups = "i2c0_10_grp";
-			function = "i2c0";
+			groups = "gpio0_25_grp";
+			function = "gpio0";
 		};
 
 		conf {
-			groups = "i2c0_10_grp";
+			groups = "gpio0_25_grp";
+			slew-rate = <0>;
+			io-standard = <1>;
+		};
+	};
+
+	pinctrl_i2c0_default: i2c0-default {
+		mux {
+			groups = "gpio0_50_grp", "gpio0_51_grp";
+			function = "gpio0";
+		};
+
+		conf {
+			groups = "gpio0_50_grp", "gpio0_51_grp";
 			bias-pull-up;
 			slew-rate = <0>;
 			io-standard = <1>;
