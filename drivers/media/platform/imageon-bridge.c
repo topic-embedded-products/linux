@@ -34,9 +34,6 @@ struct imageon_bridge {
 	struct v4l2_async_notifier notifier;
 	struct media_device media_dev;
 
-	int gpio_rx_hotplug;
-	int gpio_tx_pd;
-
 	u8 input_edid_data[256];
 	u8 input_edid_blocks;
 
@@ -166,16 +163,6 @@ static struct imageon_bridge *imageon_bridge_parse_dt(struct device *dev)
 		return NULL;
 	}
 
-	bridge->gpio_rx_hotplug = of_get_named_gpio(dev->of_node,
-									"rx_hotplug-gpios", 0);
-	if (!gpio_is_valid(bridge->gpio_rx_hotplug))
-		return NULL;
-
-	bridge->gpio_tx_pd = of_get_named_gpio(dev->of_node,
-									"tx_pd-gpios", 0);
-	if (!gpio_is_valid(bridge->gpio_tx_pd))
-		return NULL;
-
 	for (index = 0; index < 2; index++) {
 		next = of_graph_get_next_endpoint(dev->of_node, ep);
 		if (!next) {
@@ -212,22 +199,6 @@ static int imageon_bridge_probe(struct platform_device *pdev)
 			return ret;
 		}
 	}
-
-	ret = devm_gpio_request_one(&pdev->dev,
-		bridge->gpio_rx_hotplug, GPIOF_OUT_INIT_LOW, "RX_HOTPLUG");
-	if (ret < 0)
-		goto err;
-
-	ret = devm_gpio_request_one(&pdev->dev,
-		bridge->gpio_tx_pd, GPIOF_OUT_INIT_LOW, "TX_PD");
-	if (ret < 0)
-		goto err;
-
-	gpio_set_value_cansleep(bridge->gpio_rx_hotplug, 0);
-
-	mdelay(100);
-
-	gpio_set_value_cansleep(bridge->gpio_rx_hotplug, 1);
 
 	ret = imageon_bridge_load_input_edid(pdev, bridge);
 	if (ret < 0)
