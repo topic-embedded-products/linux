@@ -27,12 +27,13 @@
 	};
 
 	chosen {
+		bootargs = "earlycon=cdns,mmio,0xff000000,115200n8";
 		stdout-path = "serial0:115200n8";
 	};
 
 	memory {
 		device_type = "memory";
-		reg = <0x0 0x0 0x40000000>;
+		reg = <0x0 0x0 0x0 0x40000000>;
 	};
 };
 
@@ -106,7 +107,7 @@
 &qspi {
 	status = "okay";
 	flash@0 {
-		compatible = "n25q512a11";
+		compatible = "m25p80";
 		#address-cells = <1>;
 		#size-cells = <1>;
 		reg = <0x0>;
@@ -148,6 +149,7 @@
 
 &sdhci0 {
 	status = "okay";
+	bus-width = <8>;
 };
 
 &sdhci1 {

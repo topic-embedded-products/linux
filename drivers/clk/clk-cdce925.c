@@ -10,6 +10,7 @@
  * Copyright (C) 2014, Topic Embedded Products
  * Licenced under GPL
  */
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/module.h>
@@ -547,7 +548,7 @@ static int cdce925_regmap_i2c_read(void *context,
 
 	ret = i2c_transfer(i2c->adapter, xfer, 2);
 	if (likely(ret == 2)) {
-		dev_dbg(&i2c->dev, "%s(%zu, %u) %#x %#x\n", __func__,
+		dev_dbg(&i2c->dev, "%s(%zu, %zu) %#x %#x\n", __func__,
 				reg_size, val_size, reg_data[0], *((u8 *)val));
 		return 0;
 	} else if (ret < 0)
