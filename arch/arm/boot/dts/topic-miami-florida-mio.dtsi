@@ -4,22 +4,22 @@
  * accessible even without programming any logic. */
 
 / {
-		/* Regulator for the 5V USB VBUS power line. This is connected
-		 * to the second output of the GPIO expander. */
-		reg_usb0_vbus: regulator_usb {
-			compatible = "regulator-fixed";
-			regulator-name = "usb0-vbus";
-			regulator-min-microvolt = <5000000>;
-			regulator-max-microvolt = <5000000>;
-			gpio = <&gpioexf 1 0>;
-			enable-active-high;
-		};
+	/* Regulator for the 5V USB VBUS power line. This is connected
+	 * to the second output of the GPIO expander. */
+	reg_usb0_vbus: regulator_usb {
+		compatible = "regulator-fixed";
+		regulator-name = "usb0-vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&gpioexf 1 0>;
+		enable-active-high;
+	};
 
-		xtal_27Mhz: clock_xtal_27Mhz {
-			compatible = "fixed-clock";
-			#clock-cells = <0>;
-			clock-frequency = <27000000>;
-		};
+	xtal_27Mhz: clock_xtal_27Mhz {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <27000000>;
+	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
@@ -41,7 +41,7 @@
 };
 
 /* I2C bus layout */
-&ps7_i2c_0 {
+&i2c0 {
 	i2cmux: i2cswitch@70 {
 		compatible = "nxp,pca9546";
 		#address-cells = <1>;
@@ -82,7 +82,7 @@
 				#gpio-cells = <2>;
 				interrupt-controller;
 				/* IRQ line connected to MIO 15 */
-				interrupt-parent = <&gpio>;
+				interrupt-parent = <&gpio0>;
 				interrupts = <15 0x8>; /* GPIO 15, IRQ_TYPE_LEVEL_LOW */
 			};
 			si514: si514@55 {
@@ -95,7 +95,7 @@
 };
 
 /* USB connected through MIO and GPIO expander */
-&usb {
+&usb0 {
 	status = "okay";
 	vbus-supply = <&reg_usb0_vbus>;
 	dr_mode = "otg";

@@ -8,6 +8,6 @@
 	status = "okay";
 };
 
-&qspi0 {
+&qspi {
 	status = "disabled"; /* conflicts with NAND pins */
 };

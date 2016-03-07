@@ -13,7 +13,7 @@ the emac should see a MII interface */
 	phy_ext: phy@3 {
 		/* PHY on the board */
 		reg = <0x3>;
-		interrupt-parent = <&gpio>;
+		interrupt-parent = <&gpio0>;
 		interrupts = <65 0x8>; /* GPIO 65 (EMIO 11), IRQ_TYPE_LEVEL_LOW */
 	};
 	phy_fpga: phy@8 {

@@ -6,25 +6,6 @@
 		};
 };
 
-/* I2C bus layout */
-&i2cmux_0 {
-	/* HDMI OUT */
-	adv7511: adv7511@39 {
-		compatible = "adi,adv7511";
-		reg = <0x39>;
-		adi,input-style = <0x02>;
-		adi,input-id = <0x01>;
-		adi,input-color-depth = <0x3>;
-		adi,sync-pulse = <0x03>;
-		adi,bit-justification = <0x01>;
-		adi,up-conversion = <0x00>;
-		adi,timing-generation-sequence = <0x00>;
-		adi,vsync-polarity = <0x02>;
-		adi,hsync-polarity = <0x02>;
-		adi,tdms-clock-inversion;
-		adi,clock-delay = <0x03>;
-	};
-};
 &i2cmux_2 {
 	/* Battery gauge */
 	fuelgauge: battery-gauge {
