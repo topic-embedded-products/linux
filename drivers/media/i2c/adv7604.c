@@ -2891,8 +2891,10 @@ static int adv76xx_parse_dt(struct adv76xx_state *state)
 		state->pdata.op_656_range = 1;
 	}
 
-	/* Disable the interrupt for now as no DT-based board uses it. */
-	state->pdata.int1_config = ADV76XX_INT1_CONFIG_DISABLED;
+	if (!of_property_read_u32(endpoint, "adi,int1-config", &v))
+		state->pdata.int1_config = v;
+	else
+		state->pdata.int1_config = ADV76XX_INT1_CONFIG_DISABLED;
 
 	/* Use the default I2C addresses. */
 	state->pdata.i2c_addresses[ADV7604_PAGE_AVLINK] = 0x42;
