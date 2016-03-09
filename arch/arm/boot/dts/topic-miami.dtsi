@@ -85,6 +85,10 @@
 	status = "okay";
 };
 
+&uart1 {
+	status = "okay";
+};
+
 &sdhci0 {
 	disable-wp; /* We don't have a write-protect detection */
 	status = "okay";
