@@ -2891,7 +2891,7 @@ static int adv76xx_parse_dt(struct adv76xx_state *state)
 		state->pdata.op_656_range = 1;
 	}
 
-	if (!of_property_read_u32(endpoint, "adi,int1-config", &v))
+	if (!of_property_read_u32(np, "adi,int1-config", &v))
 		state->pdata.int1_config = v;
 	else
 		state->pdata.int1_config = ADV76XX_INT1_CONFIG_DISABLED;
