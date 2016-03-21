@@ -2,3 +2,29 @@
 /include/ "topic-miami-florida-gen.dtsi"
 /include/ "topic-miami-florida-xadc-test.dtsi"
 /include/ "topic-dyplo.dtsi"
+
+/* The boards currently in test have 24-bit HDMI interfaces, patch the config
+ * to support the full 24-bit interfaces. This will be integrated into the
+ * "gen" devicetree once these boards hit the market. */
+
+&adv7511 {
+	/* The "adi,input-color-depth" property triggers legacy parsing */
+	/delete-property/ adi,input-color-depth;
+	adi,input-depth = <8>;
+	adi,input-colorspace = "rgb";
+	adi,input-clock = "1x";
+};
+
+&adv7611 {
+	bus-width = <24>;
+	hsync-active = <0>; /* Parallel bus */
+	vsync-active = <0>;
+};
+
+&axi_hdmi_rx {
+	bus-width = <24>;
+};
+
+&axi_hdmi_0 {
+	adi,is-rgb;
+};
