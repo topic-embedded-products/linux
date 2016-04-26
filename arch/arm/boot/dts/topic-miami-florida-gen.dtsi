@@ -31,7 +31,9 @@
 		reg = <0x39>;
 		adi,input-style = <0x02>;
 		adi,input-id = <0x01>;
-		adi,input-color-depth = <0x3>;
+		adi,input-depth = <8>;
+		adi,input-colorspace = "rgb";
+		adi,input-clock = "1x";
 		adi,sync-pulse = <0x03>;
 		adi,bit-justification = <0x01>;
 		adi,up-conversion = <0x00>;
@@ -92,6 +94,9 @@
 			reg = <0x4c>;
 			#address-cells = <0x1>;
 			#size-cells = <0x0>;
+			bus-width = <24>;
+			hsync-active = <0>; /* Parallel bus */
+			vsync-active = <0>;
 			interrupt-parent = <&gpio0>;
 			interrupts = <57 4>; /* EMIO GPIO 3 */
 			adi,int1-config = <1>; /* ADV76XX_INT1_CONFIG_ACTIVE_LOW */
@@ -147,6 +152,7 @@
 	axi_hdmi_0: axi_hdmi@70e00000 {
 		compatible = "adi,axi-hdmi-tx-1.00.a";
 		reg = <0x70e00000 0x10000>;
+		adi,is-rgb;
 		dmas = <&axi_vdma_0 0>;
 		dma-names = "video";
 		clocks = <&clockgen 3>;
@@ -185,6 +191,7 @@
 
 			axi_hdmi_rx: endpoint {
 				remote-endpoint = <&adv7611>;
+				bus-width = <24>;
 			};
 		};
 	};
