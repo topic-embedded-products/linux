@@ -1,4 +1,0 @@
-/dts-v1/;
-/include/ "topic-miami-florida-med.dtsi"
-/include/ "topic-miami-florida-xadc-test.dtsi"
-/include/ "topic-dyplo.dtsi"
