@@ -144,19 +144,12 @@
 		};
 	};
 
-	hdmi_clock: axi-clkgen@79000000 {
-		compatible = "adi,axi-clkgen-2.00.a";
-		reg = <0x79000000 0x10000>;
-		#clock-cells = <0>;
-		clocks = <&clkc 17>;
-	};
-
 	axi_hdmi_0: axi_hdmi@70e00000 {
 		compatible = "adi,axi-hdmi-tx-1.00.a";
 		reg = <0x70e00000 0x10000>;
 		dmas = <&axi_vdma_0 0>;
 		dma-names = "video";
-		clocks = <&hdmi_clock>;
+		clocks = <&clockgen 3>;
 		port {
 			axi_hdmi_out: endpoint {
 				remote-endpoint = <&adv7511_in>;
