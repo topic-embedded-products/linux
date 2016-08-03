@@ -10,6 +10,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/spinlock.h>
 #include <linux/err.h>
+#include <linux/module.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/buffer.h>
@@ -101,7 +102,7 @@ static int dmaengine_buffer_disable(struct iio_buffer *buf,
 
 	dmaengine_buffer = iio_buffer_to_dmaengine_buffer(buf);
 
-	dmaengine_terminate_all(dmaengine_buffer->chan);
+	dmaengine_terminate_sync(dmaengine_buffer->chan);
 
 	spin_lock_irq(&dmaengine_buffer->queue.list_lock);
 	list_splice_tail_init(&dmaengine_buffer->active, &block_list);
@@ -210,3 +211,7 @@ void iio_dmaengine_buffer_free(struct iio_buffer *buffer)
 	iio_buffer_put(buffer);
 }
 EXPORT_SYMBOL_GPL(iio_dmaengine_buffer_free);
+
+MODULE_AUTHOR("Lars-Peter Clausen <lars@metafoo.de>");
+MODULE_DESCRIPTION("DMA buffer for the IIO framework");
+MODULE_LICENSE("GPL");

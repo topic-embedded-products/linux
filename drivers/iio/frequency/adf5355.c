@@ -41,9 +41,9 @@
 
 /* REG3 Bit Definitions */
 #define ADF5355_REG3_PHASE(x)			(((x) & 0xFFFFFF) << 4)
-#define ADF5355_REG3_PHASE_ADJUST(x)		((x) << 29)
+#define ADF5355_REG3_PHASE_ADJUST(x)		((x) << 28)
 #define ADF5355_REG3_PHASE_RESYNC(x)		((x) << 29)
-#define ADF5355_REG3_EXACT_SDLOAD_RESET(x)	((x) << 29)
+#define ADF5355_REG3_EXACT_SDLOAD_RESET(x)	((x) << 30)
 
 /* REG4 Bit Definitions */
 #define ADF5355_REG4_COUNTER_RESET_EN(x)	((x) << 4)
@@ -253,7 +253,7 @@ static int adf5355_reg_access(struct iio_dev *indio_dev,
 	struct adf5355_state *st = iio_priv(indio_dev);
 	int ret;
 
-	if (reg > ADF5355_REG7)
+	if (reg > ADF5355_REG12)
 		return -EINVAL;
 
 	mutex_lock(&indio_dev->mlock);
