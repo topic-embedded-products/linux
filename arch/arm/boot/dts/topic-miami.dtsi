@@ -47,6 +47,8 @@
 		serial0 = &uart0;
 		serial1 = &uart1;
 		ethernet0 = &eth;
+		mmc0 = &sdhci0;
+		mmc1 = &sdhci1;
 	};
 
 	memory {
@@ -73,7 +75,7 @@
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_leds_default>;
-		alive {
+		led_alive: alive {
 			label = "alive:green";
 			gpios = <&gpio0 25 0>;
 			linux,default-trigger = "heartbeat";
