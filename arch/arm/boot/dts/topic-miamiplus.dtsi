@@ -1,0 +1,81 @@
+/* the "plus" version has much more I/O pins, but lacks some periferals,
+ * and the NAND was replaced by a dual-QSPI NOR setup. */
+
+/* Remove missing periferals */
+/delete-node/ &monitorvolt;
+/delete-node/ &monitorcurrent;
+/delete-node/ &ltc3562;
+
+/* Dual QSPI configuration */
+&qspi {
+	is-dual = <1>;
+};
+
+/* erasesize is 128k instead of 64k */
+&primary_flash {
+	partition@qspi-u-boot-spl {
+		label = "qspi-u-boot-spl";
+		reg = <0x00000 0x20000>;
+	};
+	partition@qspi-u-boot-img {
+		label = "qspi-u-boot-img";
+		reg = <0x20000 0x60000>;
+	};
+	partition@qspi-u-boot-env {
+		label = "qspi-u-boot-env";
+		reg = <0x80000 0x20000>;
+	};
+	partition@qspi-device-tree {
+		label = "qspi-device-tree";
+		reg = <0xA0000 0x10000>;
+	};
+	partition@qspi-linux {
+		label = "qspi-linux";
+		reg = <0xB0000 0x440000>;
+	};
+	partition@qspi-rootfs {
+		label = "qspi-rootfs";
+		reg = <0x500000 0x3b00000>;
+	};
+	/* Everything */
+	partition@qspi-all {
+		label = "qspi-all";
+		reg = <0x0 0x4000000>;
+	};
+};
+
+/* The plus SOMs have a programmable clock for the high-speed tranceivers */
+&i2c1: {
+	si514s: si514@55 {
+		reg = <0x55>;
+		#clock-cells = <0>;
+		compatible = "silabs,si514";
+	};
+	max6550: max6550@1b {
+		reg = <0x1b>; /* ADD pins high-Z, hence address 0011011b */
+		compatible = "max6550";
+	};
+}
+
+/* Extra user board LED on GPIO expander */
+&leds {
+	led_user2: user2 {
+		label = "user2:green";
+		gpios = <&gpioex 3 0>;
+	};
+};
+/* Alive LED is on MIO7 instead of 25 */
+&led_alive {
+	gpios = <&gpio0 7 0>;
+};
+&pinctrl_leds_default {
+	mux {
+		groups = "gpio0_7_grp";
+		function = "gpio0";
+	};
+	conf {
+		groups = "gpio0_7_grp";
+		slew-rate = <0>;
+		io-standard = <1>;
+	};
+};
