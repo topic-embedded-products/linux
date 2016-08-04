@@ -27,11 +27,11 @@
 	};
 	partition@qspi-device-tree {
 		label = "qspi-device-tree";
-		reg = <0xA0000 0x10000>;
+		reg = <0xA0000 0x20000>;
 	};
 	partition@qspi-linux {
 		label = "qspi-linux";
-		reg = <0xB0000 0x440000>;
+		reg = <0xC0000 0x440000>;
 	};
 	partition@qspi-rootfs {
 		label = "qspi-rootfs";
@@ -45,7 +45,7 @@
 };
 
 /* The plus SOMs have a programmable clock for the high-speed tranceivers */
-&i2c1: {
+&i2c1 {
 	si514s: si514@55 {
 		reg = <0x55>;
 		#clock-cells = <0>;
@@ -55,7 +55,7 @@
 		reg = <0x1b>; /* ADD pins high-Z, hence address 0011011b */
 		compatible = "max6550";
 	};
-}
+};
 
 /* Extra user board LED on GPIO expander */
 &leds {
