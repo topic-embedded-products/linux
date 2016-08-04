@@ -65,14 +65,13 @@
 		reg = <0x2F>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <64 0x2>; /* GPIO 64 (EMIO 10), falling edge */
-		adi,x-plate-ohms = /bits/ 16 <620>;
-		adi,pressure-min = /bits/ 16 <0>;
-		adi,pressure-max = /bits/ 16 <10000>;
-		adi,x-min = /bits/ 16 <0>;
-		adi,x-max = /bits/ 16 <1024>;
-		adi,y-min = /bits/ 16 <0>;
-		adi,y.max = /bits/ 16 <600>;
-		adi,pen-down-acquisition-interval = /bits/ 8 <255>; /* 9.4 ms */
+		adi,resistance-plate-x = <620>;
+		touchscreen-max-pressure = <4096>;
+		adi,first-conversion-delay = /bits/ 8 <3>;
+		adi,acquisition-time = /bits/ 8 <1>;
+		adi,median-filter-size = /bits/ 8 <2>;
+		adi,averaging = /bits/ 8 <1>;
+		adi,conversion-interval = /bits/ 8 <255>;
 	};
 };
 
