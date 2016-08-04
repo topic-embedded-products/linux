@@ -1,4 +1,3 @@
-/include/ "topic-miami.dtsi"
 /include/ "topic-miami-florida-mio.dtsi"
 
 /* Common components for ALL florida boards */
