@@ -1,4 +1,3 @@
 /dts-v1/;
 /include/ "topic-miami.dtsi"
-/include/ "topic-miamiplus.dtsi"
 /include/ "topic-miami-florida-test.dtsi"
