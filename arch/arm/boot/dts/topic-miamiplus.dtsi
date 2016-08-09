@@ -50,10 +50,12 @@
 		reg = <0x55>;
 		#clock-cells = <0>;
 		compatible = "silabs,si514";
+		clock-output-names = "si514miami";
 	};
-	max6550: max6550@1b {
+	max6650: max6650@1b {
 		reg = <0x1b>; /* ADD pins high-Z, hence address 0011011b */
-		compatible = "max6550";
+		compatible = "max6650";
+		voltage = <12>;
 	};
 };
 
@@ -75,6 +77,21 @@
 	};
 	conf {
 		groups = "gpio0_7_grp";
+		slew-rate = <0>;
+		io-standard = <1>;
+	};
+};
+
+/* I2C bus 1 using pins 48+49 */
+&pinctrl_i2c1_default {
+	mux {
+		groups = "i2c1_9_grp";
+		function = "i2c1";
+	};
+
+	conf {
+		groups = "i2c1_9_grp";
+		bias-pull-up;
 		slew-rate = <0>;
 		io-standard = <1>;
 	};
