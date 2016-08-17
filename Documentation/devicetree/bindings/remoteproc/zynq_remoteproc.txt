@@ -14,8 +14,8 @@ within Zynq SoC.
 Required properties:
 --------------------
  - compatible : should be "xlnx,zynq_remoteproc"
- - reg : address and length of the register set for the device
-         which defines the memory for the firmware and the shared memory
+ - memory-region: Handle to a reserved-memory region to hold the firmware and
+                  shared memory.
  - firmware: default firmware name
  - vring0: soft interrupt for kicking from firmware
  - vring1: soft interrupt for kicking from Linux kernel
@@ -25,13 +25,32 @@ Optional properties:
  - firmware : default firmware image name which can be loaded by remoteproc
               framework - this value can be override by "firmware" module
               parameter
+ - reg : For backward compatibility, to specify memory region.
 
 Example:
 --------
-	zynq_remoteproc@0 {
+/ {
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		/* Reserve the top 2 MB of the 0.5GB DDR RAM */
+		remoteproc_reserved: remoteproc@0x1fe00000 {
+			reg = <0x1fe00000 0x200000>;
+			no-map; /* For dma_declare_coherent_memory() */
+		};
+	};
+
+	/* Boot CPU1 with AMP software, using reserved memory for firmware */
+	zynq_remoteproc@1 {
 		compatible = "xlnx,zynq_remoteproc";
-		reg = < 0x00000000 0x10000000 >;
-		firmware = "firmware";
+		memory-region = <&remoteproc_reserved>;
+		interrupt-parent = <&intc>;
+		interrupts = <0 37 0>, <0 38 0>;
+		firmware = "amp1.elf";
+		/* vring0 is the ipino */
 		vring0 = <15>;
 		vring1 = <14>;
 	};
+};

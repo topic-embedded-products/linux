@@ -32,6 +32,7 @@
 #include <asm/outercache.h>
 #include <linux/slab.h>
 #include <linux/cpu.h>
+#include <linux/of_address.h>
 
 #include "remoteproc_internal.h"
 
@@ -52,8 +53,6 @@ struct zynq_rproc_pdata {
 	struct rproc *rproc;
 	u32 vring0;
 	u32 vring1;
-	u32 mem_start;
-	u32 mem_end;
 };
 
 /* Store rproc for IPI handler */
@@ -170,6 +169,8 @@ static int zynq_remoteproc_probe(struct platform_device *pdev)
 	struct irq_list *tmp;
 	int count = 0;
 	struct zynq_rproc_pdata *local;
+	struct device_node *node;
+	struct resource memory;
 
 	ret = cpu_down(1);
 	/* EBUSY means CPU is already released */
@@ -185,19 +186,27 @@ static int zynq_remoteproc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, local);
 
-	/* Declare memory for firmware */
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "invalid address\n");
-		return -ENODEV;
+	/* Declare memory for firmware. */
+	node = of_parse_phandle(pdev->dev.of_node, "memory-region", 0);
+	if (node) {
+		ret = of_address_to_resource(node, 0, &memory);
+		if (ret) {
+			dev_err(&pdev->dev, "Can't get memory-region resource\n");
+			return ret;
+		}
+	} else {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (!res) {
+			dev_err(&pdev->dev, "invalid address\n");
+			return -ENODEV;
+		}
+		memory.start = res->start;
+		memory.end = res->end;
+		memory.flags = IORESOURCE_MEM;
 	}
-
-	local->mem_start = res->start;
-	local->mem_end = res->end;
-
-	/* Alloc phys addr from 0 to max_addr for firmware */
-	ret = dma_declare_coherent_memory(&pdev->dev, local->mem_start,
-		local->mem_start, local->mem_end - local->mem_start + 1,
+	/* Alloc phys addr for firmware */
+	ret = dma_declare_coherent_memory(&pdev->dev, memory.start,
+		memory.start, memory.end - memory.start + 1,
 		DMA_MEMORY_IO);
 	if (!ret) {
 		dev_err(&pdev->dev, "dma_declare_coherent_memory failed\n");
