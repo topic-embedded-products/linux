@@ -132,18 +132,20 @@
 	/* FPGA IP blocks */
 
 	axi_vdma_0: axivdma@43000000 {
-		compatible = "xlnx,axi-vdma";
+		compatible = "xlnx,axi-vdma-1.00.a";
 		#address-cells = <1>;
 		#size-cells = <1>;
 		#dma-cells = <1>;
 		#dma-channels = <1>;
 		reg = <0x43000000 0x1000>;
-		xlnx,include-sg = <0x0>;
-		xlnx,num-fstores = <0x3>;
+		dma-ranges = <0x00000000 0x00000000 0x40000000>;
+		xlnx,num-fstores = <3>;
+		xlnx,flush-fsync = <1>;
+		xlnx,addrwidth = <32>;
 		dma-channel@43000000 {
 			compatible = "xlnx,axi-vdma-mm2s-channel";
 			interrupts = <0 59 0x4>;
-			xlnx,datawidth = <0x40>;
+			xlnx,datawidth = <64>;
 			xlnx,genlock-mode = <0x0>;
 			xlnx,include-dre = <0x0>;
 		};
@@ -219,18 +221,20 @@
 	};
 
 	axi_vdma_1: axivdma@43010000 {
-		compatible = "xlnx,axi-vdma";
+		compatible = "xlnx,axi-vdma-1.00.a";
 		#address-cells = <1>;
 		#size-cells = <1>;
 		#dma-cells = <1>;
 		#dma-channels = <1>;
 		reg = <0x43010000 0x1000>;
-		xlnx,include-sg = <0x0>;
-		xlnx,num-fstores = <0x3>;
+		dma-ranges = <0x00000000 0x00000000 0x40000000>;
+		xlnx,num-fstores = <3>;
+		xlnx,flush-fsync = <1>;
+		xlnx,addrwidth = <32>;
 		dma-channel@43000000 {
 			compatible = "xlnx,axi-vdma-mm2s-channel";
 			interrupts = <0 55 0x4>;
-			xlnx,datawidth = <0x40>;
+			xlnx,datawidth = <64>;
 			xlnx,genlock-mode = <0x0>;
 			xlnx,include-dre = <0x0>;
 		};
