@@ -235,7 +235,7 @@ struct adp5589_kpad {
 	unsigned short gpimapsize;
 	unsigned extend_cfg;
 	bool is_adp5585;
-	bool adp5585_support_row5;
+	bool support_row5;
 #ifdef CONFIG_GPIOLIB
 	unsigned char gpiomap[ADP5589_MAXGPIO];
 	bool export_gpio;
@@ -485,7 +485,7 @@ static int adp5589_build_gpiomap(struct adp5589_kpad *kpad,
 	if (kpad->extend_cfg & C4_EXTEND_CFG)
 		pin_used[kpad->var->c4_extend_cfg] = true;
 
-	if (!kpad->adp5585_support_row5)
+	if (!kpad->support_row5)
 		pin_used[5] = true;
 
 	for (i = 0; i < kpad->var->maxgpio; i++)
@@ -505,7 +505,7 @@ static int adp5589_gpio_add(struct adp5589_kpad *kpad,
 	if (!gpio_data)
 		return 0;
 
-	kpad->gc.dev = dev;
+	kpad->gc.parent = dev;
 	kpad->gc.ngpio = adp5589_build_gpiomap(kpad, pdata);
 	if (kpad->gc.ngpio == 0) {
 		dev_info(dev, "No unused gpios left to export\n");

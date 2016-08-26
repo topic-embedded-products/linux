@@ -41,4 +41,3 @@ in0_input     Voltage at Vcc pin in millivolt (range 2.5V to 5V)
 temp1_input   Internal chip temperature in millidegrees Celcius
 curr1_input   Current in mA across v1-v2 assuming a 1mOhm sense resistor.
 curr2_input   Current in mA across v3-v4 assuming a 1mOhm sense resistor.
-
