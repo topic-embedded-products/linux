@@ -135,6 +135,13 @@
 	eeprom: eeprom@50 {
 		compatible = "at24,24c04";
 		reg = <0x50>;
+		/* NVMEM entries */
+		miamiserial: serial@1f4 {
+			reg = <0x1f4 4>;
+		};
+		dyplolicense: dyplolicense@1f8 {
+			reg = <0x1f8 8>;
+		};
 	};
 	/* IO Voltage controller */
 	ltc3562: ltc3562@65 {
