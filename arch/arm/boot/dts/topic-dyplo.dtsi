@@ -6,5 +6,7 @@
 		reg = <0x64400000 0x200000>;
 		interrupt-parent = <&intc>;
 		interrupts = <0 57 0x4>;
+		nvmem-cells = <&dyplolicense>;
+		nvmem-cell-names = "license";
 	};
 };
