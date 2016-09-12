@@ -36,6 +36,9 @@
 
 /delete-node/ &gem0;
 /delete-node/ &gem1;
+/* Remove broken I2C driver and replace with bitbang GPIO */
+/delete-node/ &i2c0;
+/delete-node/ &i2c1;
 
 / {
 	model = "Topic Zynq Miami";
@@ -81,6 +84,32 @@
 			linux,default-trigger = "heartbeat";
 		};
 	};
+
+	i2c0: gpios-i2c@50 {
+		bus-id = <0>;
+		compatible = "i2c-gpio";
+		gpios = <&gpio0 51 0 /* sda */
+			 &gpio0 50 0 /* scl */
+			>;
+		i2c-gpio,delay-us = <3>;	/* 333 kHz (?) */
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_i2c0_default>;
+	};
+
+	i2c1: gpios-i2c@52 {
+		bus-id = <1>;
+		compatible = "i2c-gpio";
+		gpios = <&gpio0 53 0 /* sda */
+			 &gpio0 52 0 /* scl */
+			>;
+		i2c-gpio,delay-us = <3>;	/* 333 kHz (?) */
+		#address-cells = <1>;
+		#size-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_i2c1_default>;
+	};
 };
 
 /* Disable the ARM timer. This clocksource does not compensate for frequency
@@ -107,10 +136,6 @@
 
 
 &i2c1 {
-	status = "okay";
-	clock-frequency = <360000>;
-	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_i2c1_default>;
 	/* AD converter for voltage monitoring */
 	monitorvolt: ad799x@29 {
 		compatible = "ad7999";
@@ -204,24 +229,6 @@
 	   mkdir /media/nand
 	   mount -t ubifs /dev/ubi0_0 /media/nand
 	 */
-};
-
-/* Remove broken I2C driver and replace with bitbang GPIO */
-/delete-node/ &i2c0;
-
-&amba {
-		i2c0: gpios-i2c@50 {
-			bus-id = <0>;
-			compatible = "i2c-gpio";
-			gpios = <&gpio0 51 0 /* sda */
-				 &gpio0 50 0 /* scl */
-				>;
-			i2c-gpio,delay-us = <3>;	/* 333 kHz (?) */
-			#address-cells = <1>;
-			#size-cells = <0>;
-			pinctrl-names = "default";
-			pinctrl-0 = <&pinctrl_i2c0_default>;
-		};
 };
 
 &usb0 {
@@ -330,12 +337,12 @@
 
 	pinctrl_i2c1_default: i2c1-default {
 		mux {
-			groups = "i2c1_10_grp";
-			function = "i2c1";
+			groups = "gpio0_52_grp", "gpio0_53_grp";
+			function = "gpio0";
 		};
 
 		conf {
-			groups = "i2c1_10_grp";
+			groups = "gpio0_52_grp", "gpio0_53_grp";
 			bias-pull-up;
 			slew-rate = <0>;
 			io-standard = <1>;
