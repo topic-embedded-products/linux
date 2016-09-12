@@ -11,33 +11,12 @@
 	is-dual = <1>;
 };
 
-/* erasesize is 128k instead of 64k */
+/* Dual flash, also double the capacity so adjust rootfs and "all" partitions */
 &primary_flash {
-	partition@qspi-u-boot-spl {
-		label = "qspi-u-boot-spl";
-		reg = <0x00000 0x20000>;
-	};
-	partition@qspi-u-boot-img {
-		label = "qspi-u-boot-img";
-		reg = <0x20000 0x60000>;
-	};
-	partition@qspi-u-boot-env {
-		label = "qspi-u-boot-env";
-		reg = <0x80000 0x20000>;
-	};
-	partition@qspi-device-tree {
-		label = "qspi-device-tree";
-		reg = <0xA0000 0x20000>;
-	};
-	partition@qspi-linux {
-		label = "qspi-linux";
-		reg = <0xC0000 0x440000>;
-	};
 	partition@qspi-rootfs {
 		label = "qspi-rootfs";
 		reg = <0x500000 0x3b00000>;
 	};
-	/* Everything */
 	partition@qspi-all {
 		label = "qspi-all";
 		reg = <0x0 0x4000000>;
