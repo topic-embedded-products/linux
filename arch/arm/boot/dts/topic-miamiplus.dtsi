@@ -64,14 +64,20 @@
 };
 
 /* I2C bus 1 using pins 48+49 */
+&i2c1 {
+	gpios = <&gpio0 49 0 /* sda */
+		 &gpio0 48 0 /* scl */
+		>;
+};
+
 &pinctrl_i2c1_default {
 	mux {
-		groups = "i2c1_9_grp";
-		function = "i2c1";
+		groups = "gpio0_48_grp", "gpio0_49_grp";
+		function = "gpio0";
 	};
 
 	conf {
-		groups = "i2c1_9_grp";
+		groups = "gpio0_48_grp", "gpio0_49_grp";
 		bias-pull-up;
 		slew-rate = <0>;
 		io-standard = <1>;
