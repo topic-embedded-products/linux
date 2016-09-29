@@ -160,6 +160,8 @@
 	eeprom: eeprom@50 {
 		compatible = "at24,24c04";
 		reg = <0x50>;
+		#address-cells = <1>;
+		#size-cells = <1>;
 		/* NVMEM entries */
 		miamiserial: serial@1f4 {
 			reg = <0x1f4 4>;
