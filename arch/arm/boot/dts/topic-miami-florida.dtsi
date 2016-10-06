@@ -14,6 +14,8 @@ the emac should see a MII interface */
 		reg = <0x3>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <65 0x8>; /* GPIO 65 (EMIO 11), IRQ_TYPE_LEVEL_LOW */
+		rxc-skew-ps = <1080>; /* Skew RX clock pad by 180 ps */
+		txc-skew-ps = <840>;  /* Skew TX clock pad by -60 ps */
 	};
 	phy_fpga: phy@8 {
 		/* Internal GMII to RGMII adapter PHY */
