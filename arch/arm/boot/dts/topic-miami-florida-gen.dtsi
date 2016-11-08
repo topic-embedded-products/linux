@@ -158,6 +158,8 @@
 		xlnx,num-fstores = <3>;
 		xlnx,flush-fsync = <1>;
 		xlnx,addrwidth = <32>;
+		clocks = <&clkc 15>; /* FCLK0 */
+		clock-names = "s_axi_lite_aclk";
 		dma-channel@43000000 {
 			compatible = "xlnx,axi-vdma-mm2s-channel";
 			interrupts = <0 59 0x4>;
@@ -247,6 +249,8 @@
 		xlnx,num-fstores = <3>;
 		xlnx,flush-fsync = <1>;
 		xlnx,addrwidth = <32>;
+		clocks = <&clkc 15>; /* FCLK0 */
+		clock-names = "s_axi_lite_aclk";
 		dma-channel@43000000 {
 			compatible = "xlnx,axi-vdma-mm2s-channel";
 			interrupts = <0 55 0x4>;
