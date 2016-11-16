@@ -23,6 +23,22 @@
 	};
 };
 
+/* On-board push buttons connected to EMIO GPIO 4 and 5 in reference design */
+&gpio_keys {
+	s2 {
+		label = "s2";
+		gpios = <&gpio0 58 1>; /* EMIO 4, active low */
+		linux,code = <60>; /* KEY_F2 */
+		gpio-key,wakeup;
+	};
+	s3 {
+		label = "s3";
+		gpios = <&gpio0 59 1>; /* EMIO 5, active low */
+		linux,code = <61>; /* KEY_F3 */
+		gpio-key,wakeup;
+	};
+};
+
 /* I2C bus layout */
 &i2cmux_0 {
 	/* HDMI OUT */
