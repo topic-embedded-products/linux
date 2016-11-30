@@ -857,7 +857,6 @@ u32 ad9361_validate_rf_bw(struct ad9361_rf_phy *phy, u32 bw)
 {
 	switch(spi_get_device_id(phy->spi)->driver_data) {
 	case ID_AD9363A:
-	case ID_AD9363B:
 		return clamp_t(u32, bw, 0, 20000000UL);
 	default:
 		return clamp_t(u32, bw, 0, 56000000UL);
@@ -870,11 +869,6 @@ int ad9361_validate_rfpll(struct ad9361_rf_phy *phy, u64 freq)
 		case ID_AD9363A:
 			if (freq > AD9363A_MAX_CARRIER_FREQ_HZ ||
 				freq < AD9363A_MIN_CARRIER_FREQ_HZ)
-				return -EINVAL;
-			break;
-		case ID_AD9363B:
-			if (freq > AD9363B_MAX_CARRIER_FREQ_HZ ||
-				freq < AD9363B_MIN_CARRIER_FREQ_HZ)
 				return -EINVAL;
 			break;
 		default:
@@ -1095,7 +1089,7 @@ static int ad9361_bist_tone(struct ad9361_rf_phy *phy,
 }
 
 static int ad9361_check_cal_done(struct ad9361_rf_phy *phy, u32 reg,
-				 u32 mask, bool done_state)
+				 u32 mask, u32 done_state)
 {
 	u32 timeout = 5000; /* RFDC_CAL can take long */
 	u32 state;
@@ -2820,10 +2814,18 @@ static int ad9361_trx_ext_lo_control(struct ad9361_rf_phy *phy,
 				  TX_VCO_DIVIDER(~0), enable ? 7 :
 				  phy->cached_tx_rfpll_div);
 
+		if (enable)
+			phy->cached_synth_pd[0] |= TX_SYNTH_VCO_ALC_POWER_DOWN |
+						   TX_SYNTH_PTAT_POWER_DOWN |
+						   TX_SYNTH_VCO_POWER_DOWN;
+		else
+			phy->cached_synth_pd[0] &= ~(TX_SYNTH_VCO_ALC_POWER_DOWN |
+						   TX_SYNTH_PTAT_POWER_DOWN |
+						   TX_SYNTH_VCO_POWER_DOWN);
+
+
 		ret |= ad9361_spi_write(phy->spi, REG_TX_SYNTH_POWER_DOWN_OVERRIDE,
-				enable ? TX_SYNTH_VCO_ALC_POWER_DOWN |
-				TX_SYNTH_PTAT_POWER_DOWN |
-				TX_SYNTH_VCO_POWER_DOWN : 0);
+					phy->cached_synth_pd[0]);
 
 		ret |= ad9361_spi_writef(phy->spi, REG_ANALOG_POWER_DOWN_OVERRIDE,
 				  TX_EXT_VCO_BUFFER_POWER_DOWN, !enable);
@@ -2838,10 +2840,17 @@ static int ad9361_trx_ext_lo_control(struct ad9361_rf_phy *phy,
 				  RX_VCO_DIVIDER(~0), enable ? 7 :
 				  phy->cached_rx_rfpll_div);
 
+		if (enable)
+			phy->cached_synth_pd[1] |= RX_SYNTH_VCO_ALC_POWER_DOWN |
+						   RX_SYNTH_PTAT_POWER_DOWN |
+						   RX_SYNTH_VCO_POWER_DOWN;
+		else
+			phy->cached_synth_pd[1] &= ~(TX_SYNTH_VCO_ALC_POWER_DOWN |
+						    RX_SYNTH_PTAT_POWER_DOWN |
+						    RX_SYNTH_VCO_POWER_DOWN);
+
 		ret |= ad9361_spi_write(phy->spi, REG_RX_SYNTH_POWER_DOWN_OVERRIDE,
-				enable ? RX_SYNTH_VCO_ALC_POWER_DOWN |
-				RX_SYNTH_PTAT_POWER_DOWN |
-				RX_SYNTH_VCO_POWER_DOWN : 0);
+					phy->cached_synth_pd[1]);
 
 		ret |= ad9361_spi_writef(phy->spi, REG_ANALOG_POWER_DOWN_OVERRIDE,
 				  RX_EXT_VCO_BUFFER_POWER_DOWN, !enable);
@@ -2851,6 +2860,39 @@ static int ad9361_trx_ext_lo_control(struct ad9361_rf_phy *phy,
 	}
 
 	return ret;
+}
+
+static int ad9361_synth_lo_powerdown(struct ad9361_rf_phy *phy,
+				     enum synth_pd_ctrl rx,
+				     enum synth_pd_ctrl tx)
+{
+
+	dev_dbg(&phy->spi->dev, "%s : RX(%d) TX(%d)",__func__, rx, tx);
+
+	switch (rx) {
+	case LO_OFF:
+		phy->cached_synth_pd[1] |= RX_LO_POWER_DOWN;
+		break;
+	case LO_ON:
+		phy->cached_synth_pd[1] &= ~RX_LO_POWER_DOWN;
+		break;
+	case LO_DONTCARE:
+		break;
+	}
+
+	switch (tx) {
+	case LO_OFF:
+		phy->cached_synth_pd[0] |= TX_LO_POWER_DOWN;
+		break;
+	case LO_ON:
+		phy->cached_synth_pd[0] &= ~TX_LO_POWER_DOWN;
+		break;
+	case LO_DONTCARE:
+		break;
+	}
+
+	return ad9361_spi_writem(phy->spi, REG_TX_SYNTH_POWER_DOWN_OVERRIDE,
+				 phy->cached_synth_pd, 2);
 }
 
 /* REFERENCE CLOCK DELAY UNIT COUNTER REGISTER */
@@ -3741,15 +3783,31 @@ static int ad9361_ensm_set_state(struct ad9361_rf_phy *phy, u8 ensm_state,
 	}
 
 	if (rc) {
-		dev_err(dev, "Invalid ENSM state transition in %s mode\n",
-			phy->pdata->fdd ? "FDD" : "TDD");
-		goto out;
+		if ((phy->curr_ensm_state != ENSM_STATE_ALERT) && (val & (FORCE_RX_ON | FORCE_TX_ON))) {
+			u32 val2 = val;
+
+			val2 &= ~(FORCE_TX_ON | FORCE_RX_ON);
+			val2 |= TO_ALERT | FORCE_ALERT_STATE;
+			ad9361_spi_write(spi, REG_ENSM_CONFIG_1, val2);
+
+			ad9361_check_cal_done(phy, REG_STATE, ENSM_STATE(~0), ENSM_STATE_ALERT);
+		} else {
+			dev_err(dev, "Invalid ENSM state transition in %s mode\n",
+				phy->pdata->fdd ? "FDD" : "TDD");
+			goto out;
+		}
 	}
 
 	 if (!phy->pdata->fdd && !pinctrl && !phy->pdata->tdd_use_dual_synth &&
-		 (ensm_state == ENSM_STATE_TX || ensm_state == ENSM_STATE_RX))
+		 (ensm_state == ENSM_STATE_TX || ensm_state == ENSM_STATE_RX)) {
 		ad9361_spi_writef(phy->spi, REG_ENSM_CONFIG_2,
 				  TXNRX_SPI_CTRL, ensm_state == ENSM_STATE_TX);
+
+		ad9361_check_cal_done(phy, (ensm_state == ENSM_STATE_TX) ?
+				      REG_TX_CP_OVERRANGE_VCO_LOCK :
+				      REG_RX_CP_OVERRANGE_VCO_LOCK,
+				      VCO_LOCK, 1);
+	}
 
 	rc = ad9361_spi_write(spi, REG_ENSM_CONFIG_1, val);
 	if (rc)
@@ -3837,6 +3895,8 @@ int ad9361_set_trx_clock_chain(struct ad9361_rf_phy *phy,
 	if (ret < 0)
 		return ret;
 
+	phy->current_rx_path_clks[BBPLL_FREQ] = rx_path_clks[BBPLL_FREQ];
+
 	for (i = ADC_CLK, j = DAC_CLK, n = ADC_FREQ;
 		i <= RX_SAMPL_CLK; i++, j++, n++) {
 		ret = clk_set_rate(phy->clks[i], rx_path_clks[n]);
@@ -3845,12 +3905,14 @@ int ad9361_set_trx_clock_chain(struct ad9361_rf_phy *phy,
 				ret);
 			return ret;
 		}
+		phy->current_rx_path_clks[n] = rx_path_clks[n];
 		ret = clk_set_rate(phy->clks[j], tx_path_clks[n]);
 		if (ret < 0) {
 			dev_err(dev, "Failed to set BB ref clock rate (%d)\n",
 				ret);
 			return ret;
 		}
+		phy->current_tx_path_clks[n] = tx_path_clks[n];
 	}
 
 	/*
@@ -4322,6 +4384,11 @@ static int ad9361_mcs(struct ad9361_rf_phy *phy, unsigned step)
 
 	dev_dbg(&phy->spi->dev, "%s: MCS step %d", __func__, step);
 
+	switch(spi_get_device_id(phy->spi)->driver_data) {
+		case ID_AD9363A:
+			return -ENODEV;
+	}
+
 	switch (step) {
 	case 1:
 		/* REVIST:
@@ -4502,6 +4569,8 @@ static void ad9361_clear_state(struct ad9361_rf_phy *phy)
 	phy->current_rx_lo_freq = 0;
 	phy->current_tx_use_tdd_table = false;
 	phy->current_rx_use_tdd_table = false;
+	phy->cached_synth_pd[0] = 0;
+	phy->cached_synth_pd[1] = 0;
 
 	memset(&phy->fastlock, 0, sizeof(phy->fastlock));
 }
@@ -6298,6 +6367,7 @@ enum ad9361_iio_dev_attr {
 	AD9361_QUAD_ENABLE,
 	AD9361_DCXO_TUNE_COARSE,
 	AD9361_DCXO_TUNE_FINE,
+	AD9361_XO_CORRECTION,
 	AD9361_MCS_SYNC,
 };
 
@@ -6506,6 +6576,27 @@ static ssize_t ad9361_phy_store(struct device *dev,
 		ret = ad9361_set_dcxo_tune(phy, phy->pdata->dcxo_coarse,
 					   phy->pdata->dcxo_fine);
 		break;
+	case AD9361_XO_CORRECTION:
+	{
+		unsigned long rx, tx;
+		ret = kstrtol(buf, 10, &readin);
+		if (ret)
+			break;
+		if (readin == clk_get_rate(phy->clk_refin))
+			break;
+
+		rx = phy->current_rx_lo_freq;
+		tx = phy->current_tx_lo_freq;
+
+		ret = clk_set_rate(phy->clk_refin, (unsigned long) readin);
+		if (ret < 0)
+			break;
+
+		ad9361_set_trx_clock_chain(phy, phy->current_rx_path_clks, phy->current_tx_path_clks);
+		clk_set_rate(phy->clks[RX_RFPLL], rx);
+		clk_set_rate(phy->clks[TX_RFPLL], tx);
+		break;
+	}
 	case AD9361_MCS_SYNC:
 		ret = kstrtol(buf, 10, &readin);
 		if (ret)
@@ -6625,6 +6716,9 @@ static ssize_t ad9361_phy_show(struct device *dev,
 		else
 			ret = sprintf(buf, "%d\n", phy->pdata->dcxo_fine);
 		break;
+	case AD9361_XO_CORRECTION:
+		ret = sprintf(buf, "%lu\n", clk_get_rate(phy->clk_refin));
+		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -6728,6 +6822,11 @@ static IIO_DEVICE_ATTR(dcxo_tune_fine, S_IRUGO | S_IWUSR,
 			ad9361_phy_store,
 			AD9361_DCXO_TUNE_FINE);
 
+static IIO_DEVICE_ATTR(xo_correction, S_IRUGO | S_IWUSR,
+		       ad9361_phy_show,
+		       ad9361_phy_store,
+		       AD9361_XO_CORRECTION);
+
 static IIO_DEVICE_ATTR(multichip_sync, S_IWUSR,
 			NULL,
 			ad9361_phy_store,
@@ -6753,6 +6852,7 @@ static struct attribute *ad9361_phy_attributes[] = {
 	&iio_dev_attr_in_voltage_quadrature_tracking_en.dev_attr.attr,
 	&iio_dev_attr_dcxo_tune_coarse.dev_attr.attr,
 	&iio_dev_attr_dcxo_tune_fine.dev_attr.attr,
+	&iio_dev_attr_xo_correction.dev_attr.attr,
 	&iio_dev_attr_multichip_sync.dev_attr.attr,
 	NULL,
 };
@@ -6788,6 +6888,7 @@ enum lo_ext_info {
 	LOEXT_LOAD,
 	LOEXT_SAVE,
 	LOEXT_EXTERNAL,
+	LOEXT_PD,
 };
 
 static ssize_t ad9361_phy_lo_write(struct iio_dev *indio_dev,
@@ -6797,6 +6898,7 @@ static ssize_t ad9361_phy_lo_write(struct iio_dev *indio_dev,
 {
 	struct ad9361_rf_phy *phy = iio_priv(indio_dev);
 	u64 readin;
+	bool res;
 	unsigned long tmp;
 	int ret = 0;
 
@@ -6804,9 +6906,26 @@ static ssize_t ad9361_phy_lo_write(struct iio_dev *indio_dev,
 		return -EINVAL;
 
 	if (private != LOEXT_LOAD) {
-		ret = kstrtoull(buf, 10, &readin);
-		if (ret)
-			return ret;
+
+	}
+
+	switch (private) {
+		case LOEXT_FREQ:
+		case LOEXT_STORE:
+		case LOEXT_RECALL:
+		case LOEXT_SAVE:
+			ret = kstrtoull(buf, 10, &readin);
+			if (ret)
+				return ret;
+			break;
+		case LOEXT_EXTERNAL:
+		case LOEXT_PD:
+			ret = strtobool(buf, &res);
+			if (ret < 0)
+				return ret;
+			break;
+		case LOEXT_LOAD:
+			break;
 	}
 
 	mutex_lock(&indio_dev->mlock);
@@ -6864,30 +6983,46 @@ static ssize_t ad9361_phy_lo_write(struct iio_dev *indio_dev,
 		phy->fastlock.save_profile = readin;
 		break;
 	case LOEXT_EXTERNAL:
-		switch (chan->channel) {
-		case 0:
-			if (phy->clk_ext_lo_rx)
-				ret = clk_set_parent(phy->clks[RX_RFPLL],
-				       readin ? phy->clk_ext_lo_rx :
-				       phy->clks[RX_RFPLL_INT]);
-			else
-				ret = -ENODEV;
+		switch(spi_get_device_id(phy->spi)->driver_data) {
+		case ID_AD9363A:
+			ret = -ENODEV;
 			break;
-
-		case 1:
-			if (phy->clk_ext_lo_tx)
-				ret = clk_set_parent(phy->clks[TX_RFPLL],
-				       readin ? phy->clk_ext_lo_tx :
-				       phy->clks[TX_RFPLL_INT]);
-			else
-				ret = -ENODEV;
-			break;
-
 		default:
-			ret = -EINVAL;
+			switch (chan->channel) {
+			case 0:
+				if (phy->clk_ext_lo_rx)
+					ret = clk_set_parent(phy->clks[RX_RFPLL],
+							     res ? phy->clk_ext_lo_rx :
+							     phy->clks[RX_RFPLL_INT]);
+				else
+					ret = -ENODEV;
+				break;
+
+			case 1:
+				if (phy->clk_ext_lo_tx)
+					ret = clk_set_parent(phy->clks[TX_RFPLL],
+							     res ? phy->clk_ext_lo_tx :
+							     phy->clks[TX_RFPLL_INT]);
+				else
+					ret = -ENODEV;
+				break;
+
+			default:
+				ret = -EINVAL;
+			}
 		}
 		break;
+	case LOEXT_PD:
+		switch (chan->channel) {
+		case 0:
+			ret = ad9361_synth_lo_powerdown(phy, res ? LO_OFF : LO_ON, LO_DONTCARE);
+			break;
+		case 1:
+			ret = ad9361_synth_lo_powerdown(phy, LO_DONTCARE, res ? LO_OFF : LO_ON);
+			break;
+		}
 
+		break;
 	}
 	mutex_unlock(&indio_dev->mlock);
 
@@ -6943,6 +7078,9 @@ static ssize_t ad9361_phy_lo_read(struct iio_dev *indio_dev,
 			ret = -EINVAL;
 		}
 		break;
+	case LOEXT_PD:
+		val = !!(phy->cached_synth_pd[chan->channel ? 0 : 1] & RX_LO_POWER_DOWN);
+		break;
 	default:
 		ret = 0;
 
@@ -6970,6 +7108,7 @@ static const struct iio_chan_spec_ext_info ad9361_phy_ext_info[] = {
 	_AD9361_EXT_LO_INFO("fastlock_load", LOEXT_LOAD),
 	_AD9361_EXT_LO_INFO("fastlock_save", LOEXT_SAVE),
 	_AD9361_EXT_LO_INFO("external", LOEXT_EXTERNAL),
+	_AD9361_EXT_LO_INFO("powerdown", LOEXT_PD),
 	{ },
 };
 
@@ -7881,7 +8020,6 @@ static struct ad9361_phy_platform_data
 	ad9361_of_get_u32(iodev, np, "adi,trx-synthesizer-target-fref-overwrite-hz",
 			  MAX_SYNTH_FREF, &pdata->trx_synth_max_fref);
 
-
 	tmpl = 2400000000ULL;
 	of_property_read_u64(np, "adi,rx-synthesizer-frequency-hz", &tmpl);
 	pdata->rx_synth_freq = tmpl;
@@ -7889,11 +8027,6 @@ static struct ad9361_phy_platform_data
 	tmpl = 2440000000ULL;
  	of_property_read_u64(np, "adi,tx-synthesizer-frequency-hz", &tmpl);
 	pdata->tx_synth_freq = tmpl;
-
-	ad9361_of_get_bool(iodev, np, "adi,external-tx-lo-enable",
-			   &pdata->use_ext_tx_lo);
-	ad9361_of_get_bool(iodev, np, "adi,external-rx-lo-enable",
-			   &pdata->use_ext_rx_lo);
 
 	ret = of_property_read_u32_array(np, "adi,dcxo-coarse-and-fine-tune",
 			      array, 2);
@@ -7904,12 +8037,17 @@ static struct ad9361_phy_platform_data
 
 	switch(spi_get_device_id(phy->spi)->driver_data) {
 		case ID_AD9363A:
-		case ID_AD9363B:
 			pdata->use_extclk = true;
+			pdata->use_ext_tx_lo = false;
+			pdata->use_ext_rx_lo = false;
 			break;
 		default:
 			ad9361_of_get_bool(iodev, np, "adi,xo-disable-use-ext-refclk-enable",
 					   &pdata->use_extclk);
+			ad9361_of_get_bool(iodev, np, "adi,external-tx-lo-enable",
+					   &pdata->use_ext_tx_lo);
+			ad9361_of_get_bool(iodev, np, "adi,external-rx-lo-enable",
+					   &pdata->use_ext_rx_lo);
 	}
 
 	ad9361_of_get_u32(iodev, np, "adi,clk-output-mode-select", CLKOUT_DISABLE,
@@ -8603,7 +8741,8 @@ static int ad9361_probe(struct spi_device *spi)
 	struct clk *clk = NULL;
 	int ret, rev;
 
-	dev_info(&spi->dev, "%s : enter", __func__);
+	dev_info(&spi->dev, "%s : enter (%s)", __func__,
+		 spi_get_device_id(spi)->name);
 
 	clk = devm_clk_get(&spi->dev, NULL);
 	if (IS_ERR(clk)) {
@@ -8773,7 +8912,6 @@ static const struct spi_device_id ad9361_id[] = {
 	{"ad9364", ID_AD9364}, /* 1RX1TX */
 	{"ad9361-2x", ID_AD9361_2}, /* 2 x 2RX2TX */
 	{"ad9363a", ID_AD9363A}, /* 2RX2TX */
-	{"ad9363b", ID_AD9363B}, /* 2RX2TX */
 	{}
 };
 MODULE_DEVICE_TABLE(spi, ad9361_id);
