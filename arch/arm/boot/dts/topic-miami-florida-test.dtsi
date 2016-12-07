@@ -49,7 +49,9 @@
 		interrupt-controller;
 		/* IRQ line connected to MIO 46 */
 		interrupt-parent = <&gpio0>;
-		interrupts = <46 0x8>; /* GPIO 46, IRQ_TYPE_LEVEL_LOW */
+		interrupts = <15 0x8>; /* GPIO 15, IRQ_TYPE_LEVEL_LOW */
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_gpio15_default>;
 	};
 
 	/* Programmable clock, to clock-capable pins on FPGA */
@@ -115,6 +117,20 @@
 			pins = "MIO28", "MIO30", "MIO32", "MIO33", "MIO34",
 			       "MIO35", "MIO37", "MIO38", "MIO39";
 			bias-disable;
+		};
+	};
+
+	pinctrl_gpio15_default: gpio15-default {
+		mux {
+			function = "gpio0";
+			groups = "gpio0_15_grp";
+		};
+
+		conf {
+			groups = "gpio0_15_grp";
+			bias-pull-up;
+			bias-high-impedance;
+			io-standard = <1>;
 		};
 	};
 };
