@@ -2,6 +2,14 @@
 /include/ "topic-miami.dtsi"
 /include/ "topic-miami-florida-test.dtsi"
 
+&gpioexf {
+	/* IRQ line connected to MIO 15 */
+	interrupts = <15 0x8>; /* GPIO 15, IRQ_TYPE_LEVEL_LOW */
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_gpio15_default>;
+};
+
+
 /* The test board doesn't have PS JTAG, mux these pins as GPIO instead */
 &gpio0 {
 	pinctrl-names = "default";
@@ -24,6 +32,20 @@
 			slew-rate = <0>;
 			io-standard = <1>;
 			bias-disable;
+		};
+	};
+
+	pinctrl_gpio15_default: gpio15-default {
+		mux {
+			function = "gpio0";
+			groups = "gpio0_15_grp";
+		};
+
+		conf {
+			groups = "gpio0_15_grp";
+			bias-pull-up;
+			bias-high-impedance;
+			io-standard = <1>;
 		};
 	};
 };

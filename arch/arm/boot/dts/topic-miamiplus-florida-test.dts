@@ -3,6 +3,11 @@
 /include/ "topic-miamiplus.dtsi"
 /include/ "topic-miami-florida-test.dtsi"
 
+&gpioexf {
+	/* IRQ line connected to MIO 46 */
+	interrupts = <46 0x8>; /* GPIO 46, IRQ_TYPE_LEVEL_LOW */
+};
+
 /* The test board doesn't have ethernet, mux these pins as GPIO instead */
 &gpio0 {
 	pinctrl-names = "default";
