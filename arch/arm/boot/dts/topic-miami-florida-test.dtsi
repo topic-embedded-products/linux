@@ -116,3 +116,10 @@
 		};
 	};
 };
+
+/* Fake dependency on clock to force it to run at 100Mhz instead of the
+ * factory preset. */
+&uart0 {
+    assigned-clocks = <&si514c>;
+    assigned-clock-rates = <100000000>;
+};
