@@ -81,6 +81,7 @@
 		reg = <0x2F>;
 		interrupt-parent = <&gpio0>;
 		interrupts = <64 0x2>; /* GPIO 64 (EMIO 10), falling edge */
+		touchscreen-swapped-x-y;
 		adi,resistance-plate-x = <620>;
 		touchscreen-max-pressure = <4096>;
 		adi,first-conversion-delay = /bits/ 8 <3>;
@@ -271,4 +272,10 @@
 		vertical-back-porch = <23>;
 		vertical-polarity = <0>;
 	};
+};
+
+/* Make it so that the internal display is always fb0 */
+&aliases {
+	display0 = &axi_vdma_vga;
+	display1 = &axi_hdmi_0;
 };
