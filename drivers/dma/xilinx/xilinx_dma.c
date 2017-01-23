@@ -1063,6 +1063,17 @@ static void xilinx_vdma_start_transfer(struct xilinx_dma_chan *chan)
 	if (config->park)
 		reg &= ~XILINX_DMA_DMACR_CIRC_EN;
 
+	/*
+	 * Only enable frame/delay interrupts if a callback has been registered.
+	 * Without callback, the VDMA's interrupt on every frame is wasted.
+	 */
+	if (desc->async_tx.callback || tail_desc->async_tx.callback)
+		reg |= (XILINX_DMA_DMACR_FRM_CNT_IRQ |
+			XILINX_DMA_DMACR_DLY_CNT_IRQ);
+	else
+		reg &= ~(XILINX_DMA_DMACR_FRM_CNT_IRQ |
+			 XILINX_DMA_DMACR_DLY_CNT_IRQ);
+
 	dma_ctrl_write(chan, XILINX_DMA_REG_DMACR, reg);
 
 	if (config->park && (config->park_frm >= 0) &&
