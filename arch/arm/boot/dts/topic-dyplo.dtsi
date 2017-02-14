@@ -1,7 +1,7 @@
 /* DTS snippet to add DYPLO to the kernel configuration. This assumes
  * a default configuration of IRQ 89 and address 0x64400000 */
 &amba {
-	dyplo@64400000 {
+	dyplo: dyplo@64400000 {
 		compatible = "topic,dyplo-1.00.a";
 		reg = <0x64400000 0x200000>;
 		interrupt-parent = <&intc>;
