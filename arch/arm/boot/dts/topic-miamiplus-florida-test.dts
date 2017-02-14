@@ -43,3 +43,9 @@
 		};
 	};
 };
+
+/* Fake dependency on clock to force it to run at some frequency we'd like to see */
+&uart0 {
+	assigned-clock-rates = <103125000>;
+};
+
