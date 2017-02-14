@@ -1,0 +1,11 @@
+/dts-v1/;
+/include/ "topic-miami-florida-gen.dtsi"
+/include/ "topic-dyplo.dtsi"
+
+/*
+ * When Dyplo's DMA nodes are connected to the ACP port, everything is coherent
+ * so we tell the system that no cache maintenance is needed.
+ */
+&dyplo {
+	dma-coherent;
+};
