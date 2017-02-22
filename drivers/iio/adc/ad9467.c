@@ -389,8 +389,8 @@ static const int ad9265_scale_table[][2] = {
 };
 
 static const int ad9680_scale_table[][2] = {
-	{1200, 0x08}, {1300, 0x09}, {1400, 0x0A}, {1500, 0x0B},
-	{1600, 0x00}, {1700, 0x0C}, {1800, 0x0D}, {1900, 0x0F},
+	{1460, 0x08}, {1580, 0x09}, {1700, 0x0A}, {1820, 0x0B},
+	{1940, 0x00}, {2060, 0x0C},
 };
 
 static const int ad9467_scale_table[][2] = {
@@ -1010,9 +1010,9 @@ static int ad9680_setup(struct spi_device *spi, unsigned m, unsigned l,
 	ret |= ad9467_spi_write(spi, 0x581, 0x01);	// BID
 
 	ret |= ad9467_spi_write(spi, 0x583, 0x00);	// lane 0
-	ret |= ad9467_spi_write(spi, 0x585, 0x01);	// lane 1
-	ret |= ad9467_spi_write(spi, 0x587, 0x02);	// lane 2
-	ret |= ad9467_spi_write(spi, 0x589, 0x03);	// lane 3
+	ret |= ad9467_spi_write(spi, 0x584, 0x01);	// lane 1
+	ret |= ad9467_spi_write(spi, 0x585, 0x02);	// lane 2
+	ret |= ad9467_spi_write(spi, 0x586, 0x03);	// lane 3
 
 
 	ret |= ad9467_spi_write(spi, 0x570, 0x88);	// m=2, l=4, f= 1
@@ -1493,7 +1493,6 @@ static int ad9467_remove(struct spi_device *spi)
 	struct axiadc_converter *conv = spi_get_drvdata(spi);
 
 	clk_disable_unprepare(conv->clk);
-	spi_set_drvdata(spi, NULL);
 
 	return 0;
 }

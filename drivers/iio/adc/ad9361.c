@@ -4856,9 +4856,6 @@ static int ad9361_setup(struct ad9361_rf_phy *phy)
 	if (ret < 0)
 		return ret;
 
-	if (!pd->fdd)
-		ad9361_run_calibration(phy, TXMON_CAL);
-
 	ad9361_pp_port_setup(phy, true);
 
 	ret = ad9361_set_ensm_mode(phy, pd->fdd, pd->ensm_pin_ctrl);
@@ -8276,9 +8273,6 @@ static struct ad9361_phy_platform_data
 	ad9361_of_get_u32(iodev, np, "adi,fagc-lp-thresh-increment-steps", 1,
 			&pdata->gain_ctrl.f_agc_lp_thresh_increment_steps); /* 0x117 1..8 */
 
-		/* Fast AGC - Lock Level */
-	ad9361_of_get_u32(iodev, np, "adi,fagc-lock-level", 10,
-			&pdata->gain_ctrl.f_agc_lock_level); /* 0x101 0..-127 dBFS */
 	ad9361_of_get_bool(iodev, np, "adi,fagc-lock-level-lmt-gain-increase-enable",
 			&pdata->gain_ctrl.f_agc_lock_level_lmt_gain_increase_en); /* 0x111:6 (split table)*/
 	ad9361_of_get_u32(iodev, np, "adi,fagc-lock-level-gain-increase-upper-limit", 5,

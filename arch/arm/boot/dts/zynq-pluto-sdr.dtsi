@@ -8,7 +8,7 @@
 /include/ "zynq.dtsi"
 
 / {
-	model = "Analog Devices PlutoSDR (Z7010/AD9363)";
+	model = "Analog Devices PlutoSDR Rev.A (Z7010/AD9363)";
 	memory {
 		device_type = "memory";
 		reg = <0x00000000 0x20000000>;
@@ -81,6 +81,16 @@
 		partition@qspi-linux {
 			label = "qspi-linux";
 			reg = <0x200000 0x1E00000>; /* 30M */
+		};
+	};
+};
+
+&adc {
+	xlnx,channels {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		channel@0 {
+			reg = <0>;
 		};
 	};
 };
