@@ -1,0 +1,74 @@
+/* The "lite" version has less I/O pins, lacks some periferals,
+ * and the NAND was replaced by a dual-QSPI NOR setup. */
+
+/* Remove missing periferals */
+/delete-node/ &monitorcurrent;
+/delete-node/ &ltc3562;
+
+/* Dual QSPI configuration */
+&qspi {
+	is-dual = <1>;
+};
+
+/* Dual flash, also double the capacity so adjust rootfs and "all" partitions */
+&primary_flash {
+	partition@qspi-rootfs {
+		label = "qspi-rootfs";
+		reg = <0x500000 0x3b00000>;
+	};
+	partition@qspi-all {
+		label = "qspi-all";
+		reg = <0x0 0x4000000>;
+	};
+};
+
+/* Different voltage monitoring IC */
+&monitorvolt {
+	compatible = "ad7997";
+	reg = <0x21>;
+	/* TODO: gpios */
+};
+
+/* Extra user board LED on GPIO expander */
+&leds {
+	led_user2: user2 {
+		label = "user2:green";
+		gpios = <&gpioex 3 0>;
+	};
+};
+/* Alive LED is on MIO7 instead of 25 */
+&led_alive {
+	gpios = <&gpio0 7 0>;
+};
+&pinctrl_leds_default {
+	mux {
+		groups = "gpio0_7_grp";
+		function = "gpio0";
+	};
+	conf {
+		groups = "gpio0_7_grp";
+		slew-rate = <0>;
+		io-standard = <1>;
+	};
+};
+
+/* I2C bus 1 using pins 48+49 */
+&i2c1 {
+	gpios = <&gpio0 49 0 /* sda */
+		 &gpio0 48 0 /* scl */
+		>;
+};
+
+&pinctrl_i2c1_default {
+	mux {
+		groups = "gpio0_48_grp", "gpio0_49_grp";
+		function = "gpio0";
+	};
+
+	conf {
+		groups = "gpio0_48_grp", "gpio0_49_grp";
+		bias-pull-up;
+		slew-rate = <0>;
+		io-standard = <1>;
+	};
+};
