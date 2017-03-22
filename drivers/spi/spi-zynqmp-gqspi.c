@@ -177,6 +177,7 @@ enum mode_type {GQSPI_MODE_IO, GQSPI_MODE_DMA};
  * @isinstr:		To determine whether the transfer is instruction
  * @mode:		Defines the mode in which QSPI is operating
  * @speed_hz:		Current SPI bus clock speed in hz
+ * @io_mode:		Defines the operating mode, either IO or dma
  */
 struct zynqmp_qspi {
 	void __iomem *regs;
@@ -197,6 +198,7 @@ struct zynqmp_qspi {
 	bool isinstr;
 	enum mode_type mode;
 	u32 speed_hz;
+	bool io_mode;
 };
 
 /**
@@ -386,11 +388,12 @@ static void zynqmp_qspi_init_hw(struct zynqmp_qspi *xqspi)
 	zynqmp_gqspi_selectslave(xqspi,
 				 GQSPI_SELECT_FLASH_CS_LOWER,
 				 GQSPI_SELECT_FLASH_BUS_LOWER);
-	/* Initialize DMA */
-	zynqmp_gqspi_write(xqspi,
+	if (!xqspi->io_mode) {
+		/* Initialize DMA */
+		zynqmp_gqspi_write(xqspi,
 			GQSPI_QSPIDMA_DST_CTRL_OFST,
 			GQSPI_QSPIDMA_DST_CTRL_RESET_VAL);
-
+	}
 	/* Enable the GQSPI */
 	zynqmp_gqspi_write(xqspi, GQSPI_EN_OFST, GQSPI_EN_MASK);
 }
@@ -425,7 +428,7 @@ static int zynqmp_prepare_transfer_hardware(struct spi_master *master)
 
 	ret = clk_enable(xqspi->refclk);
 	if (ret)
-		goto clk_err;
+		return ret;
 
 	ret = clk_enable(xqspi->pclk);
 	if (ret)
@@ -434,6 +437,7 @@ static int zynqmp_prepare_transfer_hardware(struct spi_master *master)
 	zynqmp_gqspi_write(xqspi, GQSPI_EN_OFST, GQSPI_EN_MASK);
 	return 0;
 clk_err:
+	clk_disable(xqspi->refclk);
 	return ret;
 }
 
@@ -469,7 +473,7 @@ static void zynqmp_qspi_chipselect(struct spi_device *qspi, bool is_high)
 
 	genfifoentry |= GQSPI_GENFIFO_MODE_SPI;
 
-	if (qspi->master->flags & SPI_BOTH_FLASH) {
+	if (qspi->master->flags & SPI_MASTER_BOTH_CS) {
 		zynqmp_gqspi_selectslave(xqspi,
 			GQSPI_SELECT_FLASH_CS_BOTH,
 			GQSPI_SELECT_FLASH_BUS_BOTH);
@@ -771,8 +775,12 @@ static irqreturn_t zynqmp_qspi_irq(int irq, void *dev_id)
 	if (dma_status & GQSPI_QSPIDMA_DST_I_STS_DONE_MASK) {
 		zynqmp_process_dma_irq(xqspi);
 		ret = IRQ_HANDLED;
-	} else if (!(mask & GQSPI_IER_RXEMPTY_MASK) &&
-			(mask & GQSPI_IER_GENFIFOEMPTY_MASK)) {
+	} else if ((mask & GQSPI_IER_RXNEMPTY_MASK)) {
+		zynqmp_qspi_readrxfifo(xqspi, GQSPI_RX_FIFO_FILL);
+		ret = IRQ_HANDLED;
+	}
+	if (!(mask & GQSPI_IER_RXEMPTY_MASK) &&
+		(mask & GQSPI_IER_GENFIFOEMPTY_MASK)) {
 		zynqmp_qspi_readrxfifo(xqspi, GQSPI_RX_FIFO_FILL);
 		ret = IRQ_HANDLED;
 	}
@@ -825,7 +833,7 @@ static void zynq_qspi_setuprxdma(struct zynqmp_qspi *xqspi)
 	dma_addr_t addr;
 	u64 dma_align =  (u64)(uintptr_t)xqspi->rxbuf;
 
-	if ((xqspi->bytes_to_receive < 8) ||
+	if (((xqspi->bytes_to_receive < 8) || (xqspi->io_mode)) ||
 		((dma_align & GQSPI_DMA_UNALIGN) != 0x0)) {
 		/* Setting to IO mode */
 		config_reg = zynqmp_gqspi_read(xqspi, GQSPI_CONFIG_OFST);
@@ -945,7 +953,7 @@ static int zynqmp_qspi_start_transfer(struct spi_master *master,
 	genfifoentry |= xqspi->genfifobus;
 
 	if ((!xqspi->isinstr) &&
-		(master->flags & SPI_DATA_STRIPE))
+		(master->flags & SPI_MASTER_DATA_STRIPE))
 		genfifoentry |= GQSPI_GENFIFO_STRIPE;
 
 	zynqmp_qspi_txrxsetup(xqspi, transfer, &genfifoentry);
@@ -1151,6 +1159,9 @@ static int zynqmp_qspi_probe(struct platform_device *pdev)
 		dev_err(dev, "Unable to enable device clock.\n");
 		goto clk_dis_pclk;
 	}
+
+	if (of_property_read_bool(pdev->dev.of_node, "has-io-mode"))
+		xqspi->io_mode = true;
 
 	/* QSPI controller initializations */
 	zynqmp_qspi_init_hw(xqspi);

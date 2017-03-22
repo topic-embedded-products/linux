@@ -97,8 +97,7 @@
 #define ZYNQ_GPIO_UPPER_MASK 0xFFFF0000
 
 /* For GPIO quirks */
-#define ZYNQ_GPIO	BIT(0)
-#define ZYNQMP_GPIO	BIT(1)
+#define ZYNQ_GPIO_QUIRK_FOO	BIT(0)
 
 /**
  * struct zynq_gpio - gpio device private data structure
@@ -247,7 +246,7 @@ static int zynq_gpio_dir_in(struct gpio_chip *chip, unsigned int pin)
 	unsigned int bank_num, bank_pin_num;
 	struct zynq_gpio *gpio = gpiochip_get_data(chip);
 
-	is_zynq_gpio = gpio->p_data->quirks & ZYNQ_GPIO;
+	is_zynq_gpio = gpio->p_data->quirks & ZYNQ_GPIO_QUIRK_FOO;
 	zynq_gpio_get_bank_pin(pin, &bank_num, &bank_pin_num, gpio);
 
 	/*
@@ -256,7 +255,7 @@ static int zynq_gpio_dir_in(struct gpio_chip *chip, unsigned int pin)
 	 */
 	if (is_zynq_gpio && bank_num == 0 &&
 		(bank_pin_num == 7 || bank_pin_num == 8))
-			return -EINVAL;
+		return -EINVAL;
 
 	/* clear the bit in direction mode reg to set the pin as input */
 	reg = readl_relaxed(gpio->base_addr + ZYNQ_GPIO_DIRM_OFFSET(bank_num));
@@ -620,7 +619,6 @@ static const struct dev_pm_ops zynq_gpio_dev_pm_ops = {
 
 static const struct zynq_platform_data zynqmp_gpio_def = {
 	.label = "zynqmp_gpio",
-	.quirks = ZYNQMP_GPIO,
 	.ngpio = ZYNQMP_GPIO_NR_GPIOS,
 	.max_bank = ZYNQMP_GPIO_MAX_BANK,
 	.bank_min[0] = ZYNQ_GPIO_BANK0_PIN_MIN(MP),
@@ -639,7 +637,7 @@ static const struct zynq_platform_data zynqmp_gpio_def = {
 
 static const struct zynq_platform_data zynq_gpio_def = {
 	.label = "zynq_gpio",
-	.quirks = ZYNQ_GPIO,
+	.quirks = ZYNQ_GPIO_QUIRK_FOO,
 	.ngpio = ZYNQ_GPIO_NR_GPIOS,
 	.max_bank = ZYNQ_GPIO_MAX_BANK,
 	.bank_min[0] = ZYNQ_GPIO_BANK0_PIN_MIN(),
@@ -722,11 +720,17 @@ static int zynq_gpio_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "input clock not found.\n");
 		return PTR_ERR(gpio->clk);
 	}
+	ret = clk_prepare_enable(gpio->clk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to enable clock.\n");
+		return ret;
+	}
 
+	pm_runtime_set_active(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
 	ret = pm_runtime_get_sync(&pdev->dev);
 	if (ret < 0)
-		return ret;
+		goto err_pm_dis;
 
 	/* report a bug if gpio chip registration fails */
 	ret = gpiochip_add_data(chip, gpio);
@@ -762,6 +766,9 @@ err_rm_gpiochip:
 	gpiochip_remove(chip);
 err_pm_put:
 	pm_runtime_put(&pdev->dev);
+err_pm_dis:
+	pm_runtime_disable(&pdev->dev);
+	clk_disable_unprepare(gpio->clk);
 
 	return ret;
 }
