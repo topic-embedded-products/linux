@@ -265,6 +265,7 @@
 		reg = <0x7e000000 0x10000>;
 		dmas = <&axi_vdma_1 0>;
 		dma-names = "video";
+		num-fstores = <3>;
 		width = <1024>;
 		height = <600>;
 		horizontal-sync = <136>;
