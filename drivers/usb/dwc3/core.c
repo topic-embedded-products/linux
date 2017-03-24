@@ -202,7 +202,7 @@ static int dwc3_soft_reset(struct dwc3 *dwc)
  */
 static void dwc3_frame_length_adjustment(struct dwc3 *dwc)
 {
-	u32 reg;
+	u32 reg, gfladj;
 	u32 dft;
 
 	if (dwc->revision < DWC3_REVISION_250A)
@@ -211,25 +211,27 @@ static void dwc3_frame_length_adjustment(struct dwc3 *dwc)
 	if (dwc->fladj == 0)
 		return;
 
+	/* Save the initial DWC3_GFLADJ register value */
 	reg = dwc3_readl(dwc->regs, DWC3_GFLADJ);
+	gfladj = reg;
 
 	if (dwc->refclk_fladj) {
-		if (!dev_WARN_ONCE(dwc->dev,
-				   ((reg & DWC3_GFLADJ_REFCLK_FLADJ) ==
-				    (dwc->fladj & DWC3_GFLADJ_REFCLK_FLADJ)),
-		    "refclk fladj request value same as default, ignoring\n")) {
+		if ((reg & DWC3_GFLADJ_REFCLK_FLADJ) !=
+				    (dwc->fladj & DWC3_GFLADJ_REFCLK_FLADJ)) {
 			reg &= ~DWC3_GFLADJ_REFCLK_FLADJ;
 			reg |= (dwc->fladj & DWC3_GFLADJ_REFCLK_FLADJ);
 		}
 	}
 
 	dft = reg & DWC3_GFLADJ_30MHZ_MASK;
-	if (!dev_WARN_ONCE(dwc->dev, dft == dwc->fladj,
-	    "request value same as default, ignoring\n")) {
+	if (dft != dwc->fladj) {
 		reg &= ~DWC3_GFLADJ_30MHZ_MASK;
 		reg |= DWC3_GFLADJ_30MHZ_SDBND_SEL | dwc->fladj;
-		dwc3_writel(dwc->regs, DWC3_GFLADJ, reg);
 	}
+
+	/* Update DWC3_GFLADJ if there is any change from initial value */
+	if (reg != gfladj)
+		dwc3_writel(dwc->regs, DWC3_GFLADJ, reg);
 }
 
 /**
@@ -357,7 +359,7 @@ static int dwc3_alloc_scratch_buffers(struct dwc3 *dwc)
 	if (!dwc->nr_scratch)
 		return 0;
 
-	dwc->scratchbuf = kmalloc_array(dwc->nr_scratch,
+	dwc->scratchbuf = kcalloc(dwc->nr_scratch,
 			DWC3_SCRATCHBUF_SIZE, GFP_KERNEL);
 	if (!dwc->scratchbuf)
 		return -ENOMEM;
@@ -378,7 +380,7 @@ static int dwc3_setup_scratch_buffers(struct dwc3 *dwc)
 		return 0;
 
 	 /* should never fall here */
-	if (!WARN_ON(dwc->scratchbuf))
+	if (WARN_ON(!dwc->scratchbuf))
 		return 0;
 
 	scratch_addr = dma_map_single(dwc->dev, dwc->scratchbuf,
@@ -425,7 +427,7 @@ static void dwc3_free_scratch_buffers(struct dwc3 *dwc)
 		return;
 
 	 /* should never fall here */
-	if (!WARN_ON(dwc->scratchbuf))
+	if (WARN_ON(!dwc->scratchbuf))
 		return;
 
 	dma_unmap_single(dwc->dev, dwc->scratch_addr, dwc->nr_scratch *
@@ -728,9 +730,20 @@ static int dwc3_core_init(struct dwc3 *dwc)
 
 	dwc3_core_num_eps(dwc);
 
+	if (dwc->scratchbuf == NULL) {
+		ret = dwc3_alloc_scratch_buffers(dwc);
+		if (ret) {
+			dev_err(dwc->dev,
+				"Not enough memory for scratch buffers\n");
+			goto err1;
+		}
+	}
+
 	ret = dwc3_setup_scratch_buffers(dwc);
-	if (ret)
+	if (ret) {
+		dev_err(dwc->dev, "Failed to setup scratch buffers: %d\n", ret);
 		goto err1;
+	}
 
 	/* Adjust Frame Length */
 	dwc3_frame_length_adjustment(dwc);
@@ -1094,10 +1107,6 @@ static int dwc3_probe(struct platform_device *pdev)
 	}
 
 	ret = dwc3_get_dr_mode(dwc);
-	if (ret)
-		goto err3;
-
-	ret = dwc3_alloc_scratch_buffers(dwc);
 	if (ret)
 		goto err3;
 

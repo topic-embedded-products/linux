@@ -37,6 +37,7 @@
 #include <linux/soc/xilinx/zynqmp/pm.h>
 #include <linux/reset.h>
 #include <linux/list.h>
+#include <linux/slab.h>
 
 #define MAX_LANES			4
 
@@ -1285,6 +1286,8 @@ static int xpsgtr_probe(struct platform_device *pdev)
 	if (*soc_rev == ZYNQMP_SILICON_V1)
 		gtr_dev->tx_term_fix = true;
 
+	kfree(soc_rev);
+
 	err = xpsgtr_get_resets(gtr_dev);
 	if (err) {
 		dev_err(&pdev->dev, "failed to get resets: %d\n", err);
@@ -1322,7 +1325,6 @@ static int xpsgtr_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "registering provider failed\n");
 			return PTR_ERR(provider);
 	}
-
 	return 0;
 }
 

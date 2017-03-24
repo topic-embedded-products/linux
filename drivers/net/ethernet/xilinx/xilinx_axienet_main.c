@@ -40,6 +40,7 @@
 #include <linux/random.h>
 #include <net/sock.h>
 #include <linux/xilinx_phy.h>
+#include <linux/clk.h>
 
 #include "xilinx_axienet.h"
 
@@ -560,8 +561,7 @@ static void axienet_device_reset(struct net_device *ndev)
 		lp->options &= (~XAE_OPTION_JUMBO);
 	}
 
-	if ((ndev->mtu > XAE_MTU) &&
-		(ndev->mtu <= XAE_JUMBO_MTU)) {
+	if ((ndev->mtu > XAE_MTU) && (ndev->mtu <= XAE_JUMBO_MTU)) {
 		lp->max_frm_size = ndev->mtu + VLAN_ETH_HLEN +
 					XAE_TRL_SIZE;
 		if (lp->max_frm_size <= lp->rxmem &&
@@ -718,7 +718,7 @@ static void axienet_tx_hwtstamp(struct axienet_local *lp,
 					len), 0, 1000000);
 	if (err)
 		netdev_err(lp->ndev, "%s: Didn't get the full timestamp packet",
-			    __func__);
+			   __func__);
 
 	nsec = axienet_txts_ior(lp, XAXIFIFO_TXTS_RXFD);
 	sec  = axienet_txts_ior(lp, XAXIFIFO_TXTS_RXFD);
@@ -1207,7 +1207,7 @@ static int axienet_recv(struct net_device *ndev, int budget)
 		packets++;
 
 		new_skb = netdev_alloc_skb(ndev, lp->max_frm_size);
-		if (new_skb == NULL) {
+		if (!new_skb) {
 			dev_err(lp->dev, "No memory for new_skb\n\r");
 			break;
 		}
@@ -1306,7 +1306,7 @@ static irqreturn_t axienet_err_irq(int irq, void *_ndev)
 	}
 
 	if (status & XAE_INT_RXRJECT_MASK) {
-		ndev->stats.rx_frame_errors++;
+		ndev->stats.rx_dropped++;
 		axienet_iow(lp, XAE_IS_OFFSET, XAE_INT_RXRJECT_MASK);
 	}
 
@@ -1483,19 +1483,6 @@ static int axienet_open(struct net_device *ndev)
 			phydev = of_phy_connect(lp->ndev, lp->phy_node,
 						axienet_adjust_link, lp->phy_flags,
 						lp->phy_interface);
-		} else {
-			/**
-			 * No need to start the internal PHY, applying the fixup
-			 * is enough for SGMII operation
-			 */
-			if (lp->phy_node_int)
-				lp->phy_dev_int = of_phy_connect(lp->ndev,
-					lp->phy_node_int, NULL, 0,
-					PHY_INTERFACE_MODE_GMII);
-
-			lp->phy_dev = of_phy_connect(lp->ndev, lp->phy_node,
-					     axienet_adjust_link, 0,
-					     PHY_INTERFACE_MODE_SGMII);
 		}
 
 		if (!phydev)
@@ -1749,6 +1736,10 @@ static int axienet_get_ts_config(struct axienet_local *lp, struct ifreq *ifr)
 /* Ioctl MII Interface */
 static int axienet_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
+#ifdef CONFIG_XILINX_AXI_EMAC_HWTSTAMP
+	struct axienet_local *lp = netdev_priv(dev);
+#endif
+
 	if (!netif_running(dev))
 		return -EINVAL;
 
@@ -1870,7 +1861,7 @@ static int axienet_ethtools_get_regs_len(struct net_device *ndev)
 static void axienet_ethtools_get_regs(struct net_device *ndev,
 				      struct ethtool_regs *regs, void *ret)
 {
-	u32 *data = (u32 *) ret;
+	u32 *data = (u32 *)ret;
 	size_t len = sizeof(u32) * AXIENET_REGS_N;
 	struct axienet_local *lp = netdev_priv(ndev);
 
@@ -2273,18 +2264,6 @@ static const struct of_device_id axienet_of_match[] = {
 MODULE_DEVICE_TABLE(of, axienet_of_match);
 
 /**
- * axienet_pma_phy_fixup - PCS/PMA Internal PHY fixup.
- * @phy: the pointer to the phy device
- *
- * The internal PHY powers up with BMCR_ISOLATE beeing set, clear it.
- */
-
-static int axienet_pma_phy_fixup(struct phy_device *phy)
-{
-	return phy_write(phy, MII_BMCR, BMCR_ANENABLE | BMCR_FULLDPLX);
-}
-
-/**
  * axienet_probe - Axi Ethernet probe function.
  * @pdev:	Pointer to platform device structure.
  *
@@ -2298,7 +2277,7 @@ static int axienet_pma_phy_fixup(struct phy_device *phy)
  */
 static int axienet_probe(struct platform_device *pdev)
 {
-	int ret;
+	int ret = 0;
 	struct device_node *np;
 	struct axienet_local *lp;
 	struct net_device *ndev;
@@ -2489,12 +2468,50 @@ static int axienet_probe(struct platform_device *pdev)
 	spin_lock_init(&lp->tx_lock);
 	spin_lock_init(&lp->rx_lock);
 
+	lp->dma_clk = devm_clk_get(&pdev->dev, "dma_clk");
+	if (IS_ERR(lp->dma_clk)) {
+		if (PTR_ERR(lp->dma_clk) != -ENOENT) {
+			ret = PTR_ERR(lp->dma_clk);
+			goto free_netdev;
+		}
+
+		/* Clock framework support is optional, continue on
+		 * anyways if we don't find a matching clock.
+		 */
+		 lp->dma_clk = NULL;
+	}
+
+	ret = clk_prepare_enable(lp->dma_clk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to enable dma clock.\n");
+		goto free_netdev;
+	}
+
+	lp->eth_clk = devm_clk_get(&pdev->dev, "ethernet_clk");
+	if (IS_ERR(lp->eth_clk)) {
+		if (PTR_ERR(lp->eth_clk) != -ENOENT) {
+			ret = PTR_ERR(lp->eth_clk);
+			goto err_disable_dmaclk;
+		}
+
+		/* Clock framework support is optional, continue on
+		 * anyways if we don't find a matching clock.
+		 */
+		 lp->eth_clk = NULL;
+	}
+
+	ret = clk_prepare_enable(lp->eth_clk);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to enable eth clock.\n");
+		goto err_disable_dmaclk;
+	}
+
 	/* Retrieve the MAC address */
 	ret = of_property_read_u8_array(pdev->dev.of_node,
 					"local-mac-address", mac_addr, 6);
 	if (ret) {
 		dev_err(&pdev->dev, "could not find MAC address\n");
-		goto free_netdev;
+		goto err_disable_ethclk;
 	}
 	axienet_set_mac_address(ndev, (void *)mac_addr);
 
@@ -2515,25 +2532,21 @@ static int axienet_probe(struct platform_device *pdev)
 			dev_warn(&pdev->dev, "error registering MDIO bus\n");
 	}
 
-	if (lp->phy_type == XAE_PHY_TYPE_SGMII) {
-		lp->phy_node_int = of_parse_phandle(pdev->dev.of_node,
-						    "phy-handle", 1);
-		if (lp->phy_node_int)
-			phy_register_fixup_for_uid(0, 0xffffffff,
-						   axienet_pma_phy_fixup);
-	}
-
 	netif_napi_add(ndev, &lp->napi, xaxienet_rx_poll, XAXIENET_NAPI_WEIGHT);
 
 	ret = register_netdev(lp->ndev);
 	if (ret) {
 		dev_err(lp->dev, "register_netdev() error (%i)\n", ret);
 		axienet_mdio_teardown(lp);
-		goto free_netdev;
+		goto err_disable_ethclk;
 	}
 
 	return 0;
 
+err_disable_dmaclk:
+	clk_disable_unprepare(lp->dma_clk);
+err_disable_ethclk:
+	clk_disable_unprepare(lp->eth_clk);
 free_netdev:
 	free_netdev(ndev);
 
@@ -2548,13 +2561,11 @@ static int axienet_remove(struct platform_device *pdev)
 	axienet_mdio_teardown(lp);
 	netif_napi_del(&lp->napi);
 	unregister_netdev(ndev);
+	clk_disable_unprepare(lp->eth_clk);
+	clk_disable_unprepare(lp->dma_clk);
 
 	of_node_put(lp->phy_node);
 	lp->phy_node = NULL;
-
-	if (lp->phy_node_int)
-		of_node_put(lp->phy_node_int);
-	lp->phy_node_int = NULL;
 
 	free_netdev(ndev);
 
