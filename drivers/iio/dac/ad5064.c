@@ -168,12 +168,24 @@ enum ad5064_type {
 	ID_LTC2626,
 	ID_LTC2627,
 	ID_LTC2629,
-	ID_LTC2631_L,
-	ID_LTC2631_H,
-	ID_LTC2633_L,
-	ID_LTC2633_H,
-	ID_LTC2635_L,
-	ID_LTC2635_H,
+	ID_LTC2631_L12,
+	ID_LTC2631_H12,
+	ID_LTC2631_L10,
+	ID_LTC2631_H10,
+	ID_LTC2631_L8,
+	ID_LTC2631_H8,
+	ID_LTC2633_L12,
+	ID_LTC2633_H12,
+	ID_LTC2633_L10,
+	ID_LTC2633_H10,
+	ID_LTC2633_L8,
+	ID_LTC2633_H8,
+	ID_LTC2635_L12,
+	ID_LTC2635_H12,
+	ID_LTC2635_L10,
+	ID_LTC2635_H10,
+	ID_LTC2635_L8,
+	ID_LTC2635_H8,
 };
 
 static int ad5064_write(struct ad5064_state *st, unsigned int cmd,
@@ -431,6 +443,19 @@ static DECLARE_AD5064_CHANNELS(ad5669_channels, 16, 0, ad5064_ext_info);
 static DECLARE_AD5064_CHANNELS(ltc2607_channels, 16, 0, ltc2617_ext_info);
 static DECLARE_AD5064_CHANNELS(ltc2617_channels, 14, 2, ltc2617_ext_info);
 static DECLARE_AD5064_CHANNELS(ltc2627_channels, 12, 4, ltc2617_ext_info);
+#define ltc2631_12_channels ltc2627_channels
+static DECLARE_AD5064_CHANNELS(ltc2631_10_channels, 10, 6, ltc2617_ext_info);
+static DECLARE_AD5064_CHANNELS(ltc2631_8_channels, 8, 8, ltc2617_ext_info);
+
+#define LTC2631_INFO(vref, pchannels, nchannels)	\
+	{						\
+		.shared_vref = true,			\
+		.internal_vref = vref,			\
+		.channels = pchannels,			\
+		.num_channels = nchannels,		\
+		.regmap_type = AD5064_REGMAP_LTC,	\
+	}
+
 
 static const struct ad5064_chip_info ad5064_chip_info_tbl[] = {
 	[ID_AD5024] = {
@@ -730,48 +755,24 @@ static const struct ad5064_chip_info ad5064_chip_info_tbl[] = {
 		.num_channels = 4,
 		.regmap_type = AD5064_REGMAP_LTC,
 	},
-	[ID_LTC2631_L] = {
-		.shared_vref = true,
-		.internal_vref = 2500000,
-		.channels = ltc2627_channels,
-		.num_channels = 1,
-		.regmap_type = AD5064_REGMAP_LTC,
-	},
-	[ID_LTC2631_H] = {
-		.shared_vref = true,
-		.internal_vref = 4096000,
-		.channels = ltc2627_channels,
-		.num_channels = 1,
-		.regmap_type = AD5064_REGMAP_LTC,
-	},
-	[ID_LTC2633_L] = {
-		.shared_vref = true,
-		.internal_vref = 2500000,
-		.channels = ltc2627_channels,
-		.num_channels = 2,
-		.regmap_type = AD5064_REGMAP_LTC,
-	},
-	[ID_LTC2633_H] = {
-		.shared_vref = true,
-		.internal_vref = 4096000,
-		.channels = ltc2627_channels,
-		.num_channels = 2,
-		.regmap_type = AD5064_REGMAP_LTC,
-	},
-	[ID_LTC2635_L] = {
-		.shared_vref = true,
-		.internal_vref = 2500000,
-		.channels = ltc2627_channels,
-		.num_channels = 4,
-		.regmap_type = AD5064_REGMAP_LTC,
-	},
-	[ID_LTC2635_H] = {
-		.shared_vref = true,
-		.internal_vref = 4096000,
-		.channels = ltc2627_channels,
-		.num_channels = 4,
-		.regmap_type = AD5064_REGMAP_LTC,
-	},
+	[ID_LTC2631_L12] = LTC2631_INFO(2500000, ltc2631_12_channels, 1),
+	[ID_LTC2631_H12] = LTC2631_INFO(4096000, ltc2631_12_channels, 1),
+	[ID_LTC2631_L10] = LTC2631_INFO(2500000, ltc2631_10_channels, 1),
+	[ID_LTC2631_H10] = LTC2631_INFO(4096000, ltc2631_10_channels, 1),
+	[ID_LTC2631_L8] = LTC2631_INFO(2500000, ltc2631_8_channels, 1),
+	[ID_LTC2631_H8] = LTC2631_INFO(4096000, ltc2631_8_channels, 1),
+	[ID_LTC2633_L12] = LTC2631_INFO(2500000, ltc2631_12_channels, 2),
+	[ID_LTC2633_H12] = LTC2631_INFO(4096000, ltc2631_12_channels, 2),
+	[ID_LTC2633_L10] = LTC2631_INFO(2500000, ltc2631_10_channels, 2),
+	[ID_LTC2633_H10] = LTC2631_INFO(4096000, ltc2631_10_channels, 2),
+	[ID_LTC2633_L8] = LTC2631_INFO(2500000, ltc2631_8_channels, 2),
+	[ID_LTC2633_H8] = LTC2631_INFO(4096000, ltc2631_8_channels, 2),
+	[ID_LTC2635_L12] = LTC2631_INFO(2500000, ltc2631_12_channels, 4),
+	[ID_LTC2635_H12] = LTC2631_INFO(4096000, ltc2631_12_channels, 4),
+	[ID_LTC2635_L10] = LTC2631_INFO(2500000, ltc2631_10_channels, 4),
+	[ID_LTC2635_H10] = LTC2631_INFO(4096000, ltc2631_10_channels, 4),
+	[ID_LTC2635_L8] = LTC2631_INFO(2500000, ltc2631_8_channels, 4),
+	[ID_LTC2635_H8] = LTC2631_INFO(4096000, ltc2631_8_channels, 4),
 };
 
 static inline unsigned int ad5064_num_vref(struct ad5064_state *st)
@@ -1030,12 +1031,24 @@ static const struct i2c_device_id ad5064_i2c_ids[] = {
 	{"ltc2626", ID_LTC2626},
 	{"ltc2627", ID_LTC2627},
 	{"ltc2629", ID_LTC2629},
-	{"ltc2631-l", ID_LTC2631_L},
-	{"ltc2631-h", ID_LTC2631_H},
-	{"ltc2633-l", ID_LTC2633_L},
-	{"ltc2633-h", ID_LTC2633_H},
-	{"ltc2635-l", ID_LTC2635_L},
-	{"ltc2635-h", ID_LTC2635_H},
+	{"ltc2631-l12", ID_LTC2631_L12},
+	{"ltc2631-h12", ID_LTC2631_H12},
+	{"ltc2631-l10", ID_LTC2631_L10},
+	{"ltc2631-h10", ID_LTC2631_H10},
+	{"ltc2631-l8", ID_LTC2631_L8},
+	{"ltc2631-h8", ID_LTC2631_H8},
+	{"ltc2633-l12", ID_LTC2633_L12},
+	{"ltc2633-h12", ID_LTC2633_H12},
+	{"ltc2633-l10", ID_LTC2633_L10},
+	{"ltc2633-h10", ID_LTC2633_H10},
+	{"ltc2633-l8", ID_LTC2633_L8},
+	{"ltc2633-h8", ID_LTC2633_H8},
+	{"ltc2635-l12", ID_LTC2635_L12},
+	{"ltc2635-h12", ID_LTC2635_H12},
+	{"ltc2635-l10", ID_LTC2635_L10},
+	{"ltc2635-h10", ID_LTC2635_H10},
+	{"ltc2635-l8", ID_LTC2635_L8},
+	{"ltc2635-h8", ID_LTC2635_H8},
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, ad5064_i2c_ids);
