@@ -1,6 +1,15 @@
 /* the "plus" version has much more I/O pins, but lacks some periferals,
  * and the NAND was replaced by a dual-QSPI NOR setup. */
 
+/* The miamiplus contains a speedgrade-2 device and runs at 800MHz */
+&cpu0 {
+	operating-points = <
+		/* kHz    uV */
+		800000  1000000
+		400000  1000000
+	>;
+};
+
 /* Remove missing periferals */
 /delete-node/ &monitorcurrent;
 /delete-node/ &ltc3562;
