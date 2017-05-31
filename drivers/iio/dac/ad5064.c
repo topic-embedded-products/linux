@@ -2,8 +2,8 @@
  * AD5024, AD5025, AD5044, AD5045, AD5064, AD5064-1, AD5065, AD5625, AD5625R,
  * AD5627, AD5627R, AD5628, AD5629R, AD5645R, AD5647R, AD5648, AD5665, AD5665R,
  * AD5666, AD5667, AD5667R, AD5668, AD5669R, LTC2606, LTC2607, LTC2609, LTC2616,
- * LTC2617, LTC2619, LTC2626, LTC2627, LTC2629 Digital to analog converters
- * driver
+ * LTC2617, LTC2619, LTC2626, LTC2627, LTC2629, LTC2631, LTC2633, LTC2635
+ * Digital to analog converters driver
  *
  * Copyright 2011 Analog Devices Inc.
  *
@@ -168,6 +168,12 @@ enum ad5064_type {
 	ID_LTC2626,
 	ID_LTC2627,
 	ID_LTC2629,
+	ID_LTC2631_L,
+	ID_LTC2631_H,
+	ID_LTC2633_L,
+	ID_LTC2633_H,
+	ID_LTC2635_L,
+	ID_LTC2635_H,
 };
 
 static int ad5064_write(struct ad5064_state *st, unsigned int cmd,
@@ -724,6 +730,48 @@ static const struct ad5064_chip_info ad5064_chip_info_tbl[] = {
 		.num_channels = 4,
 		.regmap_type = AD5064_REGMAP_LTC,
 	},
+	[ID_LTC2631_L] = {
+		.shared_vref = true,
+		.internal_vref = 2500000,
+		.channels = ltc2627_channels,
+		.num_channels = 1,
+		.regmap_type = AD5064_REGMAP_LTC,
+	},
+	[ID_LTC2631_H] = {
+		.shared_vref = true,
+		.internal_vref = 4096000,
+		.channels = ltc2627_channels,
+		.num_channels = 1,
+		.regmap_type = AD5064_REGMAP_LTC,
+	},
+	[ID_LTC2633_L] = {
+		.shared_vref = true,
+		.internal_vref = 2500000,
+		.channels = ltc2627_channels,
+		.num_channels = 2,
+		.regmap_type = AD5064_REGMAP_LTC,
+	},
+	[ID_LTC2633_H] = {
+		.shared_vref = true,
+		.internal_vref = 4096000,
+		.channels = ltc2627_channels,
+		.num_channels = 2,
+		.regmap_type = AD5064_REGMAP_LTC,
+	},
+	[ID_LTC2635_L] = {
+		.shared_vref = true,
+		.internal_vref = 2500000,
+		.channels = ltc2627_channels,
+		.num_channels = 4,
+		.regmap_type = AD5064_REGMAP_LTC,
+	},
+	[ID_LTC2635_H] = {
+		.shared_vref = true,
+		.internal_vref = 4096000,
+		.channels = ltc2627_channels,
+		.num_channels = 4,
+		.regmap_type = AD5064_REGMAP_LTC,
+	},
 };
 
 static inline unsigned int ad5064_num_vref(struct ad5064_state *st)
@@ -982,6 +1030,12 @@ static const struct i2c_device_id ad5064_i2c_ids[] = {
 	{"ltc2626", ID_LTC2626},
 	{"ltc2627", ID_LTC2627},
 	{"ltc2629", ID_LTC2629},
+	{"ltc2631-l", ID_LTC2631_L},
+	{"ltc2631-h", ID_LTC2631_H},
+	{"ltc2633-l", ID_LTC2633_L},
+	{"ltc2633-h", ID_LTC2633_H},
+	{"ltc2635-l", ID_LTC2635_L},
+	{"ltc2635-h", ID_LTC2635_H},
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, ad5064_i2c_ids);

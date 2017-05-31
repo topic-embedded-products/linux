@@ -1,10 +1,25 @@
 /* the "plus" version has much more I/O pins, but lacks some periferals,
  * and the NAND was replaced by a dual-QSPI NOR setup. */
 
+/* The miamiplus contains a speedgrade-2 device and runs at 800MHz */
+&cpu0 {
+	operating-points = <
+		/* kHz    uV */
+		800000  1000000
+		400000  1000000
+	>;
+};
+
 /* Remove missing periferals */
-/delete-node/ &monitorvolt;
 /delete-node/ &monitorcurrent;
 /delete-node/ &ltc3562;
+
+/* Different voltage monitoring IC */
+&monitorvolt {
+	compatible = "ad7997";
+	reg = <0x21>;
+	/* TODO: gpios */
+};
 
 /* Dual QSPI configuration */
 &qspi {
@@ -31,12 +46,9 @@
 		compatible = "silabs,si514";
 		clock-output-names = "si514miami";
 	};
-	max6650: max6650@1b {
-		reg = <0x1b>; /* ADD pins high-Z, hence address 0011011b */
-		compatible = "maxim,max6650";
-		maxim,fan-voltage = <12000000>;
-		maxim,fan-prescale = <1>; /* Good for 240..10000rpm */
-		maxim,fan-target-rpm = <600>; /* Run quietly at boot */
+	max31760: max31760@57 {
+		reg = <0x57>; /* Address pins "111" hence address 1010111b */
+		compatible = "maxim,max31760";
 	};
 };
 
