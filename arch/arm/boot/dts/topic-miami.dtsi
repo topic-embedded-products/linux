@@ -245,7 +245,7 @@
 	num-cs = <1>;
 	primary_flash: ps7-qspi@0 {
 		/* Specify flash chip to expect */
-		compatible = "n25q256a";
+		compatible = "jedec,spi-nor";
 		/* Max frequency for quad read is 108MHz according to data sheet */
 		spi-max-frequency = <108000000>;
 		spi-tx-bus-width = <1>;
