@@ -294,7 +294,7 @@
 		};
 	};
 
-	pcap {
+	pcap: pcap {
 		compatible = "xlnx,zynqmp-pcap-fpga";
 	};
 
