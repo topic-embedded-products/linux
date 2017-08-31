@@ -66,6 +66,16 @@
 			gpios = <&gpioex 3 0>;
 		};
 	};
+
+	/* Full FPGA image */
+        fpga_region0: fpga-region0 {
+                compatible = "fpga-region";
+                fpga-mgr = <&pcap>;
+                #address-cells = <1>;
+                #size-cells = <1>;
+                ranges;
+                firmware-name = "fpga.bin";
+        };
 };
 
 &gpio {
