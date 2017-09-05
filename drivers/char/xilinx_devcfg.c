@@ -1937,6 +1937,7 @@ static int xdevcfg_drv_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, drvdata);
+	drvdata->dev = &pdev->dev;
 	spin_lock_init(&drvdata->lock);
 	mutex_init(&drvdata->sem);
 	drvdata->is_open = 0;
