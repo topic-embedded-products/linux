@@ -1,28 +1,6 @@
 /include/ "topic-miami-florida.dtsi"
 /include/ "topic-miami-florida-gen-mio.dtsi"
 
-/ {
-	/* Fake power supply that activates when the FPGA has been
-	 * configured. */
-	fpga_power: fpga_power@0 {
-		compatible = "regulator-fpga";
-		regulator-name = "FPGA power";
-		regulator-always-on;
-	};
-
-	/* SD 1 for WiFi card */
-	reg_sd1: regulator_sd1 {
-		compatible = "regulator-fixed";
-		regulator-name = "rsi-wifi";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-		vin-supply = <&fpga_power>;
-		gpio = <&gpio0 62 0>; /* Connected to NRESET */
-		enable-active-high;
-		startup-delay-us = <25000>; /* Datasheet mentions 20ms */
-	};
-};
-
 /* On-board push buttons connected to EMIO GPIO 4 and 5 in reference design */
 &gpio_keys {
 	s2 {
@@ -129,19 +107,6 @@
 			};
 		};
 	};
-};
-
-/* SDIO via EMIO to a Wifi card */
-&sdhci1 {
-	status = "okay";
-	disable-wp;
-	broken-cd;
-	non-removable;
-	vmmc-supply = <&reg_sd1>;
-	bus-width = <4>;
-	cap-power-off-card;
-	/* Max clock is 25MHz when using EMIO */
-	max-frequency = <25000000>;
 };
 
 &amba {
