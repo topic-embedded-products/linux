@@ -3431,12 +3431,6 @@ static int adv76xx_probe(struct i2c_client *client,
 		if (state->hpd_gpio[i])
 			v4l_info(client, "Handling HPD %u GPIO\n", i);
 	}
-	state->reset_gpio = devm_gpiod_get_optional(&client->dev, "reset",
-								GPIOD_OUT_HIGH);
-	if (IS_ERR(state->reset_gpio))
-		return PTR_ERR(state->reset_gpio);
-
-	adv76xx_reset(state);
 
 	state->reset_gpio = devm_gpiod_get_optional(&client->dev, "reset",
 								GPIOD_OUT_HIGH);
