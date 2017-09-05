@@ -22,20 +22,16 @@
 	/* HDMI OUT */
 	adv7511: adv7511@39 {
 		compatible = "adi,adv7511";
-		reg = <0x39>;
-		adi,input-style = <0x02>;
-		adi,input-id = <0x01>;
+		reg = <0x39>, <0x3f>;
+		reg-names = "primary", "edid";
 		adi,input-depth = <8>;
 		adi,input-colorspace = "rgb";
 		adi,input-clock = "1x";
-		adi,sync-pulse = <0x03>;
-		adi,bit-justification = <0x01>;
-		adi,up-conversion = <0x00>;
-		adi,timing-generation-sequence = <0x00>;
-		adi,vsync-polarity = <0x02>;
-		adi,hsync-polarity = <0x02>;
-		adi,tdms-clock-inversion;
-		adi,clock-delay = <0x03>;
+		adi,input-style = <1>;
+		adi,input-justification = "right";
+		adi,clock-delay = <0>;
+		#sound-dai-cells = <0>;
+
 		ports {
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -155,12 +151,8 @@
 		dma-names = "tx";
 		clocks = <&clkc 15>, <&clockgen 1>, <&clockgen 1>;
 		clock-names = "axi", "ref", "spdif";
-	};
 
-	adv7511_hdmi_snd: adv7511_hdmi_snd {
-		compatible = "adv7511-hdmi-snd";
-		audio-codec = <&adv7511>;
-		cpu-dai = <&axi_spdif_tx_0>;
+		#sound-dai-cells = <0>;
 	};
 
 	axi_hdmi_rx_core: axi-hdmi-rx@43c10000 {
@@ -240,6 +232,29 @@
 		vertical-front-porch = <4>;
 		vertical-back-porch = <23>;
 		vertical-polarity = <0>;
+	};
+};
+
+/ {
+	adv7511_hdmi_snd {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "HDMI monitor";
+		simple-audio-card,widgets =
+			"Speaker", "Speaker";
+		simple-audio-card,routing =
+			"Speaker", "TX";
+
+		simple-audio-card,dai-link@0 {
+			format = "spdif";
+			cpu {
+				sound-dai = <&axi_spdif_tx_0>;
+				frame-master;
+				bitclock-master;
+			};
+			codec {
+				sound-dai = <&adv7511>;
+			};
+		};
 	};
 };
 
