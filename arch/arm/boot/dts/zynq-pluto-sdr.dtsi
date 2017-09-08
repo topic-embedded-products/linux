@@ -63,7 +63,7 @@
 		#size-cells = <1>;
 		spi-tx-bus-width = <1>;
 		spi-rx-bus-width = <4>;
-		compatible = "n25q256a"; /* same as S25FL256 */
+		compatible = "n25q256a", "jedec,spi-nor"; /* same as S25FL256 */
 		reg = <0x0>;
 		spi-max-frequency = <50000000>;
 		partition@qspi-fsbl-uboot {
@@ -161,11 +161,12 @@
 			dmas = <&tx_dma 0>;
 			dma-names = "tx";
 			adi,axi-interpolation-core-available;
+			adi,axi-dds-default-scale = <0>;
 		};
 
-		mwipcore@43C00000 {
+		mwipcore@43c00000 {
 			compatible = "mathworks,mwipcore-axi4lite-v1.00";
-			reg = <0x43C00000 0xffff>;
+			reg = <0x43c00000 0xffff>;
 		};
 	};
 };
@@ -177,7 +178,7 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 		#clock-cells = <1>;
-		compatible = "ad9363a";
+		compatible = "adi,ad9363a";
 
 		/* SPI Setup */
 		reg = <0>;
@@ -238,6 +239,7 @@
 		 */
 
 		adi,rx-rf-port-input-select = <0>; /* (RX1A_N &  RX1A_P) and (RX2A_N & RX2A_P) enabled; balanced */
+		adi,rx-rf-port-input-select-lock-enable;
 
 		/* adi,tx-rf-port-input-select:
 		 * 0	TX1A, TX2A
@@ -245,6 +247,8 @@
 		 */
 
 		adi,tx-rf-port-input-select = <0>; /* TX1A, TX2A */
+		adi,tx-rf-port-input-select-lock-enable;
+
 		//adi,update-tx-gain-in-alert-enable;
 		adi,tx-attenuation-mdB = <10000>;
 

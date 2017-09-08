@@ -460,6 +460,7 @@ static int adv7511_get_edid_block(void *data, u8 *buf, unsigned int block,
 
 			if (!(ret & ADV7511_INT0_EDID_READY))
 				return -EIO;
+			mdelay(10);
 		}
 
 		regmap_write(adv7511->regmap, ADV7511_REG_INT(0),

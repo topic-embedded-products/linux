@@ -904,7 +904,7 @@ static int xemacps_mii_init(struct net_local *lp)
 	for (i = 0; i < PHY_MAX_ADDR; i++)
 		lp->mii_bus->irq[i] = PHY_POLL;
 	npp = of_get_parent(np);
-	of_address_to_resource(np, 0, &res);
+	of_address_to_resource(npp, 0, &res);
 	snprintf(lp->mii_bus->id, MII_BUS_ID_SIZE, "%.8llx",
 		 (unsigned long long)res.start);
 
@@ -2160,7 +2160,7 @@ static void xemacps_reinit_for_txtimeout(struct work_struct *data)
 
 	napi_enable(&lp->napi);
 	tasklet_enable(&lp->tx_bdreclaim_tasklet);
-	lp->ndev->trans_start = jiffies;
+	netif_trans_update(lp->ndev);
 	netif_wake_queue(lp->ndev);
 }
 
@@ -2314,7 +2314,7 @@ static int xemacps_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 			(regval | XEMACPS_NWCTRL_STARTTX_MASK));
 	spin_unlock_irqrestore(&lp->nwctrlreg_lock, flags);
 
-	ndev->trans_start = jiffies;
+	netif_trans_update(ndev);
 	return 0;
 
 dma_err:

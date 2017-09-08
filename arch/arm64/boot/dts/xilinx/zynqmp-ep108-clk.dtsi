@@ -11,11 +11,12 @@
  * the License, or (at your option) any later version.
  */
 
-&amba {
+/ {
 	misc_clk: misc_clk {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <25000000>;
+		u-boot,dm-pre-reloc;
 	};
 
 	i2c_clk: i2c_clk {

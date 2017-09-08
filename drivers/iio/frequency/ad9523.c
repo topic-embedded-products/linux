@@ -307,7 +307,7 @@ struct ad9523_state {
 	} data[2] ____cacheline_aligned;
 };
 
-static int ad9523_read(struct iio_dev *indio_dev, unsigned addr)
+static int ad9523_read(struct iio_dev *indio_dev, unsigned int addr)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	int ret;
@@ -341,7 +341,8 @@ static int ad9523_read(struct iio_dev *indio_dev, unsigned addr)
 	return ret;
 };
 
-static int ad9523_write(struct iio_dev *indio_dev, unsigned addr, unsigned val)
+static int ad9523_write(struct iio_dev *indio_dev,
+		unsigned int addr, unsigned int val)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	int ret;
@@ -374,11 +375,11 @@ static int ad9523_io_update(struct iio_dev *indio_dev)
 }
 
 static int ad9523_vco_out_map(struct iio_dev *indio_dev,
-			      unsigned ch, unsigned out)
+			      unsigned int ch, unsigned int out)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	int ret;
-	unsigned mask;
+	unsigned int mask;
 
 	switch (ch) {
 	case 0 ... 3:
@@ -428,7 +429,7 @@ static int ad9523_vco_out_map(struct iio_dev *indio_dev,
 }
 
 static int ad9523_set_clock_provider(struct iio_dev *indio_dev,
-			      unsigned ch, unsigned long freq)
+			      unsigned int ch, unsigned long freq)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	long tmp1, tmp2;
@@ -644,7 +645,7 @@ static int ad9523_read_raw(struct iio_dev *indio_dev,
 			   long m)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
-	unsigned code;
+	unsigned int code;
 	int ret;
 
 	mutex_lock(&st->lock);
@@ -680,7 +681,7 @@ static int ad9523_write_raw(struct iio_dev *indio_dev,
 			    long mask)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
-	unsigned reg;
+	unsigned int reg;
 	int ret, tmp, code;
 
 	mutex_lock(&st->lock);
@@ -738,8 +739,8 @@ out:
 }
 
 static int ad9523_reg_access(struct iio_dev *indio_dev,
-			      unsigned reg, unsigned writeval,
-			      unsigned *readval)
+			      unsigned int reg, unsigned int writeval,
+			      unsigned int *readval)
 {
 	struct ad9523_state *st = iio_priv(indio_dev);
 	int ret;
@@ -885,7 +886,7 @@ static struct clk *ad9523_clk_register(struct iio_dev *indio_dev, unsigned num,
 	init.ops = &ad9523_clk_ops;
 
 	init.num_parents = 0;
-	init.flags = CLK_IS_ROOT;
+	init.flags = 0;
 	output->hw.init = &init;
 	output->indio_dev = indio_dev;
 	output->num = num;
@@ -1082,7 +1083,6 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 	for (i = 0; i < pdata->num_channels; i++) {
 		chan = &pdata->channels[i];
 		if (chan->channel_num < AD9523_NUM_CHAN) {
-			struct clk *clk;
 			__set_bit(chan->channel_num, &active_mask);
 			ret = ad9523_write(indio_dev,
 				AD9523_CHANNEL_CLOCK_DIST(chan->channel_num),
@@ -1115,16 +1115,8 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 				BIT(IIO_CHAN_INFO_RAW) |
 				BIT(IIO_CHAN_INFO_PHASE) |
 				BIT(IIO_CHAN_INFO_FREQUENCY);
-
-			clk = ad9523_clk_register(indio_dev, chan->channel_num,
-						  !chan->output_dis);
-			if (IS_ERR(clk))
-				return PTR_ERR(clk);
 		}
 	}
-
-	of_clk_add_provider(st->spi->dev.of_node,
-			    of_clk_src_onecell_get, &st->clk_data);
 
 	for_each_clear_bit(i, &active_mask, AD9523_NUM_CHAN)
 		ad9523_write(indio_dev,
@@ -1145,7 +1137,27 @@ static int ad9523_setup(struct iio_dev *indio_dev)
 	if (ret < 0)
 		return ret;
 
-	return ad9523_sync(indio_dev);
+	ret = ad9523_sync(indio_dev);
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < pdata->num_channels; i++) {
+		struct clk *clk;
+
+		chan = &pdata->channels[i];
+		if (chan->channel_num >= AD9523_NUM_CHAN)
+			continue;
+
+		clk = ad9523_clk_register(indio_dev, chan->channel_num,
+					  !chan->output_dis);
+		if (IS_ERR(clk))
+			return PTR_ERR(clk);
+	}
+
+	of_clk_add_provider(st->spi->dev.of_node,
+			    of_clk_src_onecell_get, &st->clk_data);
+
+	return 0;
 }
 
 #ifdef CONFIG_OF
@@ -1159,10 +1171,8 @@ static struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
 	int ret;
 
 	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
-	if (!pdata) {
-		dev_err(dev, "could not allocate memory for platform data\n");
-		return NULL;
-	}
+	if (!pdata)
+		return ERR_PTR(-ENOMEM);
 
 	pdata->spi3wire = of_property_read_bool(np, "adi,spi-3wire-enable");
 
@@ -1226,6 +1236,8 @@ static struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
 	pdata->pll2_freq_doubler_en =
 		of_property_read_bool(np, "adi,pll2-freq-doubler-enable");
 
+
+	tmp = 1;
 	of_property_read_u32(np, "adi,pll2-r2-div", &tmp);
 	pdata->pll2_r2_div = tmp;
 	tmp = 3;
@@ -1234,6 +1246,55 @@ static struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
 	tmp = 3;
 	of_property_read_u32(np, "adi,pll2-vco-diff-m2", &tmp);
 	pdata->pll2_vco_diff_m2 = tmp;
+
+	if (pdata->pll2_ndiv_b_cnt < 3 || pdata->pll2_ndiv_b_cnt > 63) {
+		dev_err(dev, "PLL2 B divider must be in the range 3-63\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	switch (pdata->pll2_ndiv_b_cnt) {
+	case 3:
+		if (pdata->pll2_ndiv_a_cnt > 0) {
+			dev_err(dev, "When PLL2 B counter == 3 A counter must be == 0\n");
+			return ERR_PTR(-EINVAL);
+		}
+		break;
+	case 4:
+		if (pdata->pll2_ndiv_a_cnt > 1) {
+			dev_err(dev, "When PLL2 B counter == 4 A counter must be <= 1\n");
+			return ERR_PTR(-EINVAL);
+		}
+		break;
+	case 5:
+	case 6:
+		if (pdata->pll2_ndiv_a_cnt > 2) {
+			dev_err(dev, "When PLL2 B counter == %d A counter must be <= 2\n",
+				pdata->pll2_ndiv_b_cnt);
+			return ERR_PTR(-EINVAL);
+		}
+		break;
+	default:
+		if (pdata->pll2_ndiv_a_cnt > 3) {
+			dev_err(dev, "A counter must be <= 3\n");
+			return ERR_PTR(-EINVAL);
+		}
+		break;
+	}
+
+	if (pdata->pll2_r2_div < 1 || pdata->pll2_r2_div > 31) {
+		dev_err(dev, "PLL2 R2 divider must be in the range of 1-31\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	if (pdata->pll2_vco_diff_m1 < 3 || pdata->pll2_vco_diff_m1 > 5) {
+		dev_err(dev, "PLL2 M1 divider must be in the range of 3-5\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	if (pdata->pll2_vco_diff_m2 < 3 || pdata->pll2_vco_diff_m2 > 5) {
+		dev_err(dev, "PLL2 M2 divider must be in the range of 3-5\n");
+		return ERR_PTR(-EINVAL);
+	}
 
 	/* Loop Filter PLL2 */
 
@@ -1255,10 +1316,8 @@ static struct ad9523_platform_data *ad9523_parse_dt(struct device *dev)
 
 	pdata->num_channels = cnt;
 	pdata->channels = devm_kzalloc(dev, sizeof(*chan) * cnt, GFP_KERNEL);
-	if (!pdata->channels) {
-		dev_err(dev, "could not allocate memory\n");
-		return NULL;
-	}
+	if (!pdata->channels)
+		return ERR_PTR(-ENOMEM);
 
 	cnt = 0;
 	for_each_child_of_node(np, chan_np) {
@@ -1306,10 +1365,13 @@ static int ad9523_probe(struct spi_device *spi)
 	struct ad9523_state *st;
 	int ret;
 
-	if (spi->dev.of_node)
+	if (spi->dev.of_node) {
 		pdata = ad9523_parse_dt(&spi->dev);
-	else
+		if (IS_ERR(pdata))
+			return PTR_ERR(pdata);
+	} else {
 		pdata = spi->dev.platform_data;
+	}
 
 	if (!pdata) {
 		dev_err(&spi->dev, "no platform data?\n");
@@ -1331,11 +1393,20 @@ static int ad9523_probe(struct spi_device *spi)
 			return ret;
 	}
 
-	st->pwrdown_gpio = devm_gpiod_get(&spi->dev, "powerdown",
+	st->pwrdown_gpio = devm_gpiod_get_optional(&spi->dev, "powerdown",
 		GPIOD_OUT_HIGH);
+	if (IS_ERR(st->pwrdown_gpio)) {
+		ret = PTR_ERR(st->pwrdown_gpio);
+		goto error_disable_reg;
+	}
 
-	st->reset_gpio = devm_gpiod_get(&spi->dev, "reset", GPIOD_OUT_LOW);
-	if (!IS_ERR(st->reset_gpio)) {
+	st->reset_gpio = devm_gpiod_get_optional(&spi->dev, "reset", GPIOD_OUT_LOW);
+	if (IS_ERR(st->reset_gpio)) {
+		ret = PTR_ERR(st->reset_gpio);
+		goto error_disable_reg;
+	}
+
+	if (st->reset_gpio) {
 		udelay(1);
 
 		ret = gpiod_direction_output(st->reset_gpio, 1);
@@ -1343,7 +1414,11 @@ static int ad9523_probe(struct spi_device *spi)
 
 	mdelay(10);
 
-	st->sync_gpio = devm_gpiod_get(&spi->dev, "sync", GPIOD_OUT_HIGH);
+	st->sync_gpio = devm_gpiod_get_optional(&spi->dev, "sync", GPIOD_OUT_HIGH);
+	if (IS_ERR(st->sync_gpio)) {
+		ret = PTR_ERR(st->sync_gpio);
+		goto error_disable_reg;
+	}
 
 	spi_set_drvdata(spi, indio_dev);
 	st->spi = spi;
