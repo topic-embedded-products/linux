@@ -1,7 +1,7 @@
 /* Periferals on the florida-test board. Can be combined with miami and miamiplus */
 
 /* No ethernet on this board */
-&eth {
+&gem0 {
 	status = "disabled";
 };
 
