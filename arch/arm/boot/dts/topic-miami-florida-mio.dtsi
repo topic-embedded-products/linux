@@ -85,6 +85,12 @@
 				interrupt-parent = <&gpio0>;
 				interrupts = <15 0x8>; /* GPIO 15, IRQ_TYPE_LEVEL_LOW */
 			};
+			/* EEPROM (v3r1 board)*/
+			eepromc: eepromc@50 {
+				compatible = "at24,24c04";
+				reg = <0x50>;
+			};
+			/* Programmable clock */
 			si514: si514@55 {
 				reg = <0x55>;
 				#clock-cells = <0>;
