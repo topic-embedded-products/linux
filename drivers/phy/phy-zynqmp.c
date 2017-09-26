@@ -1374,7 +1374,6 @@ static int xpsgtr_probe(struct platform_device *pdev)
 	struct phy_provider *provider;
 	struct phy *phy;
 	struct resource *res;
-	char *soc_rev;
 	int lanecount, port = 0, index = 0;
 	int err;
 
@@ -1409,17 +1408,6 @@ static int xpsgtr_probe(struct platform_device *pdev)
 	gtr_dev->dev = &pdev->dev;
 	platform_set_drvdata(pdev, gtr_dev);
 	mutex_init(&gtr_dev->gtr_mutex);
-
-	/* Deferred probe is also handled if nvmem is not ready */
-	soc_rev = zynqmp_nvmem_get_silicon_version(&pdev->dev,
-						   "soc_revision");
-	if (IS_ERR(soc_rev))
-		return PTR_ERR(soc_rev);
-
-	if (*soc_rev == ZYNQMP_SILICON_V1)
-		gtr_dev->tx_term_fix = true;
-
-	kfree(soc_rev);
 
 	err = xpsgtr_get_resets(gtr_dev);
 	if (err) {

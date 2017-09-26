@@ -219,7 +219,6 @@ static int dwc3_of_simple_probe(struct platform_device *pdev)
 	if (of_device_is_compatible(pdev->dev.of_node,
 				    "xlnx,zynqmp-dwc3")) {
 
-		char			*soc_rev;
 		struct resource		*res;
 		void __iomem		*regs;
 
@@ -232,28 +231,6 @@ static int dwc3_of_simple_probe(struct platform_device *pdev)
 
 		/* Store the usb control regs into simple for further usage */
 		simple->regs = regs;
-
-		/* read Silicon version using nvmem driver */
-		soc_rev = zynqmp_nvmem_get_silicon_version(&pdev->dev,
-						   "soc_revision");
-
-		if (PTR_ERR(soc_rev) == -EPROBE_DEFER) {
-			/* Do a deferred probe */
-			return -EPROBE_DEFER;
-
-		} else if (!IS_ERR(soc_rev) &&
-					(*soc_rev < ZYNQMP_SILICON_V4)) {
-			/* Add snps,dis_u3_susphy_quirk
-			 * for SOC revison less than v4
-			 */
-			simple->dis_u3_susphy_quirk = true;
-		}
-
-		/* Clean soc_rev if got a valid pointer from nvmem driver
-		 * else we may end up in kernel panic
-		 */
-		if (!IS_ERR(soc_rev))
-			kfree(soc_rev);
 	}
 
 	ret = dwc3_of_simple_clk_init(simple, of_clk_get_parent_count(np));
