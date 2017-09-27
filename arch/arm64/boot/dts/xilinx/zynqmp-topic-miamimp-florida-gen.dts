@@ -24,6 +24,7 @@
 		regulator-max-microvolt = <5000000>;
 		gpio = <&gpioexf 1 0>;
 		enable-active-high;
+		regulator-always-on; /* USB host mode */
 	};
 
 	xtal_27Mhz: clock_xtal_27Mhz {
@@ -113,12 +114,7 @@
 
 &dwc3_0 {
 	status = "okay";
-	dr_mode = "host";
-	snps,usb3_lpm_capable;
-	/*
-	 * phy-names = "usb3-phy";
-	 * phys = <&lane2 PHY_TYPE_USB3 0 2 26000000>;
-	 */
+	dr_mode = "host"; /* "host", "peripheral" or "otg" */
 	maximum-speed = "high-speed"; /* super-speed not available on carrier */
 };
 
@@ -320,7 +316,7 @@
 &usb0 {
 	status = "okay";
 	vbus-supply = <&reg_usb0_vbus>;
-	dr_mode = "otg";
+	dr_mode = "host"; /* "host", "peripheral" or "otg" */
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_usb0_default>;
 	/* USB reset connected to output 0 of expander */
