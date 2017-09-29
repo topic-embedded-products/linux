@@ -173,6 +173,10 @@
 	clocks = <&clk100>;
 };
 
+&gpu {
+	clocks = <&clk600>, <&clk600>, <&clk600>;
+};
+
 &i2c0 {
 	clocks = <&clk100>;
 };
