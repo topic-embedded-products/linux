@@ -215,6 +215,7 @@
 			};
 			/* Touch */
 			touch: ad7879@2f {
+				status = "disabled"; /* No display panel support, so touch is pointless */
 				compatible = "ad7879";
 				reg = <0x2F>;
 				interrupt-parent = <&gpio>;
