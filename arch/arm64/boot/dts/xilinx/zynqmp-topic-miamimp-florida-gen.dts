@@ -264,9 +264,9 @@
 				hsync-active = <0>; /* Parallel bus */
 				vsync-active = <0>;
 				interrupt-parent = <&gpio>;
-				interrupts = <83 4>; /* EMIO 5 (?) */
+				interrupts = <99 4>; /* EMIO 21 */
 				adi,int1-config = <1>; /* ADV76XX_INT1_CONFIG_ACTIVE_LOW */
-				reset-gpios = <&gpio 91 0>; /* EMIO 13 (?) */
+				reset-gpios = <&gpio 91 0>; /* EMIO 13 */
 				port@0 {
 					reg = <0x0>;
 				};
