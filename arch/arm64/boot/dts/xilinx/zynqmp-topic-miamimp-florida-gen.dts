@@ -335,8 +335,7 @@
 		#dma-cells = <1>;
 		#dma-channels = <1>;
 		clock-names = "s_axi_lite_aclk", "m_axi_mm2s_aclk", "m_axi_mm2s_aclk";
-		clocks = <&clk100>, <&clk100>, <&clk100>;
-		/* clocks = <&fclk0>, <&fclk0>, <&fclk0>; */
+		clocks = <&clkc 71>, <&clkc 72>, <&clkc 72>; /* fclk0 and fclk1 */
 		interrupt-parent = <&gic>;
 		interrupts = <0 89 4>;
 		dma-ranges = <0x00000000 0x00000000 0x80000000>;
@@ -371,7 +370,7 @@
 		reg = <0x0 0xa00f0000 0x0 0x1000>;
 		/* TODO:  dmas = <&dmac_s 0>; */
 		dma-names = "tx";
-		clocks = <&clk100>, <&clockgen 1>, <&clockgen 1>;
+		clocks = <&clkc 71>, <&clockgen 1>, <&clockgen 1>;
 		clock-names = "axi", "ref", "spdif";
 
 		#sound-dai-cells = <0>;
@@ -402,8 +401,7 @@
 		#dma-cells = <1>;
 		interrupt-parent = <&gic>;
 		interrupts = <0 90 4>; /* pl_ps_0[1] */
-		clocks = <&clk100>;
-		/* clocks = <&fclk0>; */
+		clocks = <&clkc 71>; /* fclk0 */
 
 		adi,channels {
 			#size-cells = <0>;
