@@ -106,6 +106,8 @@
 #define PIXELS_PER_CLK				2
 #define XSDI_CH_SHIFT				29
 #define XST352_PROG_SHIFT			6
+#define XST352_TRANS_SHIFT			7
+#define XST352_2048_SHIFT			BIT(6)
 #define ST352_BYTE3				0x00
 #define ST352_BYTE4				0x01
 #define INVALID_VALUE				-1
@@ -219,9 +221,16 @@ struct xlnx_sdi_display_config {
 static const struct xlnx_sdi_display_config xlnx_sdi_modes[] = {
 	/* 0 - dummy, VICs start at 1 */
 	{ },
+	/* SD: 720x480i@60Hz */
+	{{ DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 13500, 720, 739,
+		   801, 858, 0, 240, 244, 247, 262, 0,
+		   DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC |
+		   DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+		   .vrefresh = 60, }, {0x7, 0x6},
+		   {0x81, 0x81, 0x81, 0x81, 0x81, 0x81} },
 	/* SD: 720x576i@50Hz */
 	{{ DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 13500, 720, 732,
-		   795, 864, 0, 576, 580, 586, 625, 0,
+		   795, 864, 0, 288, 290, 293, 312, 0,
 		   DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC |
 		   DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
 		   .vrefresh = 50, }, {0x9, 0x9},
@@ -276,14 +285,14 @@ static const struct xlnx_sdi_display_config xlnx_sdi_modes[] = {
 		   {0x85, 0x85, 0x89, 0x8A, 0xC1, 0xC1} },
 	/* HD: 1920x1080i@50Hz */
 	{{ DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2448,
-		   2492, 2640, 0, 1080, 1084, 1094, 1125, 0,
+		   2492, 2640, 0, 540, 542, 547, 562, 0,
 		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC |
 		   DRM_MODE_FLAG_INTERLACE),
 		   .vrefresh = 50, }, {0x9, 0x9},
 		   {0x85, 0x85, 0x89, 0x8A, 0xC1, 0xC1} },
 	/* HD: 1920x1080i@60Hz */
 	{{ DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2008,
-		   2052, 2200, 0, 1080, 1084, 1094, 1125, 0,
+		   2052, 2200, 0, 540, 542, 547, 562, 0,
 		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC |
 		   DRM_MODE_FLAG_INTERLACE),
 		   .vrefresh = 60, }, {0x7, 0x6},
@@ -371,6 +380,18 @@ static const struct xlnx_sdi_display_config xlnx_sdi_modes[] = {
 		   4272, 4400, 0, 2160, 2168, 2178, 2250, 0,
 		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
 		   .vrefresh = 30, }, {0x7, 0x6},
+		   {0x98, 0x98, 0x97, 0x98, 0xC0, 0xCE} },
+	/* 12G: 3840x2160@50Hz */
+	{{ DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 4896,
+		   4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+		   .vrefresh = 50, }, {0x9, 0x9},
+		   {0x98, 0x98, 0x97, 0x98, 0xC0, 0xCE} },
+	/* 12G: 3840x2160@60Hz */
+	{{ DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 4016,
+		   4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+		   DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+		   .vrefresh = 60, }, {0xB, 0xA},
 		   {0x98, 0x98, 0x97, 0x98, 0xC0, 0xCE} },
 	/* 12G: 4096x2160@48Hz */
 	{{ DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 594000, 4096, 5116,
@@ -915,17 +936,22 @@ static u32 xilinx_sdi_calc_st352_payld(struct xilinx_sdi *sdi,
 	u16 is_p, smpl_r;
 	u32 id, sdi_mode = sdi->sdi_mod_prop_val;
 	bool is_frac = sdi->is_frac_prop_val;
+	u32 byt3 = ST352_BYTE3;
 
 	id = xilinx_sdi_get_mode_id(mode);
 	dev_dbg(sdi->dev, "mode id: %d\n", id);
+	if (mode->hdisplay == 2048 || mode->hdisplay == 4096)
+		byt3 |= XST352_2048_SHIFT;
 	/* byte 2 calculation */
 	is_p = !(mode->flags & DRM_MODE_FLAG_INTERLACE);
 	smpl_r = xlnx_sdi_modes[id].st352_byt2[is_frac];
 	byt2 = (is_p << XST352_PROG_SHIFT) | smpl_r;
+	if (mode->vtotal >= 1125)
+		byt2 |= (is_p << XST352_TRANS_SHIFT);
 	/* byte 1 calculation */
 	byt1 = xlnx_sdi_modes[id].st352_byt1[sdi_mode];
 
-	return (ST352_BYTE4 << 24 | ST352_BYTE3 << 16 | byt2 << 8 | byt1);
+	return (ST352_BYTE4 << 24 | byt3 << 16 | byt2 << 8 | byt1);
 }
 
 /**
@@ -952,9 +978,11 @@ static void xilinx_sdi_mode_set(struct drm_encoder *encoder,
 	payload = xilinx_sdi_calc_st352_payld(sdi, adjusted_mode);
 	dev_dbg(sdi->dev, "payload : %0x\n", payload);
 
-	for (i = 0; i < SDI_MAX_DATASTREAM; i++)
-		xilinx_sdi_set_payload_data(sdi, i, payload |
-					    (i << XSDI_CH_SHIFT));
+	for (i = 0; i < sdi->sdi_data_strm_prop_val / 2; i++) {
+		if (sdi->sdi_mod_prop_val == XSDI_MODE_3GB)
+			payload |= (i << 1) << XSDI_CH_SHIFT;
+		xilinx_sdi_set_payload_data(sdi, i, payload);
+	}
 
 	/* UHDSDI is fixed 2 pixels per clock, horizontal timings div by 2 */
 	vm.hactive = adjusted_mode->hdisplay / PIXELS_PER_CLK;

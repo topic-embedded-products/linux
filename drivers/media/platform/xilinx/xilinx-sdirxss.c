@@ -46,38 +46,39 @@
 /*
  * SDI Rx register map, bitmask and offsets
  */
-#define XSDIRX_MDL_CTRL_REG		0x00
-#define XSDIRX_STAT_RESET_REG		0x04
-#define XSDIRX_INTR_STAT_REG		0x08
-#define XSDIRX_INTR_MASK_REG		0x0C
-#define XSDIRX_INTR_CLEAR_REG		0x10
-#define XSDIRX_MODE_DET_STAT_REG	0x14
-#define XSDIRX_TS_DET_STAT_REG		0x18
-#define XSDIRX_EDH_STAT_REG		0x1C
-#define XSDIRX_EDH_ERRCNT_REG		0x20
-#define XSDIRX_CRC_ERRCNT_REG		0x24
-#define XSDIRX_ST352_VALID_REG		0x28
-#define XSDIRX_ST352_DS0_REG		0x2C
-#define XSDIRX_ST352_DS1_REG		0x30
-#define XSDIRX_ST352_DS2_REG		0x34
-#define XSDIRX_ST352_DS3_REG		0x38
-#define XSDIRX_ST352_DS4_REG		0x3C
-#define XSDIRX_ST352_DS5_REG		0x40
-#define XSDIRX_ST352_DS6_REG		0x44
-#define XSDIRX_ST352_DS7_REG		0x48
-#define XSDIRX_VERSION_REG		0x4C
-#define XSDIRX_SYSCONFIG_REG		0x50
-#define XSDIRX_EDH_ERRCNT_EN_REG	0x54
-#define XSDIRX_STAT_SB_RX_TDATA_REG	0x58
+#define XSDIRX_RST_CTRL_REG		0x00
+#define XSDIRX_MDL_CTRL_REG		0x04
+#define XSDIRX_GLBL_IER_REG		0x0C
+#define XSDIRX_ISR_REG			0x10
+#define XSDIRX_IER_REG			0x14
+#define XSDIRX_ST352_VALID_REG		0x18
+#define XSDIRX_ST352_DS1_REG		0x1C
+#define XSDIRX_ST352_DS3_REG		0x20
+#define XSDIRX_ST352_DS5_REG		0x24
+#define XSDIRX_ST352_DS7_REG		0x28
+#define XSDIRX_ST352_DS9_REG		0x2C
+#define XSDIRX_ST352_DS11_REG		0x30
+#define XSDIRX_ST352_DS13_REG		0x34
+#define XSDIRX_ST352_DS15_REG		0x38
+#define XSDIRX_VERSION_REG		0x3C
+#define XSDIRX_SS_CONFIG_REG		0x40
+#define XSDIRX_MODE_DET_STAT_REG	0x44
+#define XSDIRX_TS_DET_STAT_REG		0x48
+#define XSDIRX_EDH_STAT_REG		0x4C
+#define XSDIRX_EDH_ERRCNT_EN_REG	0x50
+#define XSDIRX_EDH_ERRCNT_REG		0x54
+#define XSDIRX_CRC_ERRCNT_REG		0x58
 #define XSDIRX_VID_LOCK_WINDOW_REG	0x5C
-#define XSDIRX_BRIDGE_CTRL_REG		0x60
-#define XSDIRX_BRIDGE_STAT_REG		0x64
-#define XSDIRX_VID_IN_AXIS4_CTRL_REG	0x68
-#define XSDIRX_VID_IN_AXIS4_STAT_REG	0x6C
+#define XSDIRX_SB_RX_STS_REG		0x60
 
-#define XSDIRX_MDL_CTRL_MDL_EN_MASK	BIT(0)
-#define XSDIRX_MDL_CTRL_FRM_EN_MASK	BIT(4)
+#define XSDIRX_RST_CTRL_SS_EN_MASK			BIT(0)
+#define XSDIRX_RST_CTRL_SRST_MASK			BIT(1)
+#define XSDIRX_RST_CTRL_RST_CRC_ERRCNT_MASK		BIT(2)
+#define XSDIRX_RST_CTRL_RST_EDH_ERRCNT_MASK		BIT(3)
+#define XSDIRX_RST_CTRL_SDIRX_BRIDGE_ENB_MASK		BIT(8)
+#define XSDIRX_RST_CTRL_VIDIN_AXI4S_MOD_ENB_MASK	BIT(9)
 
+#define XSDIRX_MDL_CTRL_FRM_EN_MASK		BIT(4)
 #define XSDIRX_MDL_CTRL_MODE_DET_EN_MASK	BIT(5)
 #define XSDIRX_MDL_CTRL_MODE_HD_EN_MASK		BIT(8)
 #define XSDIRX_MDL_CTRL_MODE_SD_EN_MASK		BIT(9)
@@ -90,13 +91,17 @@
 #define XSDIRX_MDL_CTRL_FORCED_MODE_OFFSET	16
 #define XSDIRX_MDL_CTRL_FORCED_MODE_MASK	GENMASK(18, 16)
 
-#define XSDIRX_STAT_RESET_CRC_ERRCNT_MASK	BIT(0)
-#define XSDIRX_STAT_RESET_EDH_ERRCNT_MASK	BIT(1)
+#define XSDIRX_GLBL_INTR_EN_MASK	BIT(0)
 
 #define XSDIRX_INTR_VIDLOCK_MASK	BIT(0)
 #define XSDIRX_INTR_VIDUNLOCK_MASK	BIT(1)
+#define XSDIRX_INTR_OVERFLOW_MASK	BIT(9)
+#define XSDIRX_INTR_UNDERFLOW_MASK	BIT(10)
+
 #define XSDIRX_INTR_ALL_MASK	(XSDIRX_INTR_VIDLOCK_MASK |\
-				XSDIRX_INTR_VIDUNLOCK_MASK)
+				XSDIRX_INTR_VIDUNLOCK_MASK |\
+				XSDIRX_INTR_OVERFLOW_MASK |\
+				XSDIRX_INTR_UNDERFLOW_MASK)
 
 #define XSDIRX_MODE_DET_STAT_RX_MODE_MASK	GENMASK(2, 0)
 #define XSDIRX_MODE_DET_STAT_MODE_LOCK_MASK	BIT(3)
@@ -111,10 +116,23 @@
 
 #define XSDIRX_TS_DET_STAT_LOCKED_MASK		BIT(0)
 #define XSDIRX_TS_DET_STAT_SCAN_MASK		BIT(1)
+#define XSDIRX_TS_DET_STAT_SCAN_OFFSET		(1)
 #define XSDIRX_TS_DET_STAT_FAMILY_MASK		GENMASK(7, 4)
 #define XSDIRX_TS_DET_STAT_FAMILY_OFFSET	(4)
 #define XSDIRX_TS_DET_STAT_RATE_MASK		GENMASK(11, 8)
 #define XSDIRX_TS_DET_STAT_RATE_OFFSET		(8)
+
+#define XSDIRX_TS_DET_STAT_RATE_NONE		0x0
+#define XSDIRX_TS_DET_STAT_RATE_23_98HZ		0x2
+#define XSDIRX_TS_DET_STAT_RATE_24HZ		0x3
+#define XSDIRX_TS_DET_STAT_RATE_47_95HZ		0x4
+#define XSDIRX_TS_DET_STAT_RATE_25HZ		0x5
+#define XSDIRX_TS_DET_STAT_RATE_29_97HZ		0x6
+#define XSDIRX_TS_DET_STAT_RATE_30HZ		0x7
+#define XSDIRX_TS_DET_STAT_RATE_48HZ		0x8
+#define XSDIRX_TS_DET_STAT_RATE_50HZ		0x9
+#define XSDIRX_TS_DET_STAT_RATE_59_94HZ		0xA
+#define XSDIRX_TS_DET_STAT_RATE_60HZ		0xB
 
 #define XSDIRX_EDH_STAT_EDH_AP_MASK	BIT(0)
 #define XSDIRX_EDH_STAT_EDH_FF_MASK	BIT(1)
@@ -126,8 +144,8 @@
 
 #define XSDIRX_EDH_ERRCNT_COUNT_MASK	GENMASK(15, 0)
 
-#define XSDIRX_CRC_ERRCNT_COUNT_MASK	GENMASK(15, 0)
-#define XSDIRX_CRC_ERRCNT_DS_CRC_MASK	GENMASK(31, 16)
+#define XSDIRX_CRC_ERRCNT_COUNT_MASK	GENMASK(31, 16)
+#define XSDIRX_CRC_ERRCNT_DS_CRC_MASK	GENMASK(15, 0)
 
 #define XSDIRX_VERSION_REV_MASK		GENMASK(7, 0)
 #define XSDIRX_VERSION_PATCHID_MASK	GENMASK(11, 8)
@@ -135,28 +153,14 @@
 #define XSDIRX_VERSION_VER_MIN_MASK	GENMASK(23, 16)
 #define XSDIRX_VERSION_VER_MAJ_MASK	GENMASK(31, 24)
 
-#define XSDIRX_SYSCONFIG_EDH_INCLUDED_MASK	BIT(1)
+#define XSDIRX_SS_CONFIG_EDH_INCLUDED_MASK		BIT(1)
 
 #define XSDIRX_STAT_SB_RX_TDATA_CHANGE_DONE_MASK	BIT(0)
 #define XSDIRX_STAT_SB_RX_TDATA_CHANGE_FAIL_MASK	BIT(1)
-#define XSDIRX_STAT_SB_RX_TDATA_GT_RESETDONE		BIT(2)
-#define XSDIRX_STAT_SB_RX_TDATA_GT_BITRATE		BIT(3)
+#define XSDIRX_STAT_SB_RX_TDATA_GT_RESETDONE_MASK	BIT(2)
+#define XSDIRX_STAT_SB_RX_TDATA_GT_BITRATE_MASK		BIT(3)
 
-#define XSDIRX_VID_LOCK_WINDOW_VAL_MASK		GENMASK(15, 0)
-
-#define XSDIRX_BRIDGE_CTRL_MDL_ENB_MASK		BIT(0)
-
-#define XSDIRX_BRIDGE_STAT_SEL_MASK		BIT(0)
-#define XSDIRX_BRIDGE_STAT_MODE_LOCKED_MASK	BIT(1)
-#define XSDIRX_BRIDGE_STAT_MODE_MASK		GENMASK(6, 4)
-#define XSDIRX_BRIDGE_STAT_LVLB_MASK		BIT(7)
-
-#define XSDIRX_VID_IN_AXIS4_CTRL_MDL_ENB_MASK	BIT(0)
-#define XSDIRX_VID_IN_AXIS4_CTRL_AXIS_ENB_MASK	BIT(1)
-#define XSDIRX_VID_IN_AXIS4_CTRL_ALL_MASK	GENMASK(1, 0)
-
-#define XSDIRX_VID_IN_AXIS4_STAT_OVERFLOW_MASK	BIT(0)
-#define XSDIRX_VID_IN_AXIS4_STAT_UNDERFLOW_MASK	BIT(1)
+#define XSDIRX_VID_LOCK_WINDOW_VAL_MASK			GENMASK(15, 0)
 
 /* Number of media pads */
 #define XSDIRX_MEDIA_PADS	(1)
@@ -183,6 +187,26 @@
  * Maximum number of events per file handle.
  */
 #define XSDIRX_MAX_EVENTS	(128)
+
+/**
+ * enum sdi_family_enc - SDI Transport Video Format Detected with Active Pixels
+ * @XSDIRX_SMPTE_ST_274: SMPTE ST 274 detected with AP 1920x1080
+ * @XSDIRX_SMPTE_ST_296: SMPTE ST 296 detected with AP 1280x720
+ * @XSDIRX_SMPTE_ST_2048_2: SMPTE ST 2048-2 detected with AP 2048x1080
+ * @XSDIRX_SMPTE_ST_295: SMPTE ST 295 detected with AP 1920x1080
+ * @XSDIRX_NTSC: NTSC encoding detected with AP 720x480
+ * @XSDIRX_PAL: PAL encoding detected with AP 720x576
+ * @XSDIRX_TS_UNKNOWN: Unknown SMPTE Transport family type
+ */
+enum sdi_family_enc {
+	XSDIRX_SMPTE_ST_274	= 0,
+	XSDIRX_SMPTE_ST_296	= 1,
+	XSDIRX_SMPTE_ST_2048_2	= 2,
+	XSDIRX_SMPTE_ST_295	= 3,
+	XSDIRX_NTSC		= 8,
+	XSDIRX_PAL		= 9,
+	XSDIRX_TS_UNKNOWN	= 15
+};
 
 /**
  * struct xsdirxss_core - Core configuration SDI Rx Subsystem device structure
@@ -262,12 +286,12 @@ static inline void xsdirxss_set(struct xsdirxss_core *xsdirxss, u32 addr,
 
 static void xsdirx_core_disable(struct xsdirxss_core *core)
 {
-	xsdirxss_clr(core, XSDIRX_MDL_CTRL_REG, XSDIRX_MDL_CTRL_MDL_EN_MASK);
+	xsdirxss_clr(core, XSDIRX_RST_CTRL_REG, XSDIRX_RST_CTRL_SS_EN_MASK);
 }
 
 static void xsdirx_core_enable(struct xsdirxss_core *core)
 {
-	xsdirxss_set(core, XSDIRX_MDL_CTRL_REG, XSDIRX_MDL_CTRL_MDL_EN_MASK);
+	xsdirxss_set(core, XSDIRX_RST_CTRL_REG, XSDIRX_RST_CTRL_SS_EN_MASK);
 }
 
 static int xsdirx_set_modedetect(struct xsdirxss_core *core, u16 mask)
@@ -279,6 +303,8 @@ static int xsdirx_set_modedetect(struct xsdirxss_core *core, u16 mask)
 		dev_err(core->dev, "Invalid bit mask = 0x%08x\n", mask);
 		return -EINVAL;
 	}
+
+	dev_dbg(core->dev, "mask = 0x%x\n", mask);
 
 	val = xsdirxss_read(core, XSDIRX_MDL_CTRL_REG);
 	val &= ~(XSDIRX_MDL_CTRL_MODE_DET_EN_MASK);
@@ -313,7 +339,7 @@ static int xsdirx_set_modedetect(struct xsdirxss_core *core, u16 mask)
 		val |= XSDIRX_MDL_CTRL_MODE_DET_EN_MASK;
 	} else {
 		/* Fixed Mode */
-		u32 forced_mode_mask;
+		u32 forced_mode_mask = 0;
 
 		dev_dbg(core->dev, "Detect fixed mode\n");
 
@@ -380,40 +406,49 @@ static void xsdirx_setvidlockwindow(struct xsdirxss_core *core, u32 val)
 		       val & XSDIRX_VID_LOCK_WINDOW_VAL_MASK);
 }
 
-static void xsdirx_disableintr(struct xsdirxss_core *core, u8 mask)
+static void xsdirx_disableintr(struct xsdirxss_core *core, u32 mask)
 {
-	xsdirxss_set(core, XSDIRX_INTR_MASK_REG, mask);
+	xsdirxss_clr(core, XSDIRX_IER_REG, mask);
 }
 
-static void xsdirx_enableintr(struct xsdirxss_core *core, u8 mask)
+static void xsdirx_enableintr(struct xsdirxss_core *core, u32 mask)
 {
-	xsdirxss_clr(core, XSDIRX_INTR_MASK_REG, mask);
+	xsdirxss_set(core, XSDIRX_IER_REG, mask);
 }
 
-static void xsdirx_clearintr(struct xsdirxss_core *core, u8 mask)
+static void xsdirx_globalintr(struct xsdirxss_core *core, bool flag)
 {
-	xsdirxss_set(core, XSDIRX_INTR_CLEAR_REG, mask);
-	xsdirxss_clr(core, XSDIRX_INTR_CLEAR_REG, mask);
+	if (flag)
+		xsdirxss_set(core, XSDIRX_GLBL_IER_REG,
+			     XSDIRX_GLBL_INTR_EN_MASK);
+	else
+		xsdirxss_clr(core, XSDIRX_GLBL_IER_REG,
+			     XSDIRX_GLBL_INTR_EN_MASK);
+}
+
+static void xsdirx_clearintr(struct xsdirxss_core *core, u32 mask)
+{
+	xsdirxss_set(core, XSDIRX_ISR_REG, mask);
 }
 
 static void xsdirx_vid_bridge_control(struct xsdirxss_core *core, bool enable)
 {
 	if (enable)
-		xsdirxss_set(core, XSDIRX_BRIDGE_CTRL_REG,
-			     XSDIRX_BRIDGE_CTRL_MDL_ENB_MASK);
+		xsdirxss_set(core, XSDIRX_RST_CTRL_REG,
+			     XSDIRX_RST_CTRL_SDIRX_BRIDGE_ENB_MASK);
 	else
-		xsdirxss_clr(core, XSDIRX_BRIDGE_CTRL_REG,
-			     XSDIRX_BRIDGE_CTRL_MDL_ENB_MASK);
+		xsdirxss_clr(core, XSDIRX_RST_CTRL_REG,
+			     XSDIRX_RST_CTRL_SDIRX_BRIDGE_ENB_MASK);
 }
 
 static void xsdirx_axis4_bridge_control(struct xsdirxss_core *core, bool enable)
 {
 	if (enable)
-		xsdirxss_set(core, XSDIRX_VID_IN_AXIS4_CTRL_REG,
-			     XSDIRX_VID_IN_AXIS4_CTRL_ALL_MASK);
+		xsdirxss_set(core, XSDIRX_RST_CTRL_REG,
+			     XSDIRX_RST_CTRL_VIDIN_AXI4S_MOD_ENB_MASK);
 	else
-		xsdirxss_clr(core, XSDIRX_VID_IN_AXIS4_CTRL_REG,
-			     XSDIRX_VID_IN_AXIS4_CTRL_ALL_MASK);
+		xsdirxss_clr(core, XSDIRX_RST_CTRL_REG,
+			     XSDIRX_RST_CTRL_VIDIN_AXI4S_MOD_ENB_MASK);
 }
 
 static void xsdirx_streamflow_control(struct xsdirxss_core *core, bool enable)
@@ -449,7 +484,7 @@ static irqreturn_t xsdirxss_irq_handler(int irq, void *dev_id)
 	struct xsdirxss_core *core = &state->core;
 	u32 status;
 
-	status = xsdirxss_read(core, XSDIRX_INTR_STAT_REG);
+	status = xsdirxss_read(core, XSDIRX_ISR_REG);
 	dev_dbg(core->dev, "interrupt status = 0x%08x\n", status);
 
 	if (!status)
@@ -466,19 +501,25 @@ static irqreturn_t xsdirxss_irq_handler(int irq, void *dev_id)
 
 		if ((val1 & XSDIRX_MODE_DET_STAT_MODE_LOCK_MASK) &&
 		    (val2 & XSDIRX_TS_DET_STAT_LOCKED_MASK)) {
-			u32 mask = XSDIRX_STAT_RESET_CRC_ERRCNT_MASK |
-				   XSDIRX_STAT_RESET_EDH_ERRCNT_MASK;
+			u32 mask = XSDIRX_RST_CTRL_RST_CRC_ERRCNT_MASK |
+				   XSDIRX_RST_CTRL_RST_EDH_ERRCNT_MASK;
 
 			dev_dbg(core->dev, "mode & ts lock occurred\n");
 
-			xsdirxss_set(core, XSDIRX_STAT_RESET_REG, mask);
-			xsdirxss_clr(core, XSDIRX_STAT_RESET_REG, mask);
+			xsdirxss_set(core, XSDIRX_RST_CTRL_REG, mask);
+			xsdirxss_clr(core, XSDIRX_RST_CTRL_REG, mask);
 
 			val1 = xsdirxss_read(core, XSDIRX_ST352_VALID_REG);
-			val2 = xsdirxss_read(core, XSDIRX_ST352_DS0_REG);
+			val2 = xsdirxss_read(core, XSDIRX_ST352_DS1_REG);
 
 			dev_dbg(core->dev, "valid st352 mask = 0x%08x\n", val1);
 			dev_dbg(core->dev, "st352 payload = 0x%08x\n", val2);
+
+			memset(&state->event, 0, sizeof(state->event));
+			state->event.type = V4L2_EVENT_SOURCE_CHANGE;
+			state->event.u.src_change.changes =
+				V4L2_EVENT_SRC_CH_RESOLUTION;
+			v4l2_subdev_notify_event(&state->subdev, &state->event);
 
 			state->vidlocked = true;
 		} else {
@@ -499,6 +540,23 @@ static irqreturn_t xsdirxss_irq_handler(int irq, void *dev_id)
 		state->vidlocked = false;
 	}
 
+	if (status & XSDIRX_INTR_UNDERFLOW_MASK) {
+		dev_dbg(core->dev, "Video in to AXI4 Stream core underflow interrupt\n");
+		xsdirx_clearintr(core, XSDIRX_INTR_UNDERFLOW_MASK);
+
+		memset(&state->event, 0, sizeof(state->event));
+		state->event.type = V4L2_EVENT_XLNXSDIRX_UNDERFLOW;
+		v4l2_subdev_notify_event(&state->subdev, &state->event);
+	}
+
+	if (status & XSDIRX_INTR_OVERFLOW_MASK) {
+		dev_dbg(core->dev, "Video in to AXI4 Stream core overflow interrupt\n");
+		xsdirx_clearintr(core, XSDIRX_INTR_OVERFLOW_MASK);
+
+		memset(&state->event, 0, sizeof(state->event));
+		state->event.type = V4L2_EVENT_XLNXSDIRX_OVERFLOW;
+		v4l2_subdev_notify_event(&state->subdev, &state->event);
+	}
 	return IRQ_HANDLED;
 }
 
@@ -520,13 +578,17 @@ static int xsdirxss_subscribe_event(struct v4l2_subdev *sd,
 
 	switch (sub->type) {
 	case V4L2_EVENT_XLNXSDIRX_VIDUNLOCK:
+	case V4L2_EVENT_XLNXSDIRX_UNDERFLOW:
+	case V4L2_EVENT_XLNXSDIRX_OVERFLOW:
 		ret = v4l2_event_subscribe(fh, sub, XSDIRX_MAX_EVENTS, NULL);
-		dev_dbg(core->dev, "Event subscribed : 0x%08x\n", sub->type);
+		break;
+	case V4L2_EVENT_SOURCE_CHANGE:
+		ret = v4l2_src_change_event_subscribe(fh, sub);
 		break;
 	default:
 		return -EINVAL;
 	}
-
+	dev_dbg(core->dev, "Event subscribed : 0x%08x\n", sub->type);
 	return ret;
 }
 
@@ -560,6 +622,7 @@ static int xsdirxss_unsubscribe_event(struct v4l2_subdev *sd,
  */
 static int xsdirxss_s_ctrl(struct v4l2_ctrl *ctrl)
 {
+	int ret = 0;
 	struct xsdirxss_state *xsdirxss =
 		container_of(ctrl->handler,
 			     struct xsdirxss_state, ctrl_handler);
@@ -586,19 +649,32 @@ static int xsdirxss_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_XILINX_SDIRX_SEARCH_MODES:
 		if (ctrl->val) {
-			xsdirx_set_modedetect(core, ctrl->val);
+			if (core->mode == XSDIRXSS_SDI_STD_3G) {
+				dev_dbg(core->dev, "Upto 3G supported\n");
+				ctrl->val &= ~(BIT(XSDIRX_MODE_6G_OFFSET) |
+					       BIT(XSDIRX_MODE_12GI_OFFSET) |
+					       BIT(XSDIRX_MODE_12GF_OFFSET));
+			}
+
+			if (core->mode == XSDIRXSS_SDI_STD_6G) {
+				dev_dbg(core->dev, "Upto 6G supported\n");
+				ctrl->val &= ~(BIT(XSDIRX_MODE_12GI_OFFSET) |
+					       BIT(XSDIRX_MODE_12GF_OFFSET));
+			}
+
+			ret = xsdirx_set_modedetect(core, ctrl->val);
 		} else {
 			dev_err(core->dev, "Select at least one mode!\n");
 			return -EINVAL;
 		}
 		break;
 	default:
-		xsdirxss_set(core, XSDIRX_MDL_CTRL_REG,
-			     XSDIRX_MDL_CTRL_MDL_EN_MASK);
+		xsdirxss_set(core, XSDIRX_RST_CTRL_REG,
+			     XSDIRX_RST_CTRL_SS_EN_MASK);
 		return -EINVAL;
 	}
 	xsdirx_core_enable(core);
-	return 0;
+	return ret;
 }
 
 /**
@@ -647,25 +723,25 @@ static int xsdirxss_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_XILINX_SDIRX_CRC:
 		ctrl->val = xsdirxss_read(core, XSDIRX_CRC_ERRCNT_REG);
+		xsdirxss_write(core, XSDIRX_CRC_ERRCNT_REG, 0xFFFF);
 		break;
 	case V4L2_CID_XILINX_SDIRX_EDH_ERRCNT:
-		ctrl->val = xsdirxss_read(core, XSDIRX_EDH_ERRCNT_REG);
+		val = xsdirxss_read(core, XSDIRX_MODE_DET_STAT_REG);
+		val &= XSDIRX_MODE_DET_STAT_RX_MODE_MASK;
+		if (val == XSDIRX_MODE_SD_MASK) {
+			ctrl->val = xsdirxss_read(core, XSDIRX_EDH_ERRCNT_REG);
+		} else {
+			dev_dbg(core->dev, "%d - not in SD mode\n", ctrl->id);
+			return -EINVAL;
+		}
 		break;
 	case V4L2_CID_XILINX_SDIRX_EDH_STATUS:
-		ctrl->val = xsdirxss_read(core, XSDIRX_EDH_STAT_REG);
-		break;
-	case V4L2_CID_XILINX_SDIRX_AXIS4_STATUS:
-		val = xsdirxss_read(core, XSDIRX_VID_IN_AXIS4_CTRL_REG);
-		if (val & (XSDIRX_VID_IN_AXIS4_CTRL_ALL_MASK)) {
-			val = xsdirxss_read(core, XSDIRX_VID_IN_AXIS4_STAT_REG);
-			if (val & XSDIRX_VID_IN_AXIS4_STAT_OVERFLOW_MASK)
-				ctrl->val = XSDIRX_AXIS4_STATUS_OVERFLOW;
-			else if (val & XSDIRX_VID_IN_AXIS4_STAT_UNDERFLOW_MASK)
-				ctrl->val = XSDIRX_AXIS4_STATUS_UNDERFLOW;
-			else
-				ctrl->val = XSDIRX_AXIS4_STATUS_OK;
+		val = xsdirxss_read(core, XSDIRX_MODE_DET_STAT_REG);
+		val &= XSDIRX_MODE_DET_STAT_RX_MODE_MASK;
+		if (val == XSDIRX_MODE_SD_MASK) {
+			ctrl->val = xsdirxss_read(core, XSDIRX_EDH_STAT_REG);
 		} else {
-			dev_err(core->dev, "Video Bridge not enabled!\n");
+			dev_dbg(core->dev, "%d - not in SD mode\n", ctrl->id);
 			return -EINVAL;
 		}
 		break;
@@ -785,7 +861,7 @@ static int xsdirxss_get_format(struct v4l2_subdev *sd,
 {
 	struct xsdirxss_state *xsdirxss = to_xsdirxssstate(sd);
 	struct xsdirxss_core *core = &xsdirxss->core;
-	u32 mode, payload;
+	u32 mode, payload = 0, val, family, valid, trate, tscan;
 
 	if (!xsdirxss->vidlocked) {
 		dev_err(core->dev, "Video not locked!\n");
@@ -798,50 +874,212 @@ static int xsdirxss_get_format(struct v4l2_subdev *sd,
 	mode = xsdirxss_read(core, XSDIRX_MODE_DET_STAT_REG);
 	mode &= XSDIRX_MODE_DET_STAT_RX_MODE_MASK;
 
-	payload = xsdirxss_read(core, XSDIRX_ST352_DS0_REG);
+	valid = xsdirxss_read(core, XSDIRX_ST352_VALID_REG);
 
-	/* TODO : Add more checks to get width and height */
+	if ((mode >= XSDIRX_MODE_3G_MASK) && (!valid)) {
+		dev_dbg(core->dev, "No valid ST352 payload present even for 3G mode and above\n");
+		return -EINVAL;
+	}
+
+	if (valid & 0x1) {
+		payload = xsdirxss_read(core, XSDIRX_ST352_DS1_REG);
+	} else {
+		dev_dbg(core->dev, "No ST352 payload available : Mode = %d\n",
+			mode);
+	}
+
+	val = xsdirxss_read(core, XSDIRX_TS_DET_STAT_REG);
+	family = (val & XSDIRX_TS_DET_STAT_FAMILY_MASK) >>
+		  XSDIRX_TS_DET_STAT_FAMILY_OFFSET;
+	trate = (val & XSDIRX_TS_DET_STAT_RATE_MASK) >>
+		 XSDIRX_TS_DET_STAT_RATE_OFFSET;
+	tscan = (val & XSDIRX_TS_DET_STAT_SCAN_MASK) >>
+		 XSDIRX_TS_DET_STAT_SCAN_OFFSET;
+
 	switch (mode) {
 	case XSDIRX_MODE_HD_MASK:
-		switch (payload & 0xFF) {
-		case 0x84:
-			fmt->format.width = 1280;
-			fmt->format.height = 720;
-			break;
-		default:
-			dev_dbg(core->dev, "Unknown SMPTE standard\n");
-		}
+		if (!valid) {
+			/* No payload obtained */
+			dev_dbg(core->dev, "frame rate : %d, tscan = %d\n",
+				trate, tscan);
+			/*
+			 * NOTE : A progressive segmented frame pSF will be
+			 * reported incorrectly as Interlaced as we rely on IP's
+			 * transport scan locked bit.
+			 */
+			dev_warn(core->dev, "pSF will be incorrectly reported as Interlaced\n");
 
+			switch (trate) {
+			case XSDIRX_TS_DET_STAT_RATE_23_98HZ:
+			case XSDIRX_TS_DET_STAT_RATE_24HZ:
+			case XSDIRX_TS_DET_STAT_RATE_25HZ:
+			case XSDIRX_TS_DET_STAT_RATE_29_97HZ:
+			case XSDIRX_TS_DET_STAT_RATE_30HZ:
+				if (family == XSDIRX_SMPTE_ST_296) {
+					fmt->format.width = 1280;
+					fmt->format.height = 720;
+					fmt->format.field = V4L2_FIELD_NONE;
+				} else if (family == XSDIRX_SMPTE_ST_2048_2) {
+					fmt->format.width = 2048;
+					fmt->format.height = 1080;
+					if (tscan)
+						fmt->format.field =
+							V4L2_FIELD_NONE;
+					else
+						fmt->format.field =
+							V4L2_FIELD_INTERLACED;
+				} else {
+					fmt->format.width = 1920;
+					fmt->format.height = 1080;
+					if (tscan)
+						fmt->format.field =
+							V4L2_FIELD_NONE;
+					else
+						fmt->format.field =
+							V4L2_FIELD_INTERLACED;
+				}
+				break;
+			case XSDIRX_TS_DET_STAT_RATE_50HZ:
+			case XSDIRX_TS_DET_STAT_RATE_59_94HZ:
+			case XSDIRX_TS_DET_STAT_RATE_60HZ:
+				if (family == XSDIRX_SMPTE_ST_274) {
+					fmt->format.width = 1920;
+					fmt->format.height = 1080;
+				} else {
+					fmt->format.width = 1280;
+					fmt->format.height = 720;
+				}
+				fmt->format.field = V4L2_FIELD_NONE;
+				break;
+			default:
+				fmt->format.width = 1920;
+				fmt->format.height = 1080;
+				fmt->format.field = V4L2_FIELD_NONE;
+			}
+		} else {
+			dev_dbg(core->dev, "Got the payload\n");
+			switch (payload & 0xFF) {
+			case 0x84:
+				/* SMPTE ST 292-1 for 720 line payloads */
+				fmt->format.width = 1280;
+				fmt->format.height = 720;
+				break;
+			case 0x85:
+				/* SMPTE ST 292-1 for 1080 line payloads */
+				fmt->format.height = 1080;
+				if (payload & 0x00400000)
+					/*
+					 * bit 6 of byte 3 indicates whether
+					 * 2048 (1) or 1920 (0)
+					 */
+					fmt->format.width = 2048;
+				else
+					fmt->format.width = 1920;
+				break;
+			default:
+				dev_dbg(core->dev, "Unknown HD Mode SMPTE standard\n");
+			}
+		}
 		break;
 	case XSDIRX_MODE_SD_MASK:
+		fmt->format.field = V4L2_FIELD_INTERLACED;
+
+		switch (family) {
+		case XSDIRX_NTSC:
+			fmt->format.width = 720;
+			fmt->format.height = 480;
+			break;
+		case XSDIRX_PAL:
+			fmt->format.width = 720;
+			fmt->format.height = 576;
+			break;
+		default:
+			dev_dbg(core->dev, "Unknown SD Mode SMPTE standard\n");
+		}
 		break;
 	case XSDIRX_MODE_3G_MASK:
 		switch (payload & 0xFF) {
-		case 0x85:
+		case 0x88:
+			/* Sec 4.1.6.1 SMPTE 425-2008 */
+		case 0x8B:
+			/* Table 13 SMPTE 425-2008 */
+			fmt->format.width = 1280;
+			fmt->format.height = 720;
+			break;
+		case 0x89:
+			/* ST352 Table SMPTE 425-1 */
 		case 0x8A:
-			fmt->format.width = 1920;
+			/* Table 13 SMPTE 425-2008 */
+		case 0x8C:
+			/* Table 13 SMPTE 425-2008 */
 			fmt->format.height = 1080;
+			if (payload & 0x00400000)
+				/*
+				 * bit 6 of byte 3 indicates whether
+				 * 2048 (1) or 1920 (0)
+				 */
+				fmt->format.width = 2048;
+			else
+				fmt->format.width = 1920;
 			break;
 		default:
-			dev_dbg(core->dev, "Unknown SMPTE standard\n");
+			dev_dbg(core->dev, "Unknown 3G Mode SMPTE standard\n");
 		}
-
 		break;
 	case XSDIRX_MODE_6G_MASK:
+		switch (payload & 0xFF) {
+		case 0xC2:
+			/* Dual link 6G */
+		case 0xC0:
+			/* Table 3 SMPTE ST 2081-10 */
+			fmt->format.height = 2160;
+			if (payload & 0x00400000)
+				/*
+				 * bit 6 of byte 3 indicates whether
+				 * 4096 (1) or 3840 (0)
+				 */
+				fmt->format.width = 4096;
+			else
+				fmt->format.width = 3840;
+			break;
+		default:
+			dev_dbg(core->dev, "Unknown 6G Mode SMPTE standard\n");
+		}
 		break;
 	case XSDIRX_MODE_12GI_MASK:
-		break;
 	case XSDIRX_MODE_12GF_MASK:
+		switch (payload & 0xFF) {
+		case 0xCE:
+			/* Section 4.3.1 SMPTE ST 2082-10 */
+			fmt->format.height = 2160;
+			if (payload & 0x00400000)
+				/*
+				 * bit 6 of byte 3 indicates whether
+				 * 4096 (1) or 3840 (0)
+				 */
+				fmt->format.width = 4096;
+			else
+				fmt->format.width = 3840;
+			break;
+		default:
+			dev_dbg(core->dev, "Unknown 12G Mode SMPTE standard\n");
+		};
 		break;
+	default:
+		dev_dbg(core->dev, "Invalid Mode\n");
+		return -EINVAL;
 	}
 
-	if (payload & 0x4000)
-		fmt->format.field = V4L2_FIELD_NONE;
-	else
-		fmt->format.field = V4L2_FIELD_INTERLACED;
+	if (valid) {
+		if (payload & 0x4000)
+			fmt->format.field = V4L2_FIELD_NONE;
+		else
+			fmt->format.field = V4L2_FIELD_INTERLACED;
+	}
 
-	dev_dbg(core->dev, "Stream width = %d height = %d Field = %d\n",
-		fmt->format.width, fmt->format.height, fmt->format.field);
+	dev_dbg(core->dev, "Stream width = %d height = %d Field = %d payload = 0x%08x ts = 0x%08x\n",
+		fmt->format.width, fmt->format.height, fmt->format.field,
+		payload, val);
 
 	return 0;
 }
@@ -930,6 +1168,38 @@ static const struct v4l2_ctrl_ops xsdirxss_ctrl_ops = {
 	.s_ctrl	= xsdirxss_s_ctrl
 };
 
+static struct v4l2_ctrl_config xsdirxss_edh_ctrls[] = {
+	{
+		.ops	= &xsdirxss_ctrl_ops,
+		.id	= V4L2_CID_XILINX_SDIRX_EDH_ERRCNT_ENABLE,
+		.name	= "SDI Rx : EDH Error Count Enable",
+		.type	= V4L2_CTRL_TYPE_BITMASK,
+		.min	= 0,
+		.max	= XSDIRX_EDH_ALLERR_MASK,
+		.def	= 0,
+	}, {
+		.ops	= &xsdirxss_ctrl_ops,
+		.id	= V4L2_CID_XILINX_SDIRX_EDH_ERRCNT,
+		.name	= "SDI Rx : EDH Error Count",
+		.type	= V4L2_CTRL_TYPE_INTEGER,
+		.min	= 0,
+		.max	= 0xFFFF,
+		.step	= 1,
+		.def	= 0,
+		.flags  = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
+	}, {
+		.ops	= &xsdirxss_ctrl_ops,
+		.id	= V4L2_CID_XILINX_SDIRX_EDH_STATUS,
+		.name	= "SDI Rx : EDH Status",
+		.type	= V4L2_CTRL_TYPE_INTEGER,
+		.min	= 0,
+		.max	= 0xFFFFFFFF,
+		.step	= 1,
+		.def	= 0,
+		.flags  = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
+	}
+};
+
 static struct v4l2_ctrl_config xsdirxss_ctrls[] = {
 	{
 		.ops	= &xsdirxss_ctrl_ops,
@@ -949,14 +1219,6 @@ static struct v4l2_ctrl_config xsdirxss_ctrls[] = {
 		.max	= 0xFFFF,
 		.step	= 1,
 		.def	= XSDIRX_DEFAULT_VIDEO_LOCK_WINDOW,
-	}, {
-		.ops	= &xsdirxss_ctrl_ops,
-		.id	= V4L2_CID_XILINX_SDIRX_EDH_ERRCNT_ENABLE,
-		.name	= "SDI Rx : EDH Error Count Enable",
-		.type	= V4L2_CTRL_TYPE_BITMASK,
-		.min	= 0,
-		.max	= XSDIRX_EDH_ALLERR_MASK,
-		.def	= 0,
 	}, {
 		.ops	= &xsdirxss_ctrl_ops,
 		.id	= V4L2_CID_XILINX_SDIRX_SEARCH_MODES,
@@ -983,36 +1245,6 @@ static struct v4l2_ctrl_config xsdirxss_ctrls[] = {
 		.max	= 0xFFFFFFFF,
 		.step	= 1,
 		.def	= 0,
-		.flags  = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
-	},  {
-		.ops	= &xsdirxss_ctrl_ops,
-		.id	= V4L2_CID_XILINX_SDIRX_EDH_ERRCNT,
-		.name	= "SDI Rx : EDH Error Count",
-		.type	= V4L2_CTRL_TYPE_INTEGER,
-		.min	= 0,
-		.max	= 0xFFFF,
-		.step	= 1,
-		.def	= 0,
-		.flags  = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
-	}, {
-		.ops	= &xsdirxss_ctrl_ops,
-		.id	= V4L2_CID_XILINX_SDIRX_EDH_STATUS,
-		.name	= "SDI Rx : EDH Status",
-		.type	= V4L2_CTRL_TYPE_INTEGER,
-		.min	= 0,
-		.max	= 0xFFFFFFFF,
-		.step	= 1,
-		.def	= 0,
-		.flags  = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
-	}, {
-		.ops	= &xsdirxss_ctrl_ops,
-		.id	= V4L2_CID_XILINX_SDIRX_AXIS4_STATUS,
-		.name	= "SDI Rx : AXIS4 Status",
-		.type	= V4L2_CTRL_TYPE_INTEGER,
-		.min	= XSDIRX_AXIS4_STATUS_OK,
-		.max	= XSDIRX_AXIS4_STATUS_UNDERFLOW,
-		.step	= 1,
-		.def	= XSDIRX_AXIS4_STATUS_OK,
 		.flags  = V4L2_CTRL_FLAG_VOLATILE | V4L2_CTRL_FLAG_READ_ONLY,
 	}
 };
@@ -1143,7 +1375,7 @@ static int xsdirxss_probe(struct platform_device *pdev)
 	struct xsdirxss_core *core;
 	struct resource *res;
 	int ret;
-	unsigned int num_ctrls, i;
+	unsigned int num_ctrls, num_edh_ctrls = 0, i;
 
 	xsdirxss = devm_kzalloc(&pdev->dev, sizeof(*xsdirxss), GFP_KERNEL);
 	if (!xsdirxss)
@@ -1167,6 +1399,8 @@ static int xsdirxss_probe(struct platform_device *pdev)
 	xsdirx_clearintr(core, XSDIRX_INTR_ALL_MASK);
 	xsdirx_disableintr(core, XSDIRX_INTR_ALL_MASK);
 	xsdirx_enableintr(core, XSDIRX_INTR_ALL_MASK);
+	xsdirx_globalintr(core, true);
+	xsdirxss_write(core, XSDIRX_CRC_ERRCNT_REG, 0xFFFF);
 
 	/* Initialize V4L2 subdevice and media entity */
 	xsdirxss->pads[0].flags = MEDIA_PAD_FL_SOURCE;
@@ -1200,12 +1434,19 @@ static int xsdirxss_probe(struct platform_device *pdev)
 
 	/* Initialise and register the controls */
 	num_ctrls = ARRAY_SIZE(xsdirxss_ctrls);
-	v4l2_ctrl_handler_init(&xsdirxss->ctrl_handler, num_ctrls);
+
+	if (xsdirxss->core.include_edh)
+		num_edh_ctrls = ARRAY_SIZE(xsdirxss_edh_ctrls);
+
+	v4l2_ctrl_handler_init(&xsdirxss->ctrl_handler,
+			       (num_ctrls + num_edh_ctrls));
+
 	for (i = 0; i < num_ctrls; i++) {
 		struct v4l2_ctrl *ctrl;
 
 		dev_dbg(xsdirxss->core.dev, "%d %s ctrl = 0x%x\n",
 			i, xsdirxss_ctrls[i].name, xsdirxss_ctrls[i].id);
+
 		ctrl = v4l2_ctrl_new_custom(&xsdirxss->ctrl_handler,
 					    &xsdirxss_ctrls[i], NULL);
 		if (!ctrl) {
@@ -1215,7 +1456,26 @@ static int xsdirxss_probe(struct platform_device *pdev)
 		}
 	}
 
-	dev_dbg(xsdirxss->core.dev, "# v4l2 ctrls registered = %d\n", i - 1);
+	if (xsdirxss->core.include_edh) {
+		for (i = 0; i < num_edh_ctrls; i++) {
+			struct v4l2_ctrl *ctrl;
+
+			dev_dbg(xsdirxss->core.dev, "%d %s ctrl = 0x%x\n",
+				i, xsdirxss_edh_ctrls[i].name,
+				xsdirxss_edh_ctrls[i].id);
+
+			ctrl = v4l2_ctrl_new_custom(&xsdirxss->ctrl_handler,
+						    &xsdirxss_edh_ctrls[i],
+						    NULL);
+			if (!ctrl) {
+				dev_dbg(xsdirxss->core.dev, "Failed to add %s ctrl\n",
+					xsdirxss_edh_ctrls[i].name);
+				goto error;
+			}
+		}
+	} else {
+		dev_dbg(xsdirxss->core.dev, "Not registering the EDH controls as EDH is disabled in IP\n");
+	}
 
 	if (xsdirxss->ctrl_handler.error) {
 		dev_err(&pdev->dev, "failed to add controls\n");

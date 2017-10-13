@@ -41,6 +41,12 @@ module_param_named(aux_timeout_ms, xilinx_drm_dp_aux_timeout_ms, uint, 0444);
 MODULE_PARM_DESC(aux_timeout_ms,
 		 "DP aux timeout value in msec (default: 50)");
 
+static uint xilinx_drm_dp_power_on_delay_ms = 4;
+module_param_named(power_on_delay_ms, xilinx_drm_dp_power_on_delay_ms, uint,
+		   0644);
+MODULE_PARM_DESC(power_on_delay,
+		 "Delay after power on request in msec (default: 4)");
+
 /* Link configuration registers */
 #define XILINX_DP_TX_LINK_BW_SET			0x0
 #define XILINX_DP_TX_LANE_CNT_SET			0x4
@@ -1040,14 +1046,13 @@ static int xilinx_drm_dp_link_train_cr(struct xilinx_drm_dp *dp)
 	bool cr_done;
 	int ret;
 
+	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_TRAINING_PATTERN_SET,
+			  DP_TRAINING_PATTERN_1);
 	ret = drm_dp_dpcd_writeb(&dp->aux, DP_TRAINING_PATTERN_SET,
 				 DP_TRAINING_PATTERN_1 |
 				 DP_LINK_SCRAMBLING_DISABLE);
 	if (ret < 0)
 		return ret;
-
-	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_TRAINING_PATTERN_SET,
-			  DP_TRAINING_PATTERN_1);
 
 	/* 256 loops should be maximum iterations for 4 lanes and 4 values.
 	 * So, This loop should exit before 512 iterations
@@ -1114,13 +1119,11 @@ static int xilinx_drm_dp_link_train_ce(struct xilinx_drm_dp *dp)
 		pat = DP_TRAINING_PATTERN_3;
 	else
 		pat = DP_TRAINING_PATTERN_2;
-
+	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_TRAINING_PATTERN_SET, pat);
 	ret = drm_dp_dpcd_writeb(&dp->aux, DP_TRAINING_PATTERN_SET,
 				 pat | DP_LINK_SCRAMBLING_DISABLE);
 	if (ret < 0)
 		return ret;
-
-	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_TRAINING_PATTERN_SET, pat);
 
 	for (tries = 0; tries < DP_MAX_TRAINING_TRIES; tries++) {
 		ret = xilinx_drm_dp_update_vs_emph(dp);
@@ -1230,14 +1233,14 @@ static int xilinx_drm_dp_train(struct xilinx_drm_dp *dp)
 	if (ret)
 		return ret;
 
-	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_TRAINING_PATTERN_SET,
-			  DP_TRAINING_PATTERN_DISABLE);
 	ret = drm_dp_dpcd_writeb(&dp->aux, DP_TRAINING_PATTERN_SET,
 				 DP_TRAINING_PATTERN_DISABLE);
 	if (ret < 0) {
 		DRM_ERROR("failed to disable training pattern\n");
 		return ret;
 	}
+	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_TRAINING_PATTERN_SET,
+			  DP_TRAINING_PATTERN_DISABLE);
 
 	xilinx_drm_writel(dp->iomem, XILINX_DP_TX_SCRAMBLING_DISABLE, 0);
 
@@ -1419,7 +1422,8 @@ static void xilinx_drm_dp_dpms(struct drm_encoder *encoder, int dpms)
 				break;
 			usleep_range(300, 500);
 		}
-
+		/* Some monitors take time to wake up properly */
+		msleep(xilinx_drm_dp_power_on_delay_ms);
 		if (ret != 1)
 			dev_dbg(dp->dev, "DP aux failed\n");
 		else
