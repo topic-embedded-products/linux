@@ -60,6 +60,18 @@ config AD7298
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad7298.
 
+config AD738X
+        tristate "Analog Devices AD738x ADC driver"
+        depends on SPI_MASTER
+        select IIO_BUFFER
+        select IIO_TRIGGER
+        select IIO_TRIGGERED_BUFFER
+        help
+          Say yes here to build support for Analog Devices AD738x ADC.
+
+          To compile this driver as a module, choose M here: the module will be
+          called ad738x.
+
 config AD7476
 	tristate "Analog Devices AD7476 and similar 1-channel ADCs driver"
 	depends on SPI
@@ -222,10 +234,6 @@ config CF_AXI_TDD
 	tristate "Analog Devices TDD HDL CORE driver"
 	help
 	  Say yes here to build support for Analog Devices TDD HDL CORE driver.
-
-config AXI_JESD204B
-	tristate "Generic AXI JESD204B configuration driver"
-	depends on COMMON_CLK
 
 config AXI_FMCADC5_SYNC
 	tristate "Analog Devices FMCADC5 5Gbps Interleave Synchronizer"
