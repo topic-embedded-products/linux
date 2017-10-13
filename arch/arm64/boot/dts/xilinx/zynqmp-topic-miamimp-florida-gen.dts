@@ -297,19 +297,8 @@
 		reg = <3>;
 		interrupt-parent = <&gpio>;
 		interrupts = <97 0x8>; /* GPIO 78+16+3, IRQ_TYPE_LEVEL_LOW */
-		/* Set PHY skew to perform 90 degree phase shift */
-		rxc-skew-ps = <1860>; /* Skew RX clock pad */
-		txc-skew-ps = <0>;    /* Skew TX clock pad */
-		rxdv-skew-ps = <0>;   /* Neutral is 420 */
-		txen-skew-ps = <900>;
-		rxd0-skew-ps = <0>;
-		rxd1-skew-ps = <0>;
-		rxd2-skew-ps = <0>;
-		rxd3-skew-ps = <0>;
-		txd0-skew-ps = <900>;
-		txd1-skew-ps = <900>;
-		txd2-skew-ps = <900>;
-		txd3-skew-ps = <900>;
+		rxc-skew-ps = <1080>; /* Skew RX clock pad by 180 ps */
+		txc-skew-ps = <840>;  /* Skew TX clock pad by -60 ps */
 	};
 };
 
