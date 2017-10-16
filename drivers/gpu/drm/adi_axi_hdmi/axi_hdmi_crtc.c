@@ -189,11 +189,6 @@ struct drm_crtc *axi_hdmi_crtc_create(struct drm_device *dev)
 	struct drm_plane *plane;
 	int ret;
 
-	if (!dma_has_cap(DMA_INTERLEAVE, p->dma->device->cap_mask)) {
-		DRM_ERROR("DMA needs to support interleaved transfers\n");
-		return ERR_PTR(-EINVAL);
-	}
-
 	axi_hdmi_crtc = kzalloc(sizeof(*axi_hdmi_crtc), GFP_KERNEL);
 	if (!axi_hdmi_crtc)
 		return ERR_PTR(-ENOMEM);
