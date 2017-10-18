@@ -1,0 +1,32 @@
+/dts-v1/;
+/include/ "topic-miami.dtsi"
+/include/ "topic-miamilite.dtsi"
+/include/ "topic-miami-florida-test.dtsi"
+
+&usb0 {
+	xlnx,phy-reset-gpio = <&gpio0 0 0>;
+};
+
+&gpioexf {
+	/* IRQ line connected to MIO 46 */
+	interrupts = <46 0x8>; /* GPIO 46, IRQ_TYPE_LEVEL_LOW */
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_gpio46_default>;
+};
+
+&pinctrl0 {
+	pinctrl_gpio46_default: gpio46-default {
+		mux {
+			function = "gpio0";
+			groups = "gpio0_46_grp";
+		};
+
+		conf {
+			groups = "gpio0_46_grp";
+			bias-pull-up;
+			bias-high-impedance;
+			io-standard = <1>;
+		};
+	};
+};
+

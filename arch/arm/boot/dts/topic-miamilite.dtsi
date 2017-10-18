@@ -1,52 +1,23 @@
-/* The "lite" version has less I/O pins, lacks some periferals,
- * and the NAND was replaced by a dual-QSPI NOR setup. */
+/* The "lite" version has less I/O pins and less periferals */
 
 /* Remove missing periferals */
 /delete-node/ &monitorcurrent;
+/delete-node/ &monitorvolt;
 /delete-node/ &ltc3562;
+/delete-node/ &gpioex;
 
-/* Dual QSPI configuration */
-&qspi {
-	is-dual = <1>;
-};
-
-/* Dual flash, also double the capacity so adjust rootfs and "all" partitions */
-&primary_flash {
-	partition@qspi-rootfs {
-		label = "qspi-rootfs";
-		reg = <0x500000 0x3b00000>;
-	};
-	partition@qspi-all {
-		label = "qspi-all";
-		reg = <0x0 0x4000000>;
-	};
-};
-
-/* Different voltage monitoring IC */
-&monitorvolt {
-	compatible = "ad7997";
-	reg = <0x21>;
-	/* TODO: gpios */
-};
-
-/* Extra user board LED on GPIO expander */
-&leds {
-	led_user2: user2 {
-		label = "user2:green";
-		gpios = <&gpioex 3 0>;
-	};
-};
-/* Alive LED is on MIO7 instead of 25 */
+/* Alive LED is on MIO9 */
 &led_alive {
-	gpios = <&gpio0 7 0>;
+	gpios = <&gpio0 9 1>; /* Active low */
 };
+
 &pinctrl_leds_default {
 	mux {
-		groups = "gpio0_7_grp";
+		groups = "gpio0_9_grp";
 		function = "gpio0";
 	};
 	conf {
-		groups = "gpio0_7_grp";
+		groups = "gpio0_9_grp";
 		slew-rate = <0>;
 		io-standard = <1>;
 	};
