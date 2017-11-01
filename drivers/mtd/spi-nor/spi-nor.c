@@ -1581,9 +1581,6 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 
 		offset = (to + i);
 
-		if (nor->isparallel == 1)
-			offset /= 2;
-
 		if (nor->isstacked == 1) {
 			stack_shift = 1;
 			if (offset >= (mtd->size / 2)) {
@@ -1620,7 +1617,7 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 
 		write_enable(nor);
 
-		ret = nor->write(nor, (offset), page_remain, buf + i);
+		ret = nor->write(nor, (offset >> nor->shift), page_remain, buf + i);
 		if (ret < 0)
 			goto write_err;
 		written = ret;
