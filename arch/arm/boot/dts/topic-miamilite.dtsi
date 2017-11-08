@@ -28,6 +28,12 @@
 	gpios = <&gpio0 49 0 /* sda */
 		 &gpio0 48 0 /* scl */
 		>;
+   
+	/* 32Kb EEPROM */
+	eeprom: eeprom@50 {
+		compatible = "at24,24c32";
+		reg = <0x50>;
+	};
 };
 
 &pinctrl_i2c1_default {
