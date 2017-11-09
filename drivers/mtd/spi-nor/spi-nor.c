@@ -1565,6 +1565,21 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 #define OFFSET_16_MB 0x1000000
 
 	dev_dbg(nor->dev, "to 0x%08x, len %zd\n", (u32)to, len);
+
+	/* Cannot write to odd offset in parallel mode, so write 2 bytes first */
+	if ((nor->isparallel) && (to & 1)) {
+		u8 two[2] = {0xff, buf[0]};
+		size_t local_retlen;
+
+		ret = spi_nor_write(mtd, to & ~1, 2, &local_retlen, two);
+		if (ret < 0)
+			return ret;
+		*retlen += 1; /* We've written only one actual byte */
+		++buf;
+		--len;
+		++to;
+	}
+
 	ret = spi_nor_lock_and_prep(nor, SPI_NOR_OPS_WRITE);
 	if (ret)
 		return ret;
