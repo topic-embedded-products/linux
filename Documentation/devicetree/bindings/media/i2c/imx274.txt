@@ -9,22 +9,23 @@ at 1440 Mbps.
 
 Required Properties:
 - compatible: value should be "sony,imx274" for imx274 sensor
+- reg: I2C bus address of the device
 
 Optional Properties:
 - reset-gpios: Sensor reset GPIO
 
-For further reading on port node refer to
+The imx274 device node should contain one 'port' child node with
+an 'endpoint' subnode. For further reading on port node refer to
 Documentation/devicetree/bindings/media/video-interfaces.txt.
 
 Example:
-	imx274: sensor@1a{
+	sensor@1a {
 		compatible = "sony,imx274";
 		reg = <0x1a>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 		reset-gpios = <&gpio_sensor 0 0>;
-		port@0 {
-			reg = <0>;
+		port {
 			sensor_out: endpoint {
 				remote-endpoint = <&csiss_in>;
 			};
