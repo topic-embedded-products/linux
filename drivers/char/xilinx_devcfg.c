@@ -230,18 +230,6 @@ static irqreturn_t xdevcfg_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
-static bool xdevcfg_is_dma_done(struct xdevcfg_drvdata *drvdata)
-{
-	unsigned long flags;
-	bool res;
-
-	spin_lock_irqsave(&drvdata->lock, flags);
-	res = drvdata->dma_done;
-	spin_unlock_irqrestore(&drvdata->lock, flags);
-
-	return res;
-}
-
 /**
  * xdevcfg_write - The is the driver write function.
  *
@@ -361,7 +349,7 @@ xdevcfg_write(struct file *file, const char __user *buf, size_t count,
 
 	timeout = jiffies + msecs_to_jiffies(1000);
 
-	while (!xdevcfg_is_dma_done(drvdata)) {
+	while (!drvdata->dma_done) {
 		if (time_after(jiffies, timeout)) {
 			status = -ETIMEDOUT;
 			goto error;
@@ -451,7 +439,7 @@ xdevcfg_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
 
 	timeout = jiffies + msecs_to_jiffies(1000);
 
-	while (!xdevcfg_is_dma_done(drvdata)) {
+	while (!drvdata->dma_done) {
 		if (time_after(jiffies, timeout)) {
 			status = -ETIMEDOUT;
 			goto error;
