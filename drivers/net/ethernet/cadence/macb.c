@@ -365,7 +365,7 @@ static void macb_set_tx_clk(struct clk *clk, int speed, struct net_device *dev)
 	}
 
 	rate_rounded = clk_round_rate(clk, rate);
-	if (rate_rounded < 0)
+	if (rate_rounded <= 0)
 		return;
 
 	/* RGMII allows 50 ppm frequency error. Test and warn if this limit
