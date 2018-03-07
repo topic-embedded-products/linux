@@ -374,8 +374,9 @@ static void macb_set_tx_clk(struct clk *clk, int speed, struct net_device *dev)
 	ferr = abs(rate_rounded - rate);
 	ferr = DIV_ROUND_UP(ferr, rate / 100000);
 	if (ferr > 5)
-		netdev_warn(dev, "unable to generate target frequency: %ld Hz\n",
-			    rate);
+		netdev_warn(dev,
+			"unable to generate TX frequency: %ld Hz, got %ld Hz\n",
+			rate, rate_rounded);
 
 	if (clk_set_rate(clk, rate_rounded))
 		netdev_err(dev, "adjusting tx_clk failed.\n");
