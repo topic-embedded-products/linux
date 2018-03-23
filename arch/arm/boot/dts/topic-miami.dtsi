@@ -127,6 +127,12 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		/* NVMEM entries */
+		gem0_mac: mac@0x1e8 {
+			reg = <0x1e8 6>;
+		};
+		gem1_mac: mac@1ee {
+			reg = <0x1ee 6>;
+		};
 		miamiserial: serial@1f4 {
 			reg = <0x1f4 4>;
 		};
@@ -246,6 +252,18 @@
 			reg = <0x0 0x2000000>;
 		};
 	};
+};
+
+&gem0 {
+	/* MAC address stored in NVMEM */
+	nvmem-cells = <&gem0_mac>;
+	nvmem-cell-names = "mac-address";
+};
+
+&gem1 {
+	/* MAC address stored in NVMEM */
+	nvmem-cells = <&gem1_mac>;
+	nvmem-cell-names = "mac-address";
 };
 
 &pinctrl0 {
