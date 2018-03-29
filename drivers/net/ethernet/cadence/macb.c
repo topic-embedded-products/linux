@@ -3700,10 +3700,16 @@ static int macb_probe(struct platform_device *pdev)
 	}
 
 	mac = of_get_mac_address(np);
-	if (mac)
+	if (mac) {
 		ether_addr_copy(bp->dev->dev_addr, mac);
-	else
-		macb_get_hwaddr(bp);
+	} else {
+		err = of_get_nvmem_mac_address(np, bp->dev->dev_addr);
+		if (err) {
+			if (err == -EPROBE_DEFER)
+				goto err_out_free_netdev;
+			macb_get_hwaddr(bp);
+		}
+	}
 
 	/* Power up the PHY if there is a GPIO reset */
 	phy_node = of_parse_phandle(np, "phy-handle", 0);
