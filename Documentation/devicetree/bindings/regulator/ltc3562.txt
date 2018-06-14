@@ -1,0 +1,57 @@
+Linear Technology LTC3562 I2C controlled 4-output regulator
+
+Required properties:
+- compatible: "lltc,ltc3562"
+- reg: I2C slave address
+
+Required child node:
+- regulators: Contains optional regulator child nodes R400B, R600B, R400A
+  and R600A specifying the initialization data as documented in
+  Documentation/devicetree/bindings/regulator/regulator.txt.
+
+Each regulator is defined using the standard binding for regulators. The
+nodes for R400A and R600A additionally need to specify the resistor values of
+their external feedback voltage dividers:
+
+Required properties (A-type only):
+- lltc,fb-voltage-divider: An array of two integers containing the resistor
+  values R1 and R2 of the feedback voltage divider. Both values must remain in
+  the range 1..1000, only their quotient matters.
+
+Optional properties:
+- lltc,operating-mode: Operating mode as specified in table 3 of the datasheet.
+  This value is passed as the lower two bits of the first data byte, and sets
+  the operating mode: 0=Pulse-skip (default), 1=LDO, 2=Forced-burst, 3=Burst.
+
+Example:
+
+	ltc3562: ltc3562@65 {
+		compatible = "ltc3562";
+		reg = <0x65>;
+		regulators {
+			R400B_reg: R400B {
+				regulator-min-microvolt = <600000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+			R600B_reg: R600B {
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <3300000>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+			R400A_reg: R400A {
+				regulator-min-microvolt = <425000>;
+				regulator-max-microvolt = <8000000>;
+				lltc,fb-voltage-divider = <1, 1>;
+			};
+			R600A_reg: R600A {
+				regulator-min-microvolt = <425000>;
+				regulator-max-microvolt = <1800000>;
+				lltc,fb-voltage-divider = <316, 100>;
+				regulator-boot-on;
+				regulator-always-on;
+			};
+		};
+	};
