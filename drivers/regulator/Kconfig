@@ -492,6 +492,13 @@ config REGULATOR_LP8788
 	help
 	  This driver supports LP8788 voltage regulator chip.
 
+config REGULATOR_LTC3562
+	tristate "Linear Technology LCT3562 quad voltage regulator"
+	depends on I2C
+	help
+	  This enables support for the LCT3562 4-output regulator controlled
+	  via I2C.
+
 config REGULATOR_LTC3589
 	tristate "LTC3589 8-output voltage regulator"
 	depends on I2C
