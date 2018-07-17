@@ -30,3 +30,10 @@
 	};
 };
 
+&leds {
+	led_user: user {
+		label = "user:green";
+		gpios = <&gpio0 62 0>; /* EMIO 8 */
+		linux,default-trigger = "timer";
+	};
+};
