@@ -165,6 +165,7 @@
 &qspi {
 	status = "okay";
 	is-dual = <1>;
+	multi-die = <1>;
 	flash@0 {
 		compatible = "st,m25p80", "n25q256a";
 		#address-cells = <1>;
@@ -174,6 +175,7 @@
 		spi-rx-bus-width = <4>;
 		spi-max-frequency = <166000000>;
 		is-dual = <1>;
+		multi-die = <1>;
 		partition@qspi-boot-bin {
 			label = "qspi-boot-bin";
 			reg = <0x00000 0x60000>;
