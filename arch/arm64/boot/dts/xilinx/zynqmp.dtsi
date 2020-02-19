@@ -347,6 +347,30 @@
 			};
 		};
 
+		/* Clock and Reset control registers for LPD */
+		lpd_apb: apb@ff5e0000 {
+			compatible = "syscon", "simple-mfd";
+			reg = <0x0 0xff5e0000 0x0 0x400>;
+			reboot-mode {
+				compatible = "syscon-reboot-mode";
+				offset = <0x200>;
+				mask = <0xf100>;
+				/* Bit(8) is the "force user" bit */
+				mode-normal = <0x0000>;
+				mode-psjtag = <0x0100>;
+				mode-qspi24 = <0x1100>;
+				mode-qspi32 = <0x2100>;
+				mode-sd0    = <0x3100>;
+				mode-nand   = <0x4100>;
+				mode-sd1    = <0x6100>;
+				mode-emmc   = <0x6100>;
+				mode-usb0   = <0x7100>;
+				mode-pjtag0 = <0x8100>;
+				mode-pjtag1 = <0x9100>;
+				mode-sd1ls  = <0xe100>;
+			};
+		};
+
 		/* GDMA */
 		fpd_dma_chan1: dma@fd500000 {
 			status = "disabled";
