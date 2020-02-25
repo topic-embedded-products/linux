@@ -229,23 +229,15 @@
 		};
 		partition@qspi-u-boot-img {
 			label = "qspi-u-boot-img";
-			reg = <0x20000 0x80000>;
+			reg = <0x20000 0xC0000>;
 		};
 		partition@qspi-u-boot-env {
 			label = "qspi-u-boot-env";
-			reg = <0xA0000 0x20000>;
-		};
-		partition@qspi-device-tree {
-			label = "qspi-device-tree";
-			reg = <0xC0000 0x20000>;
-		};
-		partition@qspi-linux {
-			label = "qspi-linux";
-			reg = <0x100000 0x480000>;
+			reg = <0xE0000 0x20000>;
 		};
 		partition@qspi-rootfs {
 			label = "qspi-rootfs";
-			reg = <0x580000 0x1A80000>;
+			reg = <0x100000 0x1F00000>;
 		};
 		/* Everything */
 		partition@qspi-all {
