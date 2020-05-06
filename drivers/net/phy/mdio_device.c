@@ -124,7 +124,7 @@ void mdio_device_reset(struct mdio_device *mdiodev, int value)
 	if (!mdiodev->reset)
 		return;
 
-	gpiod_set_value(mdiodev->reset, value);
+	gpiod_set_value_cansleep(mdiodev->reset, value);
 
 	d = value ? mdiodev->reset_assert_delay : mdiodev->reset_deassert_delay;
 	if (d)
