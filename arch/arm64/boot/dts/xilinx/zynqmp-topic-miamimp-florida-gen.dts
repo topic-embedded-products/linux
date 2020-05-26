@@ -22,7 +22,6 @@
 		regulator-max-microvolt = <5000000>;
 		gpio = <&gpioexf 1 0>;
 		enable-active-high;
-		regulator-always-on; /* for USB host mode, "vbus" no longer works? */
 	};
 
 	xtal_27Mhz: clock_xtal_27Mhz {
@@ -212,6 +211,7 @@
 &dwc3_0 {
 	status = "okay";
 	dr_mode = "otg"; /* "host", "peripheral" or "otg" */
+	vbus-supply = <&reg_usb0_vbus>;
 	maximum-speed = "high-speed"; /* super-speed not available on carrier */
 	/* see: https://forums.xilinx.com/t5/Embedded-Linux/Zynqmp-USB2-0/td-p/790522/page/2 */
 	snps,dis_u2_susphy_quirk;
@@ -219,7 +219,6 @@
 	/delete-property/ phy-names;
 	/delete-property/ phys;
 	usb-phy = <&usb_phy0>;
-	vbus-supply = <&reg_usb0_vbus>; /* This apparently no longer works */
 	ulpi {
 		phy {
 			compatible = "smsc,usb3340";
