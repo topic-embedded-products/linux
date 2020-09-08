@@ -116,13 +116,19 @@
 	clock-frequency = <400000>;
 
 	/* GPIO expander */
-	gpioex: pca9554@38 {
-		compatible = "nxp,pca9554";
+	gpioex: pcal9554@20 {
+		compatible = "nxp,pcal9554b";
 		vcc-supply = <&reg_1v8_miami>;
-		reg = <0x38>; /* PCA9554A adress starts at 0b111000 */
-		gpio-line-names = "USERLED", "", "ETH_RESET_N", "USB0_RESET_N", "USB1_RESET_N", "", "", "";
+		reg = <0x20>;
+		gpio-line-names = "USERLED", "", "ETH_RESET_N", "USB0_RESET_N", "USB1_RESET_N", "CLK_SW_CNTRL", "", "";
 		gpio-controller;
 		#gpio-cells = <2>;
+		eth-clk-sw-ctrl {
+			gpio-hog;
+			gpios = <5 0>;
+			output-low;
+			line-name = "eth_clk_sw_ctrl";
+		};
 	};
 
 	/* EEPROM */
