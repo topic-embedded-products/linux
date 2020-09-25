@@ -86,6 +86,7 @@ static const struct i2c_device_id pca953x_id[] = {
 	{ "pca9698", 40 | PCA953X_TYPE, },
 
 	{ "pcal6524", 24 | PCA953X_TYPE | PCA_INT | PCA_PCAL, },
+	{ "pcal9554b", 8  | PCA953X_TYPE | PCA_INT | PCA_PCAL, },
 	{ "pcal9555a", 16 | PCA953X_TYPE | PCA_INT | PCA_PCAL, },
 
 	{ "max7310", 8  | PCA953X_TYPE, },
@@ -964,6 +965,7 @@ static const struct of_device_id pca953x_dt_ids[] = {
 	{ .compatible = "nxp,pca9698", .data = OF_953X(40, 0), },
 
 	{ .compatible = "nxp,pcal6524", .data = OF_953X(24, PCA_LATCH_INT), },
+	{ .compatible = "nxp,pcal9554b", .data = OF_953X( 8, PCA_LATCH_INT), },
 	{ .compatible = "nxp,pcal9555a", .data = OF_953X(16, PCA_LATCH_INT), },
 
 	{ .compatible = "maxim,max7310", .data = OF_953X( 8, 0), },
