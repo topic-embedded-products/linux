@@ -1,0 +1,24 @@
+What:		/sys/bus/i2c/devices/.../clk-si534*/program_nvm_bank
+Date:		Jan 2021
+KernelVersion:	5.12
+Contact:	Mike Looijmans <mike.looijmans@topic.nl>
+Description:	Allows programming the NVM memory of the clock chip, so it boots
+		up in the current configuration. This saves boot time (300ms
+		clock initialization) and allows the clock to be available
+		before the kernel boots (e.g. u-boot ethernet clock).
+
+		Write the magic value 0xc7 to this attribute to program the
+		chip's current settings into its NVM storage. This magic value
+		is taken from the datasheet, it's the same value that must be
+		written to the hardware to program it. Programming can only be
+		done twice in the lifetime of the chip.
+
+		Read the value to check the state of the chip. This returns the
+		raw value as read from the hardware. Possible values:
+		0x03: Not programmed
+		0x0f: Programmed once
+		0x3f: Programmed twice, can no longer be programmed
+
+Users:		User space applications for embedded boards equipped with one
+		or more Si534x programmable clock devices. Would typically be
+		used at the end of production stages.
