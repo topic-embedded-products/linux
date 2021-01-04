@@ -1251,10 +1251,75 @@ static ssize_t program_nvm_bank_store(struct device *dev,
 	return count;
 }
 
+static ssize_t output_mask_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct clk_si5341 *data = i2c_get_clientdata(client);
+	u32 val;
+	int ret;
+	u8 index;
+	u32 mask = 0;
+
+	for (index = 0; index < data->num_outputs; ++index) {
+		ret = regmap_read(data->regmap,	data->reg_output_offset[index],
+				  &val);
+		if (ret < 0)
+			return ret;
+
+		/* Bit 0=PDN, 1=OE so only a value of 0x2 enables the output */
+		if ((val & 0x03) == SI5341_OUT_CFG_OE)
+			mask |= BIT(index);
+	}
+
+	return sprintf(buf, "%#x\n", mask);
+}
+
+static ssize_t output_mask_store(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf,
+	size_t count)
+{
+	struct clk_si5341 *data = i2c_get_clientdata(to_i2c_client(dev));
+	int ret;
+	unsigned int value;
+	u32 val;
+	u8 index;
+
+	ret = kstrtouint(buf, 0, &value);
+	if (ret < 0)
+		return ret;
+
+	/* Disable outputs that are currently enabled but masked out */
+	for (index = 0; index < data->num_outputs; ++index) {
+		if ((value & BIT(index)) == 0) {
+			ret = regmap_read(data->regmap,
+				data->reg_output_offset[index],
+				&val);
+			if (ret < 0)
+				return ret;
+
+			/* Disable output and power it down */
+			if ((val & 0x03) == SI5341_OUT_CFG_OE) {
+				regmap_update_bits(data->regmap,
+					data->reg_output_offset[index],
+					SI5341_OUT_CFG_OE, 0);
+				regmap_update_bits(data->regmap,
+					data->reg_output_offset[index],
+					SI5341_OUT_CFG_PDN, SI5341_OUT_CFG_PDN);
+			}
+		}
+	}
+
+	return count;
+}
+
 static DEVICE_ATTR_RW(program_nvm_bank);
+static DEVICE_ATTR_RW(output_mask);
 
 static struct attribute *si5341_sysfs_entries[] = {
 	&dev_attr_program_nvm_bank.attr,
+	&dev_attr_output_mask.attr,
 	NULL,
 };
 
