@@ -2930,12 +2930,8 @@ brcmf_cfg80211_set_power_mgmt(struct wiphy *wiphy, struct net_device *ndev,
 		goto done;
 	}
 
-	pm = enabled ? PM_FAST : PM_OFF;
-	/* Do not enable the power save after assoc if it is a p2p interface */
-	if (ifp->vif->wdev.iftype == NL80211_IFTYPE_P2P_CLIENT) {
-		brcmf_dbg(INFO, "Do not enable power save for P2P clients\n");
-		pm = PM_OFF;
-	}
+	pm = PM_OFF; /* Disable PM, it doesn't work properly */
+
 	brcmf_dbg(INFO, "power save %s\n", (pm ? "enabled" : "disabled"));
 
 	err = brcmf_fil_cmd_int_set(ifp, BRCMF_C_SET_PM, pm);
@@ -6283,7 +6279,7 @@ static s32 wl_init_priv(struct brcmf_cfg80211_info *cfg)
 	s32 err = 0;
 
 	cfg->scan_request = NULL;
-	cfg->pwr_save = true;
+	cfg->pwr_save = false;
 	cfg->dongle_up = false;		/* dongle is not up yet */
 	err = brcmf_init_priv_mem(cfg);
 	if (err)
