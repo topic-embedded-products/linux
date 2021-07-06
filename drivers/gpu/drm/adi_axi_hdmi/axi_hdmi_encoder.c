@@ -25,7 +25,7 @@
 
 #include "axi_hdmi_drv.h"
 
-#include "../i2c/adv7511.h"
+#include "../bridge/adv7511/adv7511.h"
 
 #define AXI_HDMI_STATUS_VMDA_UNDERFLOW	BIT(4)
 #define AXI_HDMI_STATUS_VMDA_OVERFLOW	BIT(3)
