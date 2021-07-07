@@ -110,7 +110,7 @@ static int axi_hdmi_connector_init(struct drm_device *dev,
 static const struct drm_encoder_slave_funcs *get_slave_funcs(
 	struct drm_encoder *enc)
 {
-	if (enc->bridge)
+	if (drm_bridge_chain_get_first_bridge(enc))
 		return NULL;
 
 	return to_encoder_slave(enc)->slave_funcs;
@@ -395,9 +395,7 @@ struct drm_encoder *axi_hdmi_encoder_create(struct drm_device *dev)
 
 	bridge = of_drm_find_bridge(priv->encoder_slave->dev.of_node);
 	if (bridge) {
-		bridge->encoder = encoder;
-		encoder->bridge = bridge;
-		ret = drm_bridge_attach(encoder, bridge, NULL);
+		ret = drm_bridge_attach(encoder, bridge, NULL, 0);
 		if (ret) {
 		    drm_encoder_cleanup(encoder);
 		    return NULL;
