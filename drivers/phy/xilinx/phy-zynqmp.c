@@ -162,7 +162,7 @@
 #define XPSGTR_TYPE_SGMII3		13 /* Ethernet SGMII controller 3 */
 
 /* Timeout values */
-#define TIMEOUT_US			1000
+#define TIMEOUT_US			20000
 
 struct xpsgtr_dev;
 
