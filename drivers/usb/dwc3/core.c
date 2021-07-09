@@ -832,7 +832,7 @@ static void dwc3_core_setup_global_control(struct dwc3 *dwc)
 	case DWC3_GHWPARAMS1_EN_PWROPT_HIB:
 		/* enable hibernation here */
 		dwc->nr_scratch = DWC3_GHWPARAMS4_HIBER_SCRATCHBUFS(hwparams4);
-		dwc->has_hibernation = 1;
+		dwc->has_hibernation = 0;
 
 		/*
 		 * REVISIT Enabling this bit so that host-mode hibernation
