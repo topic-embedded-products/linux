@@ -7,6 +7,7 @@
  * Authors: Felipe Balbi <balbi@ti.com>,
  *	    Sebastian Andrzej Siewior <bigeasy@linutronix.de>
  */
+#define DEBUG
 
 #include <linux/kernel.h>
 #include <linux/delay.h>
@@ -533,7 +534,7 @@ static int dwc3_gadget_start_config(struct dwc3_ep *dep)
 	dwc = dep->dwc;
 
 	ret = dwc3_send_gadget_ep_cmd(dep, cmd, &params);
-	if (ret)
+	if (WARN_ON(ret))
 		return ret;
 
 	for (i = 0; i < DWC3_ENDPOINTS_NUM; i++) {
@@ -543,7 +544,7 @@ static int dwc3_gadget_start_config(struct dwc3_ep *dep)
 			continue;
 
 		ret = dwc3_gadget_set_xfer_resource(dep);
-		if (ret)
+		if (WARN_ON(ret))
 			return ret;
 	}
 
@@ -647,12 +648,14 @@ int __dwc3_gadget_ep_enable(struct dwc3_ep *dep, unsigned int action)
 
 	if (!(dep->flags & DWC3_EP_ENABLED) || dwc->is_hibernated) {
 		ret = dwc3_gadget_start_config(dep);
-		if (ret)
+		if (WARN_ON(ret)) {
+			pr_err("%s dwc3_gadget_start_config=%d\n", __func__, ret);
 			return ret;
+		}
 	}
 
 	ret = dwc3_gadget_set_ep_config(dep, action);
-	if (ret)
+	if (WARN_ON(ret))
 		return ret;
 
 	if (!(dep->flags & DWC3_EP_ENABLED) || dwc->is_hibernated) {
@@ -708,7 +711,7 @@ int __dwc3_gadget_ep_enable(struct dwc3_ep *dep, unsigned int action)
 		cmd = DWC3_DEPCMD_STARTTRANSFER;
 
 		ret = dwc3_send_gadget_ep_cmd(dep, cmd, &params);
-		if (ret < 0)
+		if (WARN_ON(ret < 0))
 			return ret;
 
 		if (dep->stream_capable) {
@@ -2328,14 +2331,14 @@ static int __dwc3_gadget_start(struct dwc3 *dwc)
 
 	dep = dwc->eps[0];
 	ret = __dwc3_gadget_ep_enable(dep, DWC3_DEPCFG_ACTION_INIT);
-	if (ret) {
+	if (WARN_ON(ret)) {
 		dev_err(dwc->dev, "failed to enable %s\n", dep->name);
 		goto err0;
 	}
 
 	dep = dwc->eps[1];
 	ret = __dwc3_gadget_ep_enable(dep, DWC3_DEPCFG_ACTION_INIT);
-	if (ret) {
+	if (WARN_ON(ret)) {
 		dev_err(dwc->dev, "failed to enable %s\n", dep->name);
 		goto err1;
 	}
@@ -3542,14 +3545,14 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 
 	dep = dwc->eps[0];
 	ret = __dwc3_gadget_ep_enable(dep, DWC3_DEPCFG_ACTION_MODIFY);
-	if (ret) {
+	if (WARN_ON(ret)) {
 		dev_err(dwc->dev, "failed to enable %s\n", dep->name);
 		return;
 	}
 
 	dep = dwc->eps[1];
 	ret = __dwc3_gadget_ep_enable(dep, DWC3_DEPCFG_ACTION_MODIFY);
-	if (ret) {
+	if (WARN_ON(ret)) {
 		dev_err(dwc->dev, "failed to enable %s\n", dep->name);
 		return;
 	}
